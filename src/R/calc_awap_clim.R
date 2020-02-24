@@ -1,13 +1,14 @@
 library(arrow); library(tidyverse); library(lubridate); 
 clim <- read_parquet("../data_general/clim_grid/awap/parquet/awap_joined_monthly_1970_2019.parquet")
 e5 <- read_parquet("../data_general/clim_grid/era5-land/Oz/Oz/parquet/Oz_era5-land_monmean_evaporation_1979_2019.parquet")
-
 clim <- inner_join(clim, e5, by=c("id","date"))
+rm(e5); gc(); 
+clim <- clim %>% 
+  mutate(hydro_year = year(date-months(6)))
 
 norms_ma <- clim %>% 
-  mutate(year=year(date)) %>% 
-  filter(year >= 1982 & year <= 2011) %>% 
-  group_by(id, year) %>% 
+  filter(hydro_year >= 1982 & hydro_year <= 2011) %>% 
+  group_by(id, hydro_year) %>% 
   summarize(ap = mean(precip, na.rm=T)*12, 
             atmax = mean(tmax, na.rm=T), 
             atmin = mean(tmin, na.rm=T), 
@@ -25,9 +26,8 @@ norms_ma <- clim %>%
     ungroup()
   
 tmp <- clim %>% 
-  mutate(year=year(date)) %>% 
   mutate(month=month(date)) %>% 
-  filter(year >= 1982 & year <= 2011) %>% 
+  filter(hydro_year >= 1982 & hydro_year <= 2011) %>% 
   group_by(id, month) %>% 
   summarize(precip_u = mean(precip, na.rm=T), 
             tmax_u = mean(tmax, na.rm=T), 
