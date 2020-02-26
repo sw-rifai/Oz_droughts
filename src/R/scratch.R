@@ -36,3 +36,7 @@ d2 %>%
 
 
 # rsync -r z3530735@monsoon.ccrc.unsw.edu.au:/srv/ccrc/data41/z3530735/ERA5-Land/Oz Oz
+
+
+arrow::write_arrow(data.frame(x=1:1e6), sink="delete_me.parquet")
+file.remove("delete_me.parquet")

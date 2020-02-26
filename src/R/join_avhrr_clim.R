@@ -1,7 +1,13 @@
 # THIS IS A SUPER MEMORY HEAVY OPERATION -------------------------
 library(tidyverse); library(arrow); library(lubridate);
+
 avhrr <- read_parquet("../data_general/AVHRR_EVI2_CDR_V5/Oz_AVHRR_EVI2_CDR_1981_2019.parquet")
-clim <- read_parquet("../data_general/clim_grid/awap/parquet/awap_clim_2020-02-24.parquet")
+avhrr <- avhrr %>% filter(c(lat>= -15 & lon >= 145)==F); gc()
+
+clim <- read_parquet("../data_general/clim_grid/awap/parquet/awap_wDroughtMets_2020-02-26.parquet") %>% 
+  select(-evi2, -lai)
+clim <- clim %>% filter(c(lat>= -15 & lon >= 145)==F); gc()
+
 d <- inner_join(avhrr, 
                 clim %>% 
                   mutate(lon=longitude, 
@@ -10,6 +16,8 @@ d <- inner_join(avhrr,
 rm(avhrr); rm(clim); gc(); 
 
 lai <- read_parquet("../data_general/AVHRR_LAI_FAPAR_CDR_V5/Oz_AVHRR_LAI_CDR_1981_2019.parquet")
+lai <- lai %>% filter(c(lat>= -15 & lon >= 145)==F); gc()
+
 d <- inner_join(d, 
                 lai, 
                 by=c('date','lon','lat'))
@@ -17,9 +25,8 @@ rm(lai); gc();
 gc(reset = T)
 
 d %>% 
-  write_arrow(., sink=paste0("../data_general/Oz_misc_data/ahvrr_clim_",Sys.Date(),".parquet"))
+  write_arrow(., sink=paste0("../data_general/Oz_misc_data/ahvrr_clim_eastOz_",Sys.Date(),".parquet"))
 
-d <- d %>% filter(c(lat> -15 & lon > 145)==F)
 # 
 # d_train <- d %>% 
 #   sample_n(50000)

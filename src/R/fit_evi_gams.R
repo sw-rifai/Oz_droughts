@@ -20,12 +20,13 @@ mode <- function(x) {
   ux[which.max(tabulate(match(x, ux)))]
 }
 
-f_cwd_v5 <- function(cwd_et,precip,et){
+f_cwd_v5 <- function(cwd_et,precip,et,map){
   # No reset during the wettest month of the year
   for(i in seq(2,length(precip))){
     
     cwd_et[i] <-  min(0, cwd_et[i-1] + (precip[i]) - max(et[i],1, na.rm=T), na.rm=T)
     cwd_et[i] <- ifelse(cwd_et[i] < -3000, -3000, cwd_et[i])
+    cwd_et[i] <- ifelse(precip[i] >= 0.333*map[i], 0, cwd_et[i])
   }
   cwd_et
 }
@@ -35,12 +36,66 @@ f_cwd_v5 <- function(cwd_et,precip,et){
 
 
 # Load data ---------------------------------------------------------------
-d %>% 
-  read_arrow(stream = "../data_general/Oz_misc_data/ahvrr_clim_2020-02-24.parquet")
+d <- read_parquet(file =  "../data_general/clim_grid/awap/parquet/awap_wDroughtMets_2020-02-26.parquet")
 
 
 # data prep --------------------------------------------------------------------
 d <- d %>% filter(c(lat> -15 & lon > 145)==F)
+d <- d %>% filter(is.nan(precip_u)==F) %>% 
+           filter(is.nan(evap_u)==F)
+
+d %>% 
+  group_by(id) %>% 
+  summarize(n_nan = sum(is.nan(evap_u)==T)) %>% 
+  ungroup() %>% 
+  pull(n_nan) %>% summary
+
+vec_dates <- tibble(date=seq(min(d$date), 
+                             max(d$date), by = '1 month'))
+d <- left_join(vec_dates, d, by='date')
+vec_drop <- d %>% 
+  group_by(id) %>% 
+  summarize(missing_evap = sum(is.na(evap)==T), 
+            missing_precip = sum(is.na(precip))) %>% 
+  ungroup()
+
+vec_drop <- vec_drop %>% 
+  mutate(bad = missing_evap+missing_precip) %>% 
+  filter(bad >= 1) %>% 
+  select(id)
+
+d <- d %>% filter(!id %in% vec_drop$id) # drop coords with missing precip or evap
+
+
+spinup <- d %>% 
+  select(id, date, precip_u, evap_u, map) %>% 
+  mutate(cwd5 = NA) %>% 
+  group_by(id) %>% 
+  arrange(date) %>% 
+  mutate(cwd5 = f_cwd_v5(cwd_et = cwd5, precip = precip_u, et = evap_u, map=map)) %>% 
+  ungroup()
+spinup %>% 
+  filter(id %in% sample.int(4359, 50)) %>% 
+  ggplot(data=., aes(date, cwd5, color=as.factor(id)))+
+  geom_line()+
+  theme(legend.position = 'none')
+
+d %>% 
+  filter(date>=ymd('1983-01-01') & 
+           date<=ymd('1984-01-01')) %>% 
+  group_by(id) %>% 
+  filter(evap_u == max(evap_u)) %>% 
+  ungroup() %>% 
+  ggplot(data=., aes(lon,lat,fill=evap_u))+
+  geom_tile()+
+  scale_fill_viridis_c()
+spinup %>% 
+  filter(date==max(date)) %>% 
+  ggplot(data=., aes(evap_u, cwd5))+
+  geom_point()+
+  geom_smooth(k=30)
+
+
 d <- d %>% 
   filter(is.na(precip)==F & is.na(evap)==F) %>% 
   mutate(cwd5 = NA) %>% 
@@ -85,12 +140,22 @@ d <- d %>% mutate(evi2_anom = evi2 - evi2_u) %>%
 
 # data split --------------------------------------------------------------
 d_train <- d %>% 
+  filter(date <= ymd('2000-01-01')) %>% 
   sample_n(50000)
 d_test <- d %>%
+  filter(date <= ymd('2000-01-01')) %>% 
   sample_n(100000) %>% 
   anti_join(., d_train, by=c("lon","lat","date")) %>% 
   sample_n(50000)
 
+po_train <- d %>% 
+  filter(date > ymd('2000-01-01')) %>% 
+  sample_n(50000)
+po_test <- d %>%
+  filter(date > ymd('2000-01-01')) %>% 
+  sample_n(100000) %>% 
+  anti_join(., d_train, by=c("lon","lat","date")) %>% 
+  sample_n(50000)
 
 # Visualize Multicollinearity ---------------------------------------------
 d_train %>% 
@@ -139,16 +204,19 @@ m_1 %>% plot
 
 
 # Mod on constants + seasons + met anom -------------------------------------------------
-m_2 <- bam(evi2 ~ te(lat,lon,month)+s(map)+s(matmax)+
+m_2 <- bam(evi2 ~ te(lat,lon,month)+
+             s(map, precip_12mo)+
+             s(matmax)+
              s(precip_anom)+
-             s(vpd3pm_anom), 
+             s(vpd3pm_u,
+              vpd3pm_anom), 
            data=d_train, 
            method='fREML', 
            discrete=T, 
            select=T ,
            family=gaussian(link='identity'))
 summary(m_2)
-
+getViz(m_2) %>% plot
 d_test %>% 
   mutate(evi2_pred = predict(m_2, newdata=., type='response')) %>% 
   filter(is.na(evi2_pred)==F) %>% 
@@ -158,6 +226,18 @@ d_test %>%
 
 m_2 %>% plot
 
+bind_rows(d_test, po_test) %>% 
+  mutate(hydro_year = year(date+months(6))) %>% 
+  mutate(evi2_pred = predict(m_2, newdata=., type='response')) %>% 
+  filter(is.na(evi2_pred)==F) %>% 
+  filter(hydro_year >= 1982) %>% 
+  group_by(hydro_year) %>% 
+  summarize(r2 = cor(evi2, evi2_pred)**2, 
+            rmse = sqrt(mean(evi2-evi2_pred)**2)) %>% 
+  ungroup() %>% 
+  ggplot(data=., aes(hydro_year, r2))+
+  geom_point()+
+  geom_smooth(span=0.3)
 
 
 #****************************************************************************
