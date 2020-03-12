@@ -5,17 +5,6 @@ library(sf)
 #################################################################################################
 #--- FUNCTIONS ---------------------------------------------------------------------------------#
 #################################################################################################
-f.cwd_et_v3 <- function(cwd_et,precip,et,month, wmy){
-  for(i in seq(2,length(precip))){
-    
-    cwd_et[i] <- ifelse((0.9*precip[i]) < (et[i]*2), 
-                        min(0, cwd_et[i-1] + (0.9*precip[i]) - max(et[i],40, na.rm=T), na.rm=T), 
-                        0)
-    cwd_et[i] <- ifelse(month[i]==wmy[i], 0, cwd_et[i])
-    cwd_et[i] <- ifelse(cwd_et[i] < -1000, -1000, cwd_et[i])
-  }
-  cwd_et
-}
 mode <- function(x) {
   ux <- unique(x)
   ux[which.max(tabulate(match(x, ux)))]
@@ -46,7 +35,7 @@ aus <- st_as_sf(aus)
 
 
 # data prep --------------------------------------------------------------------
-d <- d %>% filter(c(lat> -15 & lon > 145)==F)
+d <- d %>% filter(c(lat> -15 & lon > 140)==F)
 d <- d %>% 
   filter(is.na(precip)==F & is.na(evap)==F) %>% 
   mutate(cwd5 = NA) %>% 
@@ -290,6 +279,277 @@ p_r <- tmp %>%
 library(patchwork)
 ggsave(p_l+p_r, filename = "figures/Map_EastOz_MinEVI_DateOfMin.png", 
        height = 12, width = 15, units='cm', dpi = "retina")
+
+
+# Date of most negative EVI SD anomaly ------------------------------------
+avhrr <- read_parquet(file="../data_general/AVHRR_EVI2_CDR_V5/EOz_AVHRR_EVI2_LAI_1981_2019.parquet")
+coords <- read_csv("data/coords_set_EA_lai_amp0p5_min0p5.csv") %>% 
+  rename(lon=longitude, lat=latitude)
+aus <- sf::read_sf("../data_general/GADM/gadm36_AUS.gpkg", 
+                   layer="gadm36_AUS_1")
+# aus <- sf::st_transform_proj(aus, st_crs(4326))
+aus <- st_as_sf(aus)
+
+min_avhrr <- avhrr %>% 
+  group_by(lon,lat) %>% 
+  filter(evi2_anom_sd == min(evi2_anom_sd)) %>% 
+  ungroup()
+
+min_avhrr %>% 
+  mutate(dec_date = decimal_date(date)) %>% 
+  ggplot(data=., aes(lon,lat, color=dec_date))+
+  geom_sf(data=aus, inherit.aes = F)+
+  geom_point(size=0.1)+
+  scale_color_viridis_c("Year", option='B')+
+  # scale_color_gradient2(limits=c(-5,5), oob=scales::squish)+
+  coord_sf(xlim = c(140,154), 
+           ylim = c(-15,-45), expand = FALSE,ndiscr = 3)+
+  theme(panel.background = element_rect(fill='#bdaf97'), 
+        axis.text = element_text(size=8))
+
+
+avhrr %>% 
+  ggplot(data=., aes(lon,lat, color=evi2_anom_sd))+
+  geom_sf(data=aus, inherit.aes = F)+
+  geom_point(size=0.1)+
+  scale_color_gradient2(limits=c(-5,5), oob=scales::squish)+
+  coord_sf(xlim = c(140,154), 
+           ylim = c(-15,-45), expand = FALSE,ndiscr = 3)+
+  theme(panel.background = element_rect(fill='#bdaf97'), 
+        axis.text = element_text(size=8))
+
+
+
+avhrr %>%
+  filter(id %in% sample(unique(avhrr$id), 10)) %>% 
+  mutate(hydro_year = year(date-months(6))) %>% 
+  group_by(id, hydro_year) %>% 
+  summarize(val = mean(evi2_anom_sd, na.rm=T), 
+            nobs= n()) %>% 
+  ungroup() %>% 
+  filter(nobs>=10) %>% 
+  ggplot(data=., aes(hydro_year, val,col=as.factor(id)))+
+  geom_hline(aes(yintercept=0),col='black')+
+  geom_line()+
+  theme_linedraw()
+
+
+
+
+# EVI2sd by month ---------------------------------------------------------
+p <- d %>% 
+  filter(hydro_year==2000) %>% 
+  ggplot(data=., aes(lon,lat, color=evi2_sd))+
+  geom_sf(data=aus, inherit.aes = F)+
+  geom_point(size=0.05)+
+  scale_color_viridis_c("SD", option='B')+
+  # scale_color_gradient2(limits=c(-5,5), oob=scales::squish)+
+  coord_sf(xlim = c(140,154), 
+           ylim = c(-15,-45), expand = FALSE,ndiscr = 3)+
+  scale_x_continuous(breaks=c(140,150))+
+  labs(x=NULL, y=NULL, title = expression(paste(SD~of~EVI2)))+
+  theme(panel.background = element_rect(fill='#bdaf97'), 
+        axis.text = element_text(size=8))+
+  facet_wrap(~month, nrow = 2, labeller = "label_both")
+ggsave(p, filename = "figures/Map_EastOz_SD_of_EVI_byMonth.png", 
+       height = 12, width = 15, units='cm', dpi = "retina")
+
+
+# LAI amplitude ---------------------------------------------------------
+p2 <- d %>% 
+  filter(date==min(date)) %>% 
+  ggplot(data=., aes(lon,lat, color=norm_lai_amp))+
+  geom_sf(data=aus, inherit.aes = F)+
+  geom_point(size=0.05)+
+  scale_color_viridis_c("Amplitude", option='B')+
+  # scale_color_gradient2(limits=c(-5,5), oob=scales::squish)+
+  coord_sf(xlim = c(140,154), 
+           ylim = c(-15,-45), expand = FALSE,ndiscr = 3)+
+  scale_x_continuous(breaks=c(140,150))+
+  labs(x=NULL, y=NULL, title = expression(paste(Amplitude~of~LAI)))+
+  theme(panel.background = element_rect(fill='#bdaf97'), 
+        axis.text = element_text(size=8))
+ggsave(p2, filename = "figures/Map_EastOz_Amplitude_of_LAI.png", 
+       height = 12, width = 15, units='cm', dpi = "retina")
+
+
+
+# Plot min evi2 from 2019 AVHRR -------------------------------------------
+avhrr <- read_parquet(file="../data_general/AVHRR_EVI2_CDR_V5/EOz_AVHRR_EVI2_LAI_1981_2019.parquet")
+p2 <- avhrr %>% 
+  mutate(year=year(date)) %>% 
+  filter(year==2019) %>% 
+  group_by(lon,lat) %>% 
+  filter(evi2_anom_sd == min(evi2_anom_sd, na.rm=T)) %>% 
+  ungroup() %>% 
+  ggplot(data=., aes(lon,lat, color=evi2_anom_sd))+
+  geom_sf(data=aus, inherit.aes = F)+
+  geom_point(size=0.05)+
+  scale_color_viridis_c("Min. EVI2", option='B', direction = -1,
+                        limits=c(-5,0), oob=scales::squish)+
+  # scale_color_gradient2(limits=c(-5,5), oob=scales::squish)+
+  coord_sf(xlim = c(140,154), 
+           ylim = c(-15,-45), expand = FALSE,ndiscr = 3)+
+  scale_x_continuous(breaks=c(140,150))+
+  labs(x=NULL, y=NULL, title = expression(paste(Min~EVI~SD~of~2019)))+
+  theme(panel.background = element_rect(fill='#bdaf97'), 
+        axis.text = element_text(size=8))
+ggsave(p2, filename = "figures/Map_EastOz_Min2019EVI2anomSD.png", 
+       height = 12, width = 15, units='cm', dpi = "retina")
+
+
+
+
+avhrr %>% 
+  mutate(year=year(date)) %>% 
+  filter(year==2019) %>%
+  filter(date<=ymd('2019-09-30')) %>% 
+  group_by(lon,lat) %>% 
+  filter(evi2_anom == min(evi2_anom, na.rm=T)) %>% 
+  ungroup() %>% 
+  ggplot(data=., aes(lon,lat, color=evi2_anom))+
+  geom_sf(data=aus, inherit.aes = F)+
+  geom_point(size=0.05)+
+  scale_color_viridis_c("", option='B', direction = -1,
+                        limits=c(-0.35,0),
+                        oob=scales::squish)+
+  # scale_color_gradient2(limits=c(-0.5,0.5), oob=scales::squish)+
+  coord_sf(xlim = c(140,154), 
+           ylim = c(-15,-45), expand = FALSE,ndiscr = 3)+
+  scale_x_continuous(breaks=c(140,150))+
+  labs(x=NULL, y=NULL, title = expression(paste(EVI~Anom.~2019)))+
+  theme(panel.background = element_rect(fill='#bdaf97'), 
+        axis.text = element_text(size=8))
+ggsave(filename = "figures/Map_EastOz_Min2019_preFire_EVI2anom.png", 
+       height = 12, width = 15, units='cm', dpi = "retina")
+
+
+
+avhrr <- avhrr %>% 
+  group_by(id) %>% 
+  arrange(date) %>% 
+  mutate(pre_min_evi2_12mo = roll_minr(evi2, n=12, fill=NA), 
+         pre_min_evi2_24mo = roll_minr(evi2, n=24, fill=NA), 
+         pre_min_evi2_36mo = roll_minr(evi2, n=36, fill=NA), 
+         pre_max_evi2_12mo = roll_maxr(evi2, n=12, fill=NA), 
+         pre_max_evi2_24mo = roll_maxr(evi2, n=24, fill=NA), 
+         pre_max_evi2_36mo = roll_maxr(evi2, n=36, fill=NA)) %>% 
+  ungroup()
+
+d %>% 
+  filter(id %in% 3333) %>% 
+  mutate(year=year(date)) %>% 
+  filter(year %in% c(2009,2010,2011,2012)) %>% 
+  mutate(month=month(date)) %>% 
+  ggplot(data=., aes(precip_deriv, evi2,color=decimal_date(date)))+
+  geom_point()+
+  geom_path()+
+  scale_color_viridis_c()+
+  theme_linedraw()
+
+d %>% 
+  # filter(id %in% 3333) %>% 
+  mutate(year=year(date)) %>% 
+  filter(year %in% c(2009,2010,2011,2012)) %>% 
+  # mutate(month=month(date)) %>% 
+  group_by(date) %>% 
+  summarize(precip_deriv = mean(precip_deriv), 
+            evi2=mean(evi2)) %>% 
+  ungroup() %>% 
+  ggplot(data=., aes(precip_deriv, evi2,color=decimal_date(date)))+
+  geom_point()+
+  geom_path()+
+  scale_color_viridis_c()+
+  theme_linedraw()
+
+
+
+
+# K-means East Oz Climate -------------------------------------------------
+# cluster climate with kmeans
+d <- read_parquet(file =  "../data_general/clim_grid/awap/parquet/awap_EOZ_wDroughtMets_2020-02-27.parquet")
+avhrr <- read_parquet(file="../data_general/AVHRR_EVI2_CDR_V5/EOz_AVHRR_EVI2_LAI_1981_2019.parquet")
+d <- inner_join(d, 
+                avhrr %>% select(-id, -month), 
+                by=c("lon","lat","date"))
+tree_cover <- read_csv(file="../data_general/Oz_misc_data/CGLS_EOz_tree_cover.csv", guess_max = 10000) %>% 
+  rename(tree_cover=mean) %>% 
+  select(id,tree_cover)
+d <- inner_join(d, tree_cover, by='id')
+rm(avhrr); gc();
+d <- d %>% filter(lon>=140)
+sort(names(d))
+
+tmp_d <- d %>% 
+  filter(date==ymd("2000-01-01")) %>%
+  select(lon,lat,map,matmax,matmin) %>% 
+  filter(is.na(map)==F) %>% 
+  distinct()
+seas_d <- d %>% 
+  filter(date >= ymd('1982-01-01') & 
+           date<=ymd('2010-12-31')) %>% 
+  filter(month %in% c(12,1,2)) %>% 
+  group_by(lon,lat) %>% 
+  summarize(summer_vpd3pm = mean(vpd3pm), 
+            summer_precip = mean(precip)) %>% 
+  ungroup()
+tmp_d <- inner_join(tmp_d, seas_d, by=c('lon','lat'))  
+
+scale_this <- function(x) as.vector(scale(x))
+
+tmp_d %>% select(-lon,-lat) %>% apply(., 2, scale_this) %>% dim
+
+tmp_k3 <- tmp_d %>% select(-lon,-lat) %>% apply(., 2, scale_this) %>% kmeans(., centers = 3, nstart = 10)
+tmp_k4 <- tmp_d %>% select(-lon,-lat) %>% apply(., 2, scale_this)%>% kmeans(., centers = 4, nstart = 10)
+tmp_k5 <- tmp_d %>% select(-lon,-lat) %>% apply(., 2, scale_this) %>% kmeans(., centers = 5, nstart = 10)
+tmp_k6 <- tmp_d %>% select(-lon,-lat) %>% apply(., 2, scale_this) %>% kmeans(., centers = 6, nstart = 10)
+tmp_k7 <- tmp_d %>% select(-lon,-lat) %>% apply(., 2, scale_this) %>% kmeans(., centers = 7, nstart = 10)
+
+tmp_d %>% 
+  mutate(k3=tmp_k3$cluster, 
+         k4=tmp_k4$cluster, 
+         k5 = tmp_k5$cluster, 
+         k6=tmp_k6$cluster, 
+         k7=tmp_k7$cluster) %>% 
+  ggplot(data=., aes(lon,lat,fill=as.factor(k5)))+
+  geom_tile()+
+  coord_equal()+
+  scale_fill_brewer(type = 'qual')+
+  theme_dark()
+
+rnorm(100, mean=100, sd=30) %>% round(digits = -1)
+tmp_d %>% select(lon,lat) %>% mutate(k5=tmp_k5$cluster)
+
+d %>% 
+  mutate(hydro_year=year(date+months(9))) %>% 
+  filter(hydro_year %in% c(2014:2019)) %>% 
+  inner_join(., 
+             tmp_d %>% select(lon,lat) %>% mutate(k5=tmp_k5$cluster), 
+             by=c('lon','lat')) %>% 
+  # filter(k5==5) %>% 
+  group_by(date,k5,hydro_year) %>% 
+  summarize(precip_deriv = mean(precip_deriv), 
+            evi2=mean(evi2)) %>% 
+  ungroup() %>% 
+  inner_join(.,  
+             {.} %>% group_by(k5,hydro_year) %>% 
+                 summarize(evi2_u=mean(evi2)) %>% ungroup(), 
+             by=c('k5','hydro_year')) %>% 
+  # arrange(date) %>% 
+  mutate(order = month(date+months(9))) %>%
+  ggplot(data=., aes(precip_deriv, evi2,color=order))+
+  geom_hline(aes(yintercept=evi2_u),col='red')+
+  geom_point()+
+  geom_path()+
+  # geom_label(mapping = aes(label=order))+
+  scale_color_viridis_c(end = 0.9)+
+  theme_linedraw()+
+  facet_grid(rows=vars(k5),cols = vars(hydro_year), scales='free')
+ggsave(filename = "figures/evi2_cycle_hydroYears_k5_2014_2019.png", 
+       width = 25, height=15, units='cm', dpi = 'retina')
+
+
+
 
 # # data split --------------------------------------------------------------
 # d_train <- d %>% 

@@ -1,165 +1,54 @@
 library(arrow); library(tidyverse); library(lubridate); 
 library(mgcv); library(mgcViz); library(RcppRoll)
 
-#################################################################################################
-#--- FUNCTIONS ---------------------------------------------------------------------------------#
-#################################################################################################
-f.cwd_et_v3 <- function(cwd_et,precip,et,month, wmy){
-  for(i in seq(2,length(precip))){
-    
-    cwd_et[i] <- ifelse((0.9*precip[i]) < (et[i]*2), 
-                        min(0, cwd_et[i-1] + (0.9*precip[i]) - max(et[i],40, na.rm=T), na.rm=T), 
-                        0)
-    cwd_et[i] <- ifelse(month[i]==wmy[i], 0, cwd_et[i])
-    cwd_et[i] <- ifelse(cwd_et[i] < -1000, -1000, cwd_et[i])
-  }
-  cwd_et
-}
-mode <- function(x) {
-  ux <- unique(x)
-  ux[which.max(tabulate(match(x, ux)))]
-}
-
-f_cwd_v5 <- function(cwd_et,precip,et,map){
-  # No reset during the wettest month of the year
-  for(i in seq(2,length(precip))){
-    
-    cwd_et[i] <-  min(0, cwd_et[i-1] + (precip[i]) - max(et[i],1, na.rm=T), na.rm=T)
-    cwd_et[i] <- ifelse(cwd_et[i] < -3000, -3000, cwd_et[i])
-    cwd_et[i] <- ifelse(precip[i] >= 0.333*map[i], 0, cwd_et[i])
-  }
-  cwd_et
-}
-#################################################################################################
-#--- END SECTION-- -----------------------------------------------------------------------------#
-#################################################################################################
-
-
 # Load data ---------------------------------------------------------------
-d <- read_parquet(file =  "../data_general/clim_grid/awap/parquet/awap_wDroughtMets_2020-02-26.parquet")
+d <- read_parquet(file =  "../data_general/clim_grid/awap/parquet/awap_EOZ_wDroughtMets_2020-02-27.parquet")
+avhrr <- read_parquet(file="../data_general/AVHRR_EVI2_CDR_V5/EOz_AVHRR_EVI2_LAI_1981_2019.parquet")
+d <- inner_join(d, 
+                avhrr %>% select(-id, -month), 
+                by=c("lon","lat","date"))
+tree_cover <- read_csv(file="../data_general/Oz_misc_data/CGLS_EOz_tree_cover.csv", guess_max = 10000) %>% 
+  rename(tree_cover=mean) %>% 
+  select(id,tree_cover)
+d <- inner_join(d, tree_cover, by='id')
+rm(avhrr); gc();
+
+coords <- read_csv('data/coords_set_EA_lai_amp0p5_min0p5.csv') %>% 
+  select(id, longitude,latitude) %>% 
+  rename(lon=longitude, lat=latitude)
+d2 <- read_parquet(file="../data_general/clim_grid/awap/AWAP/tmp_2019/awap_2019Jan_2019Aug.parquet")
+d2 <- inner_join(d2, coords, by=c("id"))
 
 
 # data prep --------------------------------------------------------------------
-d <- d %>% filter(c(lat> -15 & lon > 145)==F)
+d <- d %>% filter(c(lat> -15 & lon >= 140)==F)
 d <- d %>% filter(is.nan(precip_u)==F) %>% 
            filter(is.nan(evap_u)==F)
-
-d %>% 
-  group_by(id) %>% 
-  summarize(n_nan = sum(is.nan(evap_u)==T)) %>% 
-  ungroup() %>% 
-  pull(n_nan) %>% summary
-
-vec_dates <- tibble(date=seq(min(d$date), 
-                             max(d$date), by = '1 month'))
-d <- left_join(vec_dates, d, by='date')
-vec_drop <- d %>% 
-  group_by(id) %>% 
-  summarize(missing_evap = sum(is.na(evap)==T), 
-            missing_precip = sum(is.na(precip))) %>% 
-  ungroup()
-
-vec_drop <- vec_drop %>% 
-  mutate(bad = missing_evap+missing_precip) %>% 
-  filter(bad >= 1) %>% 
-  select(id)
-
-d <- d %>% filter(!id %in% vec_drop$id) # drop coords with missing precip or evap
-
-
-spinup <- d %>% 
-  select(id, date, precip_u, evap_u, map) %>% 
-  mutate(cwd5 = NA) %>% 
-  group_by(id) %>% 
-  arrange(date) %>% 
-  mutate(cwd5 = f_cwd_v5(cwd_et = cwd5, precip = precip_u, et = evap_u, map=map)) %>% 
-  ungroup()
-spinup %>% 
-  filter(id %in% sample.int(4359, 50)) %>% 
-  ggplot(data=., aes(date, cwd5, color=as.factor(id)))+
-  geom_line()+
-  theme(legend.position = 'none')
-
-d %>% 
-  filter(date>=ymd('1983-01-01') & 
-           date<=ymd('1984-01-01')) %>% 
-  group_by(id) %>% 
-  filter(evap_u == max(evap_u)) %>% 
-  ungroup() %>% 
-  ggplot(data=., aes(lon,lat,fill=evap_u))+
-  geom_tile()+
-  scale_fill_viridis_c()
-spinup %>% 
-  filter(date==max(date)) %>% 
-  ggplot(data=., aes(evap_u, cwd5))+
-  geom_point()+
-  geom_smooth(k=30)
-
-
-d <- d %>% 
-  filter(is.na(precip)==F & is.na(evap)==F) %>% 
-  mutate(cwd5 = NA) %>% 
-  group_by(id) %>% 
-  arrange(date) %>% 
-  mutate(cwd5 = f_cwd_v5(cwd_et = cwd, precip = precip, et = evap)) %>% 
-  ungroup()
-
-d <- d %>% 
-  group_by(id) %>% 
-  arrange(date) %>% 
-  mutate(mcwd5_12mo = roll_minr(cwd5, n=12, fill=NA), 
-         mcwd5_24mo = roll_minr(cwd5, n=24, fill=NA), 
-         mcwd5_36mo = roll_minr(cwd5, n=36, fill=NA)) %>% 
-  ungroup()
-
-d <- d %>% 
-  group_by(id) %>% 
-  arrange(date) %>% 
-  mutate(precip_12mo = roll_sumr(precip, n=12, fill=NA), 
-         et_12mo = roll_sumr(evap, n=12, fill=NA), 
-         precip_24mo = roll_sumr(precip, n=24, fill=NA), 
-         et_24mo = roll_sumr(evap, n=24, fill=NA), 
-         precip_36mo = roll_sumr(precip, n=36, fill=NA), 
-         et_36mo = roll_sumr(evap, n=36, fill=NA)) %>% 
-  ungroup() 
-
-
-norm_evi <- d %>% 
-  filter(date >= ymd('1982-01-01') & date <= ymd("2010-12-31")) %>% 
-  group_by(id, month) %>% 
-  summarize(evi2_u = mean(evi2, na.rm=T), 
-            evi2_sd = sd(evi2, na.rm=T)) %>% 
-  ungroup()
-d <- inner_join(d, norm_evi, by=c("id","month"))
-d <- d %>% mutate(evi2_anom = evi2 - evi2_u) %>% 
-  mutate(evi2_anom_sd = evi2_anom/evi2_sd)
-
-
-  
-
+d <- d %>% mutate(precip_anom_12mo = precip_12mo-map)
+d <- d %>% mutate(precip_anom_sd_12mo = precip_anom_12mo/)
 
 # data split --------------------------------------------------------------
 d_train <- d %>% 
-  filter(date <= ymd('2000-01-01')) %>% 
-  sample_n(50000)
+  filter(date < ymd('2000-01-01')) %>% 
+  sample_n(100000)
 d_test <- d %>%
-  filter(date <= ymd('2000-01-01')) %>% 
-  sample_n(100000) %>% 
+  filter(date < ymd('2000-01-01')) %>% 
+  sample_n(200000) %>% 
   anti_join(., d_train, by=c("lon","lat","date")) %>% 
-  sample_n(50000)
+  sample_n(100000)
 
 po_train <- d %>% 
-  filter(date > ymd('2000-01-01')) %>% 
+  filter(date >= ymd('2000-01-01')) %>% 
   sample_n(50000)
 po_test <- d %>%
-  filter(date > ymd('2000-01-01')) %>% 
+  filter(date >= ymd('2000-01-01')) %>% 
   sample_n(100000) %>% 
   anti_join(., d_train, by=c("lon","lat","date")) %>% 
   sample_n(50000)
 
 # Visualize Multicollinearity ---------------------------------------------
 d_train %>% 
-  select(evi2, map, matmax, matmin) %>% 
+  select(evi2, map, matmax, matmin, tmax, vpd3pm) %>% 
   drop_na() %>% 
   cor %>% 
   corrplot::corrplot(., method='number')
@@ -267,17 +156,18 @@ d_test %>%
 getViz(ma_base) %>% plot
 
 
-# Base evi2 mod on constants + met ---------------------------------------------------
+# Base evi2 mod on constants + seasons ---------------------------------------------------
 # ma: model anomaly 
 ma_2 <- bam(evi2_anom ~ s(lon,lat)+s(map)+s(matmax)+
-                        s(vpd3pm_anom)+
-                        s(mcwd5_12mo), 
+                        s(vpd3pm_u)+
+                        s(cwd5_u), 
                data=d_train, 
                method='fREML', 
                discrete=T, 
                select=T ,
                family=gaussian(link='identity'))
 summary(ma_2)
+plot(ma_2)
 
 d_test %>% 
   mutate(evi2_anom_pred = predict(ma_2, newdata=., type='response')) %>% 
@@ -292,6 +182,36 @@ d_test %>%
 
 getViz(ma_2) %>% plot
 
+
+
+
+# EVI2 anomaly mod 3 ---------------------------------------------------
+# ma: model anomaly 
+ma_3 <- bam(evi2_anom ~ 
+              s(evi2_u)+               # set the expectation
+              te(lat,lon,vpd3pm_anom)+ #
+              te(map,precip_12mo)
+              , 
+            data=d_train, 
+            method='fREML', 
+            discrete=T, 
+            select=T ,
+            family=gaussian(link='identity'))
+summary(ma_3)
+plot(ma_3)
+
+d_test %>% 
+  mutate(evi2_anom_pred = predict(ma_2, newdata=., type='response')) %>% 
+  filter(is.na(evi2_anom_pred)==F) %>% 
+  # filter(is.na(evi2_anom_sd)==F) %>%
+  # select(evi2_anom_sd, evi2_anom_sd_pred) %>% cor
+  # pull(evi2_anom_sd_pred) %>% is.na %>% table
+  summarize(r2 = cor(evi2_anom, evi2_anom_pred)**2, 
+            rmse = sqrt(mean(evi2_anom - evi2_anom_pred)**2)
+  ) %>% 
+  ungroup()
+
+getViz(ma_2) %>% plot
 
 
 
@@ -311,7 +231,7 @@ mas_base <- bam(evi2_anom_sd ~ s(lon,lat)+s(map)+s(matmax),
 summary(mas_base)
 
 d_test %>% 
-  mutate(evi2_anom_sd_pred = predict(mas_base, newdata=., type='response')) %>% 
+  mutate(evi2_anom_sd_pred = predict(ma_base, newdata=., type='response')) %>% 
   filter(is.na(evi2_anom_sd_pred)==F) %>% 
   filter(is.na(evi2_anom_sd)==F) %>%
   # select(evi2_anom_sd, evi2_anom_sd_pred) %>% cor
@@ -321,17 +241,192 @@ d_test %>%
             ) %>% 
   ungroup()
 
-getViz(mas_base) %>% plot
+getViz(ma_base) %>% plot
+
+
+# Base evi2 mod on ... ---------------------------------------------------
+# mas: model anomaly sd
+mas_2 <- bam(evi2_anom_sd ~ s(lon,lat)+
+               s(precip_deriv)+
+               s(vpd3pm_anom)+
+               s(precip_anom_12mo), 
+                data=d_train, 
+                method='fREML', 
+                discrete=T, 
+                select=T ,
+                family=gaussian(link='identity'))
+summary(mas_2)
+
+d_test %>% 
+  bind_rows(., po_test) %>% 
+  mutate(evi2_anom_sd_pred = predict(mas_2, newdata=., type='response')) %>% 
+  filter(is.na(evi2_anom_sd_pred)==F) %>% 
+  filter(is.na(evi2_anom_sd)==F) %>%
+  # select(evi2_anom_sd, evi2_anom_sd_pred) %>% cor
+  # pull(evi2_anom_sd_pred) %>% is.na %>% table
+  group_by(hydro_year) %>% 
+  summarize(r2 = cor(evi2_anom_sd, evi2_anom_sd_pred)**2, 
+            rmse = sqrt(mean(evi2_anom_sd - evi2_anom_sd_pred)**2)
+  ) %>% 
+  ungroup() %>% 
+  filter(hydro_year>=1981 & hydro_year<=2019) %>% 
+  ggplot(data=., aes(hydro_year, rmse))+
+  geom_line()+
+  geom_point()+
+  geom_smooth(method='lm')
+
+getViz(ma_base) %>% plot
+
+
+# Base evi2 mod on ... ---------------------------------------------------
+# mas: model anomaly sd
+mas_3 <- bam(evi2_anom_sd ~ 
+               te(lon,lat)+          # somewhat important
+               te(precip_deriv, vpd3pm_u)+
+               s(evi2_u, evi2_sd)+             # important
+               tree_cover+
+               # s(precip_deriv)+
+               te(map, matmax)+ 
+               s(precip_anom_12mo),
+               # te(precip_deriv,
+               #    vpd3pm_anom,
+               #    precip_anom_12mo), 
+             data=d_train, 
+             method='fREML', 
+             discrete=T, 
+             select=T ,
+             family=gaussian(link='identity'))
+summary(mas_3)
+plot(mas_3)
+getViz(mas_3) %>% plot(allTerms=T)
+plotSlice(sm(getViz(mas_3),1), 
+          fix=list("precip_anom_12mo"=c(-500,0,500)), 
+          a.facet=list(nrow=2))+
+  l_fitRaster()+
+  coord_equal()+
+  scale_fill_gradient2()
+
+plot(sm(getViz(mas_3),3))+
+  l_fitRaster()+
+  scale_fill_gradient2()
+
+plot(sm(getViz(mas_3), 3))+
+  l_fitLine()+
+  l_ciLine()+
+  l_rug()
+
+plotSlice(sm(getViz(mas_3),4), 
+          fix=list("precip_anom_12mo"=c(-1000,-500,0,500)))+
+  l_fitRaster()+
+  scale_fill_gradient2()+
+  l_rug()
 
 
 
+
+# model anomaly sd 4 ---------------------------------------------------
+mas_4 <- bam(evi2_anom_sd ~ 
+               te(lon,lat)+                    # somewhat important
+               s(evi2_u, evi2_sd)+             # important
+               # s(norm_lai_amp)+
+               # te(map, precip_sd) +
+               tree_cover +
+               s(vpd3pm_u, vpd3pm_anom)+
+               # te(vpd3pm, vpd9am)+
+               s(precip_deriv, cwd5)+
+               s(map, precip_anom_12mo)
+             ,
+             data=d_train, 
+             method='fREML', 
+             discrete=T, 
+             select=T ,
+             family=gaussian(link='identity'))
+summary(mas_4)
+plot(mas_4)
+getViz(mas_4) %>% plot(allTerms=T)
+plotSlice(sm(getViz(mas_4),1), 
+          fix=list("precip_anom_12mo"=c(-500,0,500)), 
+          a.facet=list(nrow=2))+
+  l_fitRaster()+
+  coord_equal()+
+  scale_fill_gradient2()
+
+plot(sm(getViz(mas_4),3))+
+  l_fitRaster()+
+  scale_fill_gradient2()
+
+plot(sm(getViz(mas_4), 3))+
+  l_fitLine()+
+  l_ciLine()+
+  l_rug()
+
+plotSlice(sm(getViz(mas_4),4), 
+          fix=list("precip_anom_12mo"=c(-1000,-500,0,500)))+
+  l_fitRaster()+
+  scale_fill_gradient2()+
+  l_rug()
+
+
+
+d_test %>% 
+  bind_rows(., po_test) %>% 
+  mutate(evi2_anom_sd_pred = predict(mas_4, newdata=., type='response')) %>% 
+  filter(is.na(evi2_anom_sd_pred)==F) %>% 
+  filter(is.na(evi2_anom_sd)==F) %>%
+  mutate(norm_lai_max = round(norm_lai_max, digits = -0.1)) %>% 
+  group_by(hydro_year,norm_lai_max) %>% 
+  summarize(r2 = cor(evi2_anom_sd, evi2_anom_sd_pred)**2, 
+            rmse = sqrt(mean(evi2_anom_sd - evi2_anom_sd_pred)**2), 
+            precip_anom = mean(precip_anom_12mo), 
+            val_pred = mean(predict(evi2_anom_sd), na.rm=T), 
+            val_obs = mean(evi2_anom_sd)
+  ) %>% 
+  ungroup() %>% 
+  filter(hydro_year>=1981 & hydro_year<2019) %>% 
+  ggplot(data=., aes(hydro_year, rmse))+
+  geom_rect(aes(xmin=hydro_year-0.5,xmax=hydro_year+0.5, 
+                ymin=0,ymax=1.25,fill=precip_anom))+
+  geom_line()+
+  geom_point()+
+  # geom_smooth(method='lm')+
+  scale_fill_gradient2()+
+  theme_linedraw()+
+  facet_wrap(~norm_lai_max)
+
+
+d_test %>% 
+  bind_rows(., po_test) %>% 
+  mutate(evi2_anom_sd_pred = predict(mas_4, newdata=., type='response')) %>% 
+  filter(is.na(evi2_anom_sd_pred)==F) %>% 
+  filter(is.na(evi2_anom_sd)==F) %>%
+  mutate(tree_cover = round(tree_cover, digits = -1)) %>% 
+  group_by(hydro_year,tree_cover) %>% 
+  summarize(r2 = cor(evi2_anom_sd, evi2_anom_sd_pred)**2, 
+            rmse = sqrt(mean(evi2_anom_sd - evi2_anom_sd_pred)**2), 
+            precip_anom = mean(precip_anom_12mo), 
+            val_pred = mean(evi2_anom_sd_pred, na.rm=T), 
+            val_obs = mean(evi2_anom_sd)
+  ) %>% 
+  ungroup() %>% 
+  filter(hydro_year>=1981 & hydro_year<=2019) %>% 
+  ggplot(data=., aes(hydro_year, val_obs))+
+  geom_rect(aes(xmin=hydro_year-0.5,xmax=hydro_year+0.5, 
+                ymin=-1.25,ymax=1.25,fill=precip_anom))+
+  geom_line()+
+  geom_line(aes(hydro_year, val_pred), 
+            lty=1, col=scales::muted('orange'),lwd=1)+
+  # geom_point()+
+  # geom_smooth(method='lm')+
+  scale_fill_gradient2()+
+  theme_linedraw()+
+  facet_wrap(~tree_cover)
 
 
 
 # Mod on constants + seasons + met anom -------------------------------------------------
-mas_2 <- bam(evi2_anom_sd ~ te(lat,lon,month)+s(map)+s(matmax)+
-             s(precip_anom)+
-             s(vpd3pm_anom), 
+mas_base <- bam(evi2_anom_sd ~ te(lat,lon,month)+s(map)+s(matmax)+
+             s(cwd5_u)+
+             s(vpd3pm_u), 
            data=d_train, 
            method='fREML', 
            discrete=T, 
