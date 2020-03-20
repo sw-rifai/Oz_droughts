@@ -1,10 +1,10 @@
 # Part 1 - Import the TIFF ------------------------------------------------
 library(tidyverse); library(lubridate); library(arrow)
 library(sf); library(stars)
-avhrr <- stars::read_stars("../data_general/AVHRR_NDVI_CDR_V5/AVHRR_NDVI_monmean_SEAUS_1982_2019.tif")
-vec_dates <- seq(ymd("1982-01-01"),ymd("2019-12-01"),by="1 month")
+mod <- stars::read_stars("../data_general/MOD13A2/MOD13A2_NDVI_1km_SEAUS_monmean_2000_2019-0000000000-0000000000.tif")
+vec_dates <- seq(ymd("2000-02-01"),ymd("2019-12-01"),by="1 month")
 vec_dates <- tibble(date=vec_dates, 
-                    band=1:dim(avhrr)[3])
+                    band=1:dim(mod)[3])
 vec_dates <- vec_dates %>% distinct(date,band) %>% 
   mutate(quarter = lubridate::quarter(date, fiscal_start = 11))
 vec_dates <- vec_dates %>% 
@@ -19,14 +19,14 @@ vec_dates <- vec_dates %>%
   mutate(hydro_year = year(date+months(1)))
 vec_dates <- vec_dates %>% select(date,season, hydro_year)
 vec_dates$band <- 1:dim(vec_dates)[1]
-avhrr <- avhrr %>% as_tibble()
-names(avhrr) <- c("lon","lat","band","ndvi")
-avhrr <- avhrr %>% filter(is.na(ndvi)==F); 
+mod <- mod %>% as_tibble()
+names(mod) <- c("lon","lat","band","ndvi")
+mod <- mod %>% filter(is.na(ndvi)==F); 
 gc();
-avhrr <- avhrr %>% filter(lon>=140 & lat <= -28 & lon<=154 & lat>= -40 )
+mod <- mod %>% filter(lon>=140 & lat <= -28 & lon<=154 & lat>= -40 )
 gc(reset = T);
-avhrr %>% dim
-avhrr <- inner_join(avhrr, vec_dates, by='band')
+mod %>% dim
+mod <- inner_join(mod, vec_dates, by='band')
 gc()
 
 
@@ -39,10 +39,9 @@ library(dplyr, warn.conflicts = FALSE);
 source("src/R/helper_funs_Oz_droughts.R")
 
 mod <- mod %>% 
+  as.data.table() %>% 
   mutate(lon = 0.125*round(lon/0.125), 
          lat = 0.125*round(lat/0.125))
-
-mod <- as.data.table(mod)
 gc()
 
 # data.table stuff
@@ -55,7 +54,7 @@ dt_mod %>%
   as_tibble()
 
 tmp_norms <- dt_mod %>% 
-  filter(hydro_year %in% 2002:2018) %>% 
+  filter(hydro_year %in% 2001:2018) %>% 
   group_by(lon,lat,season) %>% 
   summarize(ndvi_u = mean(ndvi),
             ndvi_sd = sd(ndvi)) %>% 

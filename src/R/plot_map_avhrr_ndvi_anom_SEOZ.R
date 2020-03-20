@@ -9,7 +9,7 @@ color_theme <- "BrBG"
 # Part 1 - Import the TIFF ------------------------------------------------
 library(arrow)
 library(sf); library(stars)
-dat <- stars::read_stars("../data_general/AVHRR_NDVI_CDR_V5/AVHRR_NDVI_monmean_SEAUS_1982_2019.tif")
+dat <- stars::read_stars("../data_general/AVHRR_NDVI_CDR_V5/AVHRR_NDVI_monmean_SEAUS_buffer_1982_2019.tif")
 vec_dates <- seq(ymd("1982-01-01"),ymd("2019-12-01"),by="1 month")
 vec_dates <- tibble(date=vec_dates, 
                     band=1:dim(dat)[3])

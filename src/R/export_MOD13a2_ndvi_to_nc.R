@@ -11,18 +11,18 @@
 
 library(tidyverse); library(ncdf4); library(lubridate)
 # Change these as needed!!!
-out_file_name <- "AVHRR_CDRv5_NDVI_yearSeason_mean_1982_2019.nc"
-out_dir <- "../data_general/AVHRR_NDVI_CDR_V5/"
+out_file_name <- "MOD13A2_NDVI_yearSeason_mean_2000_2019.nc"
+out_dir <- "../data_general/MOD13A2/"
 short_name <- "NDVI"
-long_name <- "AVHRR CDR v5 NDVI yearly seasonal mean"
+long_name <- "MOD13A2 NDVI yearly seasonal mean"
 units <- ""
-title <- "AVHRR CDR v5 NDVI Monthly Mean"
+title <- "MOD13A2 NDVI Monthly Mean 0p125degree"
 compression_level <- 6
 
 
 # Part 1: get the seasonal value dataframe --------------------------------
 # these are commented out because it's a time consuing process job
-source("src/R/plot_map_avhrr_ndvi_anom_SEOZ.R")
+source("src/R/plot_map_mod13a2_ndvi_anom_SEOZ.R")
 tmp <- tmp %>% filter(is.na(hydro_year)==F)
 
 # define seasonal date
@@ -42,9 +42,10 @@ pre_tc <- inner_join(tmp, vec_seas_date, by=c("hydro_year","season"))
 
 # Part 2: Cast explict NAs for missing values -------------------------------------
 tmp$lon %>% range
-vec_lon <- seq(from=min(tmp$lon), to=max(tmp$lon), by=0.04491576)
+sort(unique(tmp$lon)) %>% diff
+# vec_lon <- seq(from=min(tmp$lon), to=max(tmp$lon), by=0.04491576)
 tmp$lat %>% range
-vec_lat <- seq(from=min(tmp$lat), to=max(tmp$lat), by=0.04491576)
+# vec_lat <- seq(from=min(tmp$lat), to=max(tmp$lat), by=0.04491576)
 
 df_fulldims <- expand_grid(lon=sort(unique(tmp$lon)), 
                            lat=sort(unique(tmp$lat)),
@@ -87,7 +88,7 @@ fillvalue <- 1e20
 origin
 tc$dims$date[1]
 tc$dims$date[1] %>% as.numeric()
-origin+seconds(tc$dims$date[1] %>% as.numeric())
+origin+days(tc$dims$date[1] %>% as.numeric())
 
 # Climate variables to put into ncdf file: 
 def_ndvi <- ncvar_def(name = short_name, 
