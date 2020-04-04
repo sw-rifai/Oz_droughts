@@ -3,7 +3,7 @@ library(tidyverse); library(lubridate);
 product_name_for_fig <- "MYD11A1 - LST"
 region <- "SEAUS"
 ref_years <- 2003:2018
-deg_coarse <- 0.05
+deg_coarse <- 0.125
 color_theme <- "RdBu"           # RColorBrewer::display.brewer.all()
 geotiff_path <- "../data_general/MYD11A1_C6_LST/MYD11A1_C6_LST_5km_Australia_2002_2019.tif"
 var_name <- sym("lst")
@@ -36,13 +36,9 @@ vec_dates <- vec_dates %>%
   mutate(hydro_year = year(date+months(1)))
 vec_dates <- vec_dates %>% select(date,season, hydro_year)
 vec_dates$band <- 1:dim(vec_dates)[1]
-
-# It gets heavy from here
 dat <- dat %>% as_tibble()
-names(dat) <- c("lon","lat","band","lst")
-dat <- dat %>% filter(is.na(lst)==F); 
-dat <- dat %>% filter(lst >= -40); 
-
+names(dat) <- c("lon","lat","band","ndvi")
+dat <- dat %>% filter(is.na(ndvi)==F); 
 gc();
 dat <- dat %>% filter(lon>=min_lon & 
                         lat <= max_lat & 
