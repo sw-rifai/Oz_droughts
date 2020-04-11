@@ -112,20 +112,46 @@ dat <- left_join(clim, dat, by=c("x","y","date"))
 library(data.table); library(dtplyr)
 dat <- as.data.table(dat)
 ldat <- dat %>% lazy_dt()
-norms <- ldat %>% 
+norms <- dat %>% 
   filter(date >= ymd('1982-01-01') & 
            date <= ymd('2011-12-31')) %>% 
   mutate(month=month(date)) %>% 
   group_by(x,y,month) %>% 
-  summarize(pet_u = mean(pet), 
-            precip_u = mean(precip), 
-            nirv_u = mean(nirv), 
-            pet_sd = sd(pet), 
-            precip_sd = sd(precip), 
-            nirv_sd = sd(nirv)) %>% 
+  summarize(pet_u = mean(pet, na.rm=T), 
+            precip_u = mean(precip, na.rm=T), 
+            nirv_u = mean(nirv, na.rm=T), 
+            pet_sd = sd(pet, na.rm=T), 
+            precip_sd = sd(precip, na.rm=T), 
+            nirv_sd = sd(nirv, na.rm=T)) %>% 
   ungroup() %>% 
   as_tibble() %>% 
   filter(is.na(nirv_u)==F)
+norms <- inner_join(norms, 
+           norms %>% 
+  group_by(x,y) %>% 
+  summarize(map = sum(precip_u,na.rm=T), 
+            mpet = sum(pet_u)) %>% 
+  ungroup(), 
+  by=c('x','y'))
+
+
+dat <- left_join(dat, 
+                 dat %>% 
+  filter(date >= ymd('1982-01-01') & 
+           date <= ymd('2011-12-31')) %>% 
+  mutate(year=year(date)) %>% 
+  group_by(x,y,year) %>% 
+  summarize(ap = sum(precip,na.rm=T), 
+            apet = sum(pet, na.rm=T)) %>% 
+  ungroup() %>% 
+  group_by(x,y) %>% 
+  summarize(ap_sd = sd(ap,na.rm = T), 
+            apet_sd = sd(apet, na.rm = T)) %>% 
+  ungroup(), 
+  by=c("x","y"))
+  
+
+
 dat <- left_join(dat %>% mutate(month=month(date)), 
                  norms, 
                  by=c('x','y','month')) %>% 
@@ -138,10 +164,12 @@ dat <- left_join(dat %>% mutate(month=month(date)),
          nirv_anom_sd = nirv_anom/nirv_sd)
 
 library(RcppRoll)
-out_dat <- dat %>% 
+dat <- dat %>% 
   group_by(x,y) %>% 
   arrange(date) %>% 
-  mutate(pet_anom_min_3mo = roll_minr(pet_anom, n = 3, fill = NA), 
+  mutate(pet_12mo = roll_sumr(pet, n=12, fill=NA), 
+         precip_12mo = roll_sumr(precip, n=12, fill=NA),
+         pet_anom_min_3mo = roll_minr(pet_anom, n = 3, fill = NA), 
          pet_anom_min_6mo = roll_minr(pet_anom, n = 6, fill = NA), 
          pet_anom_min_9mo = roll_minr(pet_anom, n = 9, fill = NA), 
          pet_anom_min_12mo = roll_minr(pet_anom, n = 12, fill = NA), 
@@ -157,7 +185,12 @@ out_dat <- dat %>%
          precip_anom_max_6mo = roll_maxr(precip_anom, n = 6, fill = NA), 
          precip_anom_max_9mo = roll_maxr(precip_anom, n = 9, fill = NA), 
          precip_anom_max_12mo = roll_maxr(precip_anom, n = 12, fill = NA)) %>% 
-  ungroup()
+  ungroup() %>% 
+  rename(mapet=mpet) %>% 
+  mutate(pet_anom_12mo = pet_12mo - mapet, 
+         precip_anom_12mo = precip_12mo - map)
+
+
 ################################################################
 # *** END ***
 ################################################################
@@ -165,12 +198,141 @@ out_dat <- dat %>%
 ################################################################
 # *** WRITE TO DISK ***
 ################################################################
-write_parquet(out_dat, 
+write_parquet(dat, 
               sink=paste0("../data_general/Oz_misc_data/nirv_nvis_clim_",Sys.Date(),".parquet"), 
               compression = 'snappy')
 ################################################################
 # *** END ***
 ################################################################
+
+
+################################################################
+# Extract LAI for unique coordintes in dat ---
+################################################################
+vec_coords <- sf::st_as_sf(dat %>% select(x,y) %>% distinct, 
+                           coords = c("x","y"), crs=4326)
+junk <- stars::read_stars("../data_general/AVHRR_LAI_FAPAR_CDR_V5/AVHRR_LAI_monMedian__1982_2019.tif")
+names(junk) <- "lai"
+st_crs(junk) <- st_crs(4326)
+junk <- st_crop(junk, st_bbox(c(xmin = 137,
+                                ymin = -44,
+                                xmax = 154,
+                                ymax = -10), 
+                              crs = st_crs(4326)))
+junk <- st_set_dimensions(junk, 3, values=seq(ymd('1982-01-01'), ymd('2019-12-01'), by='1 month'), 
+                  names='date')
+vec_coords %>% 
+  as_tibble() %>% 
+  first()
+o <- aggregate(junk, 
+               vec_coords %>% 
+                 as_tibble() %>% 
+                 first(), 
+               dplyr::first, as_points = T) %>%
+  as_tibble()
+ot <- o %>% as.data.frame() %>% as_tibble()
+write_parquet(ot, sink="../data_general/AVHRR_LAI_FAPAR_CDR_V5/AVHRR_LAI_monMedian_NVIS_TreeVegClasses_1982_2019.parquet", 
+              compression='snappy')
+ot <- read_parquet("../data_general/AVHRR_LAI_FAPAR_CDR_V5/AVHRR_LAI_monMedian_NVIS_TreeVegClasses_1982_2019.parquet")
+ot <- ot %>% 
+  rowwise() %>% 
+  mutate(x = unlist(geometry)[1],
+         y = unlist(geometry)[2]) %>% 
+  ungroup() %>% 
+  select(-geometry)
+norms_lai <- ot %>% 
+  mutate(month=month(date), 
+         year=year(date)) %>% 
+  filter(date >= ymd('1982-09-01') & 
+           date <= ymd('2011-12-31')) %>% 
+  group_by(x,y,month) %>% 
+  summarize(lai_u = mean(lai,na.rm=T), 
+            lai_sd = sd(lai,na.rm=T)) %>% 
+  ungroup()
+norms_lai <- inner_join(norms_lai, 
+                        norms_lai %>% 
+                          group_by(x,y) %>% 
+                          summarize(lai_min = min(lai_u), 
+                                    lai_max = max(lai_u)) %>% 
+                          ungroup() %>% 
+                          mutate(lai_amp_u = lai_max - lai_min), 
+                        by=c("x","y"))
+ot <- left_join(ot %>% mutate(month=month(date)), 
+                norms_lai, by=c("x","y","month"))
+rm(norms_lai); 
+gc()
+write_parquet(ot, sink="../data_general/AVHRR_LAI_FAPAR_CDR_V5/AVHRR_LAI_monMedian_NVIS_TreeVegClasses_1982_2019.parquet", 
+              compression='snappy')
+
+
+
+# Import data -------------------------------------------------------------
+dat <- read_parquet("../data_general/Oz_misc_data/nirv_nvis_clim_2020-04-04.parquet")
+# !!! IMPORTANT !!! WHAT VEG CLASSES ARE SELECTED
+dat <- dat %>% filter(date >= ymd('1981-09-01') & 
+                        date <= ymd('2019-09-01')) # SS to before fire
+dat <- dat %>% filter(veg_class <= 13) # SS to only veg classes w/Euc or rainforest trees
+dim(dat); gc()
+
+# Auxiliary covariates not yet in data ------------------------------------
+# tree cover --- 
+vec_coords <- sf::st_as_sf(dat %>% select(x,y) %>% distinct, 
+                           coords = c("x","y"), crs=4326)
+tree_cov <- raster::raster("../data_general/Oz_misc_data/Oz_CGLS-LC100_500m.tif", 
+                           band=14)
+junk <- velox::velox(tree_cov)
+ex <- junk$extract_points(sp = vec_coords)
+ex <- as_tibble(ex)
+ex <- ex %>% 
+  rename(tree_cov = V1) %>% 
+  mutate(x=st_coordinates(vec_coords)[,"X"], 
+         y=st_coordinates(vec_coords)[,"Y"])
+tree_cov <- ex
+rm(ex); gc()
+
+# Import LAI ------
+ot <- read_parquet("../data_general/AVHRR_LAI_FAPAR_CDR_V5/AVHRR_LAI_monMedian_NVIS_TreeVegClasses_1982_2019.parquet")
+# end ---
+
+
+dat <- left_join(dat, 
+                 ot %>% select(-month), 
+                 by=c('x','y','date'))
+rm(ot); gc()
+dat <- dat %>% 
+  mutate(month=month(date), 
+         ddate = decimal_date(date)) %>% 
+  mutate(pet_anom_sd = pet_anom/pet_sd, 
+         precip_anom_sd = precip_anom/precip_sd, 
+         nirv_anom_sd = nirv_anom/nirv_sd, 
+         precip_anom_sd_12mo = precip_anom_12mo/ap_sd, 
+         pet_anom_sd_12mo = pet_anom_12mo/apet_sd)
+
+# Last things to calc -----------------------------------------------------
+dat <- dat %>% 
+  mutate(pet_precip = pet/precip,
+         pet_precip_anom_12mo = pet_anom_12mo/precip_anom_12mo,
+         ma_pet_precip = mapet/map)
+write_parquet(dat, 
+              sink=paste0('../data_general/AVHRR_CDRv5_VI/ard_nirv_',Sys.Date(),".parquet"), 
+              compression='gzip', 
+              compression_level = 9)
+
+
+# nearest neighbor approach to extract
+# nn_coords <- RANN::nn2(
+#   coords_lonlat_vod %>% st_coordinates(),
+#   coords_vi %>% st_coordinates()
+# ) 
+# nn_coords$nn.idx[,1] %>% hist
+# coords_lonlat_vod <- coords_lonlat_vod %>% 
+#   mutate(idx_vod = row_number()) %>% 
+#   mutate(lat = st_coordinates(.)[,2], 
+#          lon = st_coordinates(.)[,1])
+################################################################
+# *** END ***
+################################################################
+
 
 
 ################################################################
