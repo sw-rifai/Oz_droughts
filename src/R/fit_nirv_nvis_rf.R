@@ -1,10 +1,11 @@
 library(tidyverse); library(lubridate); library(arrow)
-library(ranger); 
+library(ranger); library(tuneRanger) 
 library(pdp); library(vip); 
 dat <- read_parquet("../data_general/AVHRR_CDRv5_VI/ard_nirv_2020-04-04.parquet", 
                     ### dput(names(dat)) ### to get an R vector input representation
                     col_select = 
-                      c("x", "y", "date", 
+                      c( 
+                        "x", "y", "date", 
                         "pet", "precip",
                         # "veg_class",
                         "vc", 
@@ -39,13 +40,14 @@ dat <- read_parquet("../data_general/AVHRR_CDRv5_VI/ard_nirv_2020-04-04.parquet"
 
 gc()
 # split data --------------------------------------------------------------
-nobs_mod <- 5e4
+nobs_mod <- 1e5
 d_train <- dat %>% sample_n(nobs_mod)
 d_test <- dat %>% sample_n(nobs_mod)
 
 r_train <- d_train %>% 
   select(nirv_anom_sd, 
-         vc,month,ddate,
+         vc,month,
+         # ddate,
          # x,y, 
          lai_amp_u,
          lai_u,
@@ -64,10 +66,44 @@ r_test <- d_test %>%
          precip_anom_sd_12mo) %>% 
   na.omit()
 
+
+
+res <- tuneMtryFast(nirv_anom_sd ~ ., 
+                    data = r_train, 
+                    mtryStart = 7,
+                    num.treesTry = 500,
+                    stepFactor = 1.5,
+                    doBest = F)
+res
+
+## Not run:
+library(tuneRanger); library(mlr)
+# A mlr task has to be created in order to use the package
+nirv_task = makeRegrTask(data = r_train, target = "nirv_anom_sd")
+# Estimate runtime
+estimateTimeTuneRanger(nirv_task,num.threads = 8,
+                       num.tree=500, 
+                       iters=3)
+# Tuning
+res = tuneRanger(nirv_task, 
+                 num.trees = 500,
+                 num.threads = 8, 
+                 iters = 3, 
+                 save.file.path = NULL)
+# Mean of best 5 % of the results
+res
+# Model with the new tuned hyperparameters
+res$model
+# Prediction
+predict(res$model, newdata = iris[1:10,])
+## End(Not run)
+
+
+
 r1 <- ranger::ranger(nirv_anom_sd ~ .,
                      data=r_train,
-                # importance = 'impurity', 
-               # regularization.usedepth = T
+                importance = 'impurity',
+               regularization.usedepth = T
                )
 r1
 vip::vip(r1)
@@ -77,6 +113,18 @@ r1 %>%
           type='regression',grid.resolution = 10) %>%
   autoplot(rug = TRUE, 
            train = d_train)
+partial(r1,'pet_anom_sd_12mo',
+        pred.grid=data.frame(pet_anom_sd_12mo=seq(-4,4,length.out = 20)),
+        plot=T)
+partial(r1,'precip_anom_sd_12mo',
+        pred.grid=data.frame(precip_anom_sd_12mo=seq(-4,4,length.out = 20)),
+        plot=T)
+partial(r1,'ddate',
+        pred.grid=data.frame(ddate=1981:2019),
+        plot=T)
+
+
+
 
 
 x <- data.matrix(subset(r_test))  # training features
