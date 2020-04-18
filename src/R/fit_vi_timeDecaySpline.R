@@ -1,52 +1,288 @@
 list.files("../data_general/clim_grid/awap/parquet/")
 list.files("../data_general/Oz_misc_data/", pattern = '.parquet',full.names = T)
-library(mgcv)
+# library(mgcv)
 library(tidyverse); library(lubridate)
+library(data.table); library(mgcv); library(mgcViz)
+setDTthreads(threads=10)
+
+# import
 tmp <- arrow::read_parquet("../data_general/Oz_misc_data//nirv_nvis_clim_2020-04-04.parquet", 
                            col_select = c("x","y","vc","date",
                                           "nirv_anom_sd",
-                                          "precip","pet"))
-library(data.table)
-setDTthreads(threads=10)
-# system.time(tmp$id <- paste0(tmp$x,"_",tmp$y))
-# vec_id <- unique(tmp$id)
-# junk <- tmp %>% filter(id %in% sample(vec_id,size = 4))
-tmp <- as.data.table(tmp)
-tmp <- tmp[order(date), c(paste0("precip_",1:36)) := shift(precip, 1:36) , .(x,y)][order(date)]
+                                           "precip","pet"))
+
+# data.table 
+tmp <- setDT(tmp) # OR: tmp <- as.data.table(tmp)
+
+# Subsetting to just one type of vegetation class
+vec_vc <- unique(tmp$vc) %>% sort
+tmp <- tmp[vc=="Eucalypt Tall Open Forests"]
+
+
+# Calculate Climatology --------------------------------------------------------
+# calc norms *******************************************************************
+tmp <- tmp[, `:=`(month = month(date))] # create month
+tmp <- tmp[, `:=`(year = year(date))]   # create year
+tmp <- tmp[,`:=`("pe" = precip/pet)]
+norms_p <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
+               .("precip_u" = mean(precip), 
+                 "precip_sd" = sd(precip)),
+               by=.(x,y,month)]
+norms_pet <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
+                 .(pet_u = mean(pet), 
+                   pet_sd = sd(pet)),
+                 by=.(x,y,month)]
+norms_pe <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
+                 .(pe_u = mean(pe), 
+                   pe_sd = sd(pe)),
+                 by=.(x,y,month)]
+
+norms_map <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
+                 .("ap" = sum(precip)),
+                 by=.(x,y,year)][,.("map"=mean(ap), 
+                                    "ap_sd"=sd(ap)),by=.(x,y)]
+norms_mapet <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
+                 .("apet" = sum(pet)),
+                 by=.(x,y,year)][,.("mapet"=mean(apet), 
+                                    "apet_sd"=sd(apet)),by=.(x,y)]
+norms_mape <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
+                 .("ape" = sum(pe)),
+                 by=.(x,y,year)][,.("mape"=mean(ape), 
+                                    "ape_sd"=sd(ape)),by=.(x,y)]
+
+# join all the data frames *****************************************************
+norms <- norms_p[norms_pet, on=.(x,y,month)] # join data.tables
+norms <- norms[norms_pe, on=.(x,y,month)] # join data.tables
+norms <- norms[norms_map, on=.(x,y)]
+norms <- norms[norms_mapet, on=.(x,y)]
+norms <- norms[norms_mape, on=.(x,y)]
+tmp <- tmp[norms, on=.(x,y,month)]
+
+# calculate the anomalies ******************************************************
+tmp <- tmp[, `:=`(precip_anom = precip-precip_u,  # calc raw anomaly 
+        pet_anom = pet-pet_u, 
+        pe_anom = pe-pe_u)]
+tmp <- tmp[, `:=`(precip_anom_sd = precip_anom/precip_sd,  # calc sd anomaly 
+                  pet_anom_sd = pet_anom/pet_sd, 
+                  pe_anom_sd = pe_anom/pe_sd)]
+
+# calculate the rolling 12-month sums & anomalies
+tmp <- tmp[order(x,y,date)][, precip_12mo := frollsum(precip,n = 12,fill = NA,align='right'), by=.(x,y)]
+tmp <- tmp[order(x,y,date)][, pet_12mo := frollsum(pet,n = 12,fill = NA,align='right'), by=.(x,y)]
+tmp <- tmp[order(x,y,date)][, pe_12mo := frollsum(pe,n = 12,fill = NA,align='right'), by=.(x,y)]
+
+tmp <- tmp[, `:=`(precip_anom_12mo = precip_12mo-map)]
+tmp <- tmp[, `:=`(pet_anom_12mo = pet_12mo-mapet)]
+tmp <- tmp[, `:=`(pe_anom_12mo = pe_12mo-mape)]
+
+
+# Cast the variables to lagged matrices -----------------------------------
+gc(reset = TRUE)
+tmp <- tmp[order(x,y,date), c(paste0("precip_",1:36)) := shift(precip, 1:36) , .(x,y)][order(date)]
 gc(verbose = T, reset = T, full = T)
 
 system.time(
-  tmp <- tmp[order(date), c(paste0("pet_",1:36)) := shift(pet, 1:36) , .(x,y)][order(date)]
+  tmp <- tmp[order(x,y,date), c(paste0("pet_",1:36)) := shift(pet, 1:36) , .(x,y)][order(date)]
 )
 gc(verbose = T, reset = T, full = T)
 
+tmp <- tmp[order(x,y,date), c(paste0("pe_",1:36)) := shift(pe, 1:36) , .(x,y)][order(date)]
 
-d1 <- tmp[vc=='Eucalypt Woodlands']
-d1$x[1:5]
+
+# do it for the anom
+gc(reset = TRUE)
+tmp <- tmp[order(x,y,date), c(paste0("precip_anom_",1:36)) := shift(precip_anom, 1:36) , .(x,y)][order(date)]
+gc(verbose = T, reset = T, full = T)
+
+system.time(
+  tmp <- tmp[order(x,y,date), c(paste0("pet_anom_",1:36)) := shift(pet_anom, 1:36) , .(x,y)][order(date)]
+)
+gc(verbose = T, reset = T, full = T)
+
+tmp <- tmp[order(x,y,date), c(paste0("pe_anom_",1:36)) := shift(pe_anom, 1:36) , .(x,y)][order(date)]
+
+
+d1 <- tmp[vc=="Eucalypt Tall Open Forests"]
 lag_n <- 0:36 ## create wavelength matrix...
-d2 <- d1[x >= 140 & x<141] # TEMPORARY BREAKING UP DF
+j <- 3
+# d2 <- d1[x >= (152+j) & x<(152+j) & y>= (-32+j) & y < (30+j)] # TEMPORARY BREAKING UP DF
 # d2 <- d1[x %in% d1$x[1:10]]
+d2 <- d1
 tmp_mat <- t(matrix(lag_n,length(lag_n),length(d2$x)))
 d2 <- as_tibble(d2)
-d2$lag_n <- tmp_mat # lag index is needed for GAM
+d2$lag_month <- tmp_mat # lag index is needed for GAM
 d2 <- d2 %>% rename(precip_0 = precip, 
-              pet_0 = pet)
-d2$lag_precip <- d2 %>% select(starts_with('precip_'))
-d2$lag_pet <- d2 %>% select(starts_with('pet_'))
-d2 <- d2 %>% select(x,y,vc,date,nirv_anom_sd, lag_n, lag_precip, lag_pet)
+              pet_0 = pet, 
+              pe_0 = pe)
+d2$lag_precip <- d2 %>% select(paste0('precip_',0:36))
+d2$lag_pet <- d2 %>% select(paste0('pet_',0:36))
+d2$lag_pe <- d2 %>% select(paste0('pe_',0:36))
+
+d2 <- d2 %>% mutate(precip_anom_0 = precip_anom, 
+                    pet_anom_0 = pet_anom, 
+                    pe_anom_0 = pe_anom)
+d2$lag_precip_anom <- d2 %>% select(paste0('precip_anom_',0:36))
+d2$lag_pet_anom <- d2 %>% select(paste0('pet_anom_',0:36))
+d2$lag_pe_anom <- d2 %>% select(paste0('pe_anom_',0:36))
+
+
+# d2 <- d2 %>% select(x,y,vc,date,nirv_anom_sd, lag_month, 
+#                     lag_precip, lag_pet, 
+#                     lag_precip_anom, lag_pet_anom)
 d2$lag_precip <- d2$lag_precip %>% as.matrix()
 d2$lag_pet <- d2$lag_pet %>% as.matrix()
+d2$lag_pe <- d2$lag_pe %>% as.matrix()
 
+d2$lag_precip_anom <- d2$lag_precip_anom %>% as.matrix()
+d2$lag_pet_anom <- d2$lag_pet_anom %>% as.matrix()
+d2$lag_pe_anom <- d2$lag_pe_anom %>% as.matrix()
+
+# filter extreme outliers
+d2 <- d2 %>% 
+  filter(is.na(nirv_anom_sd)==F) %>% 
+  filter(between(nirv_anom_sd,-3.5,3.5))
+
+
+library(mgcv); library(mgcViz)
+library(parallel)  
+nc <- 6
+if (detectCores()>1) { ## no point otherwise
+  cl <- makeCluster(nc) 
+  ## could also use makeForkCluster, but read warnings first!
+} else cl <- NULL
 fit <- bam(nirv_anom_sd ~ 
-             s(lag_n,by=lag_precip,bs="gp",k=5)+
-             s(lag_n,by=lag_pet,bs="gp",k=5),data=d2, 
-           select=T, method='fREML', discrete = T)
+             ddate+
+             # s(month)+
+             s(x,y,fx = T)+
+             # s(map,mapet)+
+             # s(precip_anom_12mo)+
+             # s(pet_anom_12mo)+
+             # s(mape, pe_anom_12mo)+
+             s(precip_anom_12mo, pet_anom_12mo)+
+             s(lag_month,by=lag_precip_anom, bs='gp')+
+             s(lag_month,by=lag_pet_anom, bs='gp'),
+           data=d2 %>% filter(between(nirv_anom_sd,-3.5,3.5)) %>% 
+             mutate(ddate = decimal_date(date)) %>% 
+             filter(month %in% c(12,1,2)), 
+           select=T, method='fREML', discrete = T, 
+           gamma=50, nthreads = 6
+           # cluster = cl # does not work with discrete=T
+           )
 summary(fit)
 
-
+getViz(fit) %>% plot(allTerms=T)
 plot(fit,rug=F,shade=T, select = 1, scale=0);abline(h=0,col='red',lty=3)
 plot(fit,rug=F,shade=T, select = 2, scale=0);abline(h=0,col='red',lty=3)
+plot(fit,rug=F,shade=T, select = 3, scale=0);abline(h=0,col='red',lty=3)
 plot(fit$model$nirv_anom_sd~fitted(fit)); abline(0,1,col='red')
+
+df_preds <- d2 %>% 
+  filter(month %in% c(12,1,2)) %>% 
+  mutate(ddate=decimal_date(date)) %>% 
+  mutate(pred = predict(fit,newdata=., type='response')) 
+df_preds %>% 
+  sample_frac(0.1) %>% 
+  ggplot(data=., aes(date, nirv_anom_sd))+
+  geom_point(alpha=0.1)+
+  geom_point(aes(date, pred),color='darkgreen',alpha=0.1)+
+  geom_smooth(color='black')+
+  geom_smooth(aes(date, pred),color='darkgreen')
+
+  # group_by(date) %>% 
+  # summarize(obs = mean(nirv_anom_sd,na.rm=T), 
+  #           pred = pred) %>% 
+  
+
+(d2 %>% select(x,y) %>% distinct() %>% dim())[1]*(as.numeric((ymd("2019-01-01")-ymd("1986-01-01")))/30)/36
+
+fit2 <- bam(nirv_anom_sd ~ 
+             ddate+
+             s(x,y,fx = TRUE)+ # unpenalized spatial term
+             s(lag_month,by=lag_precip_anom, bs='gp')+
+             s(lag_month,by=lag_pet_anom, bs='gp'),
+           data=d2 %>% filter(between(nirv_anom_sd,-6,6)) %>% 
+             mutate(ddate = decimal_date(date)) %>% 
+             filter(month %in% c(12,1,2)), 
+           select=T, method='fREML', 
+           gamma=33, # n/gamma
+           discrete = T
+)
+summary(fit2)
+
+
+plot(fit2,rug=F,shade=T, select = 1, scale=0);abline(h=0,col='red',lty=3)
+plot(fit2,rug=F,shade=T, select = 2, scale=0);abline(h=0,col='red',lty=3)
+plot(fit2,rug=F,shade=T, select = 3, scale=0);abline(h=0,col='red',lty=3)
+plot(fit2$model$nirv_anom_sd~fitted(fit2)); abline(0,1,col='red')
+b <- getViz(fit2)
+plot(b, allTerms = T)
+
+
+
+# xgboost -----------------------------------------------------------------
+library(xgboost)
+d2 <- d2 %>% filter(is.na(precip_anom_36)==F & is.na(nirv_anom_sd)==F) %>% 
+  filter(between(nirv_anom_sd,-4,4))
+idx_train <- sample.int(dim(d2)[1],10000)
+vec_label <- d2$nirv_anom_sd[idx_train]
+mat_dat <- d2 %>% select(starts_with(c("m","precip_anom","pet_anom"))) %>% as.matrix()
+mat_dat <- mat_dat[idx_train,]
+
+vec_test <- d2$nirv_anom_sd[-idx_train]
+mat_test <- as.matrix(d2 %>% 
+                        select(starts_with(c("m",
+                                             "precip_anom",
+                                             "pet_anom"))))[-idx_train,] 
+
+x_1 <- xgboost(data = mat_dat, 
+               label = vec_label, 
+               max_depth = 5, 
+               eta = 0.1, 
+               nthread = 10, 
+               nrounds = 300,
+               params=list(booster="dart"),
+               objective = "reg:squarederror")
+summary(x_1)
+x_1
+xgboost::xgb.importance(model=x_1)
+xgboost::xgb.plot.importance(xgboost::xgb.importance(model=x_1))
+cor(vec_test,predict(x_1,newdata=mat_test))**2
+
+preds <- tibble(pred=predict(x_1,newdata=mat_test), 
+       obs = vec_test)
+preds %>% 
+  sample_frac(0.1) %>% 
+  ggplot(data=., aes(pred, obs))+
+  ggpointdensity::geom_pointdensity()+
+  geom_smooth()+
+  scale_color_viridis_c(option='B')+
+  geom_abline(aes(intercept=0,slope=1),col='red')
+
+preds %>% 
+  mutate(precip_anom_12mo = mat_test[,7]) %>% 
+  sample_frac(0.1) %>% 
+  ggplot(data=., aes(precip_anom_12mo, obs))+
+  geom_point(alpha=0.05)+
+  geom_point(aes(precip_anom_12mo,pred),color='green',alpha=0.05)+
+  geom_smooth(color='black',method='lm')+
+  geom_smooth(aes(precip_anom_12mo,pred),color='darkgreen',method='lm')
+  
+# scratch ----------------------------------------------------------------------
+fit <- bam(nirv_anom_sd ~ 
+             # s(ddate)+
+             # s(lag_month,by=lag_precip, bs='gp',k=7)+
+             s(lag_pet,lag_precip,by=lag_n, bs='gp', k=7),
+           data=d2 %>% filter(between(nirv_anom_sd,-6,6)) %>% 
+             mutate(ddate = decimal_date(date)), 
+           select=T, method='fREML', discrete = T
+)
+summary(fit)
+plot(fit)
+b <- getViz(fit)
+
+#
+
+
 
 
 
@@ -67,15 +303,20 @@ d2$lag_n <- t(matrix(lag_n,length(lag_n),length(d2$x)))
 lag_n <- matrix(0:36,nrow = 1, byrow = T)
 d1$lag_n <- lag_n
 
-
-
-
 fit <- bam(nirv_anom_sd ~ 
              s(lag_n_precip,by=lag_precip,bs="gp")+
-             s(lag_n_pet,by=lag_pet,bs="gp"),data=v1, 
+             s(lag_n_pet,by=lag_pet,bs="gp"),
+           data=v1, 
            select=T, method='fREML', discrete = T)
 summary(fit)
 
+# scratch 
+fit <- bam(nirv_anom_sd ~ 
+             # s(lag_n_precip,by=lag_precip,bs="gp")+
+             s(lag_n_pet,lag_pet,bs="gp"),
+           data=v1, 
+           select=T, method='fREML', discrete = T)
+summary(fit)
 
 
 
@@ -481,3 +722,143 @@ gas$nm <- t(matrix(nm,length(nm),length(gas$octane)))
 b <- gam(octane~s(nm,by=NIR,bs="ad"),data=gas)
 plot(b,rug=FALSE,shade=TRUE,main="Estimated function")
 plot(fitted(b),gas$octane)
+
+
+tmp[x == tmp$x[1] & y == tmp$y[1], ] %>%
+  ggplot(data=., aes(date, precip_anom_12mo))+
+  geom_line(lwd=1)
+
+old <- o[x == tmp$x[1] & y == tmp$y[1], ] %>% 
+  as_tibble() %>% 
+  group_by(x,y) %>% 
+  arrange(date) %>% 
+  mutate(precip_12mo = RcppRoll::roll_sumr(precip,n=12,fill=NA)) %>% 
+  ungroup()
+
+
+o[x == tmp$x[1] & y == tmp$y[1], ] %>%
+  ggplot(data=., aes(date, precip_12mo))+
+  geom_line(lwd=2)+
+  geom_line(data=old, aes(date, precip_12mo),col='blue')
+
+
+# tmp <- tmp[, .(precip_anom = precip-precip_u,  # calc raw anomaly 
+#         pet_anom = pet-pet_u)]
+# tmp[, .(precip_anom_sd = precip_anom/precip_sd)]
+
+# norms[,'precip']
+
+
+
+
+fit2 <- bam(nirv_anom_sd ~ 
+             ddate+
+              # s(pe_anom_36)
+              # s(log(pe),k=5)
+             # s(month)+
+             s(x,y,fx = T)+
+             # s(pe_anom_12mo,k=5)   # nonlinear
+             # s(map,mapet)+
+             # s(precip_anom_12mo,k=5)     # very nonlinear
+             # s(pet_anom_12mo,k=5)        #
+             # s(mape, pe_anom_12mo)+
+             s(precip_anom_12mo, pet_anom_12mo)+
+             # s(lag_month,by=lag_precip_anom, bs='gp')+
+             # s(lag_month,by=lag_pet_anom, bs='gp')+
+            s(lag_month,by=lag_pe_anom, bs='gp',m=c(2,12,2))
+            ,
+           data=d2 %>% filter(between(nirv_anom_sd,-3.5,3.5)) %>% 
+             mutate(ddate = decimal_date(date)) %>% 
+             filter(month %in% c(12,1,2)), 
+           select=T, method='fREML', discrete = T, 
+           gamma=30,
+           nthreads = 6
+           # cluster = cl # does not work with discrete=T
+)
+summary(fit2)
+getViz(fit2) %>% plot(allTerms=F)
+
+
+curve(log10(1000/x),500,10000)
+d2$pe %>% hist
+d2$pe %>% log %>% hist
+d2$pe %>% log10 %>% hist
+d2$pe_anom_12mo %>% hist
+
+
+
+
+DT[, c(t(outer(names(DT), sz, paste0))) := {
+  
+  #use frollsum with centering alignment
+  C <- matrix(unlist(frollsum(.SD, 2L*sz + 1L, align="center")), nrow=.N)
+  
+  #largest window size
+  winsz <- 2L*last(sz)+1L
+  
+  #extract head and tail of data and reverse row order of tail
+  H <- head(.SD, winsz)
+  B <- tail(.SD, winsz)[.N:1L]
+  
+  #calculate sums of those head and tail using frollmean and cumsum
+  U <- matrix(unlist(frollsum(H, sz+1L, align="left")), nrow=winsz) +
+    rep(H[, as.matrix(lapply(.SD, cumsum) - .SD)], length(sz))
+  D <- matrix(unlist(frollsum(B, sz+1L, align="left")), nrow=winsz) +
+    rep(B[, as.matrix(lapply(.SD, cumsum) - .SD)], length(sz))
+  D <- D[rev(seq_len(nrow(D))), ]
+  
+  #update NAs in C with values from U and D
+  C[is.na(C) & row(C) <= winsz] <- U[is.na(C) & row(C) <= winsz]
+  C[is.na(C) & row(C) >= .N - winsz] <- D[is.na(C) & row(C) >= .N - winsz]
+  as.data.table(C)
+}]
+
+
+sz <- seq(1:12)
+tmp[x==tmp$x[1] & y==tmp$y[1]][,c("precip")][, c(t(outer(names(tmp), sz, paste0))) := {
+  
+  #use frollsum with centering alignment
+  C <- matrix(unlist(frollsum(.SD, 2L*sz + 1L, align="right")), nrow=.N)
+  
+  #largest window size
+  winsz <- 2L*last(sz)+1L
+  
+  #extract head and tail of data and reverse row order of tail
+  H <- head(.SD, winsz)
+  B <- tail(.SD, winsz)[.N:1L]
+  
+  #calculate sums of those head and tail using frollmean and cumsum
+  U <- matrix(unlist(frollsum(H, sz+1L, align="left")), nrow=winsz) +
+    rep(H[, as.matrix(lapply(.SD, cumsum) - .SD)], length(sz))
+  D <- matrix(unlist(frollsum(B, sz+1L, align="left")), nrow=winsz) +
+    rep(B[, as.matrix(lapply(.SD, cumsum) - .SD)], length(sz))
+  D <- D[rev(seq_len(nrow(D))), ]
+  
+  #update NAs in C with values from U and D
+  C[is.na(C) & row(C) <= winsz] <- U[is.na(C) & row(C) <= winsz]
+  C[is.na(C) & row(C) >= .N - winsz] <- D[is.na(C) & row(C) >= .N - winsz]
+  as.data.table(C)
+}]
+
+require(data.table)
+setDT(data)[,ID2:=.GRP,by=c("ID")]
+Ref <-data[,list(Compare_Value=list(I(USD)),Compare_Date=list(I(Date))),by=c("ID2")]
+data[,Roll.Val := mapply(RD = Date,NUM=ID2, function(RD, NUM) {
+  d <- as.numeric(Ref[ID2 == NUM,]$Compare_Date[[1]] - RD)
+  sum((d <= 0 & d >= -7)*Ref[ID2 == NUM,]$Compare_Value[[1]])})]
+
+
+# rolling sum
+tmp <- tmp[order(x,y,date)][, pe_12mo := frollsum(pe,n = 12,fill = NA,align='right'), by=.(x,y)]
+
+# cast lags
+tmp <- tmp[order(x,y,date), c(paste0("precip_",1:36)) := shift(precip, 1:36) , .(x,y)][order(date)]
+
+tmp[x==tmp$x[1] & y==tmp$y[1]][,c("precip")][,precip_sum := apply(
+  var=precip, FUN=function(precip){
+    frollsum(precip,n = 12,fill = NA,align='right')
+  }
+)]
+
+
+
