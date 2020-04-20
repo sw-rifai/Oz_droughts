@@ -2,21 +2,24 @@ list.files("../data_general/clim_grid/awap/parquet/")
 list.files("../data_general/Oz_misc_data/", pattern = '.parquet',full.names = T)
 # library(mgcv)
 library(tidyverse); library(lubridate)
-library(data.table); library(mgcv); library(mgcViz)
+library(data.table); 
+library(mgcv); library(mgcViz)
 setDTthreads(threads=10)
 
 # import
-tmp <- arrow::read_parquet("../data_general/Oz_misc_data//nirv_nvis_clim_2020-04-04.parquet", 
-                           col_select = c("x","y","vc","date",
-                                          "nirv_anom_sd",
-                                           "precip","pet"))
+tmp <- arrow::read_parquet("../data_general/Oz_misc_data/ARD_nirv_aclim_2020-04-18.parquet", 
+                           # col_select = c("x","y","vc","date",
+                           #                "nirv_anom_sd",
+                           #                 "precip","pet")
+                           )
 
 # data.table 
 tmp <- setDT(tmp) # OR: tmp <- as.data.table(tmp)
+tmp <- tmp %>% rename(x=x_vi, y=y_vi)
 
 # Subsetting to just one type of vegetation class
 vec_vc <- unique(tmp$vc) %>% sort
-tmp <- tmp[vc=="Eucalypt Tall Open Forests"]
+tmp <- tmp[vc=="Eucalypt Open Forests"]
 
 
 # Calculate Climatology --------------------------------------------------------
@@ -24,6 +27,10 @@ tmp <- tmp[vc=="Eucalypt Tall Open Forests"]
 tmp <- tmp[, `:=`(month = month(date))] # create month
 tmp <- tmp[, `:=`(year = year(date))]   # create year
 tmp <- tmp[,`:=`("pe" = precip/pet)]
+norms_nirv <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
+               .("nirv_u" = mean(nirv), 
+                 "nirv_sd" = sd(nirv)),
+               by=.(x,y,month)]
 norms_p <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
                .("precip_u" = mean(precip), 
                  "precip_sd" = sd(precip)),
@@ -56,7 +63,8 @@ norms <- norms[norms_pe, on=.(x,y,month)] # join data.tables
 norms <- norms[norms_map, on=.(x,y)]
 norms <- norms[norms_mapet, on=.(x,y)]
 norms <- norms[norms_mape, on=.(x,y)]
-tmp <- tmp[norms, on=.(x,y,month)]
+norms <- norms[norms_nirv, on=.(x,y,month)]
+tmp <- norms[tmp, on=.(x,y,month)]
 
 # calculate the anomalies ******************************************************
 tmp <- tmp[, `:=`(precip_anom = precip-precip_u,  # calc raw anomaly 
@@ -102,8 +110,8 @@ gc(verbose = T, reset = T, full = T)
 tmp <- tmp[order(x,y,date), c(paste0("pe_anom_",1:36)) := shift(pe_anom, 1:36) , .(x,y)][order(date)]
 
 
-d1 <- tmp[vc=="Eucalypt Tall Open Forests"]
-lag_n <- 0:36 ## create wavelength matrix...
+d1 <- tmp
+lag_n <- 0:36 ## create time lag matrix...
 j <- 3
 # d2 <- d1[x >= (152+j) & x<(152+j) & y>= (-32+j) & y < (30+j)] # TEMPORARY BREAKING UP DF
 # d2 <- d1[x %in% d1$x[1:10]]
@@ -151,21 +159,30 @@ if (detectCores()>1) { ## no point otherwise
   ## could also use makeForkCluster, but read warnings first!
 } else cl <- NULL
 fit <- bam(nirv_anom_sd ~ 
-             ddate+
-             # s(month)+
-             s(x,y,fx = T)+
+             # ddate+
+             # s(month, bs='cc',k=3)+
+             s(x,y,by=ddate)+
+             s(tmax)+
              # s(map,mapet)+
              # s(precip_anom_12mo)+
              # s(pet_anom_12mo)+
-             # s(mape, pe_anom_12mo)+
-             s(precip_anom_12mo, pet_anom_12mo)+
-             s(lag_month,by=lag_precip_anom, bs='gp')+
-             s(lag_month,by=lag_pet_anom, bs='gp'),
-           data=d2 %>% filter(between(nirv_anom_sd,-3.5,3.5)) %>% 
-             mutate(ddate = decimal_date(date)) %>% 
-             filter(month %in% c(12,1,2)), 
+             # s(mape, pe_anom, pe_anom_12mo...48)+
+             # s(precip_anom_12mo, pet_anom_12mo)+
+             # te(pet_anom, pet_anom_12mo, mapet)+
+             # te(precip_anom, precip_anom_12mo,map)
+             s(lag_month, by=lag_pe_anom, bs='gp',k=5)
+             # s(lag_month,by=lag_precip_anom, bs='gp',k=5)+
+             # s(lag_month,by=lag_pet_anom, bs='gp',k=5)
+           ,
+           data=tmp %>% 
+             sample_n(40000) %>% 
+             filter(between(nirv_anom_sd,-3.5,3.5)) %>% 
+             mutate(ddate = decimal_date(date)) 
+             # filter(month %in% c(12,1,2))
+           , 
            select=T, method='fREML', discrete = T, 
-           gamma=50, nthreads = 6
+           # gamma=50, 
+           nthreads = 6
            # cluster = cl # does not work with discrete=T
            )
 summary(fit)
@@ -174,17 +191,20 @@ getViz(fit) %>% plot(allTerms=T)
 plot(fit,rug=F,shade=T, select = 1, scale=0);abline(h=0,col='red',lty=3)
 plot(fit,rug=F,shade=T, select = 2, scale=0);abline(h=0,col='red',lty=3)
 plot(fit,rug=F,shade=T, select = 3, scale=0);abline(h=0,col='red',lty=3)
+plot(fit,rug=F,shade=T, select = 4, scale=0);abline(h=0,col='red',lty=3)
+
 plot(fit$model$nirv_anom_sd~fitted(fit)); abline(0,1,col='red')
 
-df_preds <- d2 %>% 
-  filter(month %in% c(12,1,2)) %>% 
+df_preds <- tmp %>% 
+  sample_n(40000) %>% 
+  # filter(month %in% c(12,1,2)) %>% 
   mutate(ddate=decimal_date(date)) %>% 
   mutate(pred = predict(fit,newdata=., type='response')) 
 df_preds %>% 
-  sample_frac(0.1) %>% 
+  # sample_frac(0.5) %>% 
   ggplot(data=., aes(date, nirv_anom_sd))+
-  geom_point(alpha=0.1)+
-  geom_point(aes(date, pred),color='darkgreen',alpha=0.1)+
+  # geom_point(alpha=0.1)+
+  # geom_point(aes(date, pred),color='darkgreen',alpha=0.1)+
   geom_smooth(color='black')+
   geom_smooth(aes(date, pred),color='darkgreen')
 

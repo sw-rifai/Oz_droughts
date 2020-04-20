@@ -29,16 +29,17 @@ rm(base); #
 
 
 #*******************************************************************************
-# Extract AWAP PRECIP grid cells for east Oz ----------------------------------------------
+# Extract AWAP precip grid cells for east Oz ----------------------------------------------
 #*******************************************************************************
 aprecip <- stars::read_ncdf("../data_general/clim_grid/awap/AWAP/monthly/rain/AWAP_monthly_rain_1970_2019.nc")
 names(aprecip) <- "precip"
+st_crs(aprecip) <- st_crs(4326)
 
 eoz_box <- st_bbox(c(xmin = min(nvis$x),
-          ymin = min(nvis$y),
-          xmax = max(nvis$x),
-          ymax = max(nvis$y)), 
-        crs = st_crs(4326))
+                     ymin = min(nvis$y),
+                     xmax = max(nvis$x),
+                     ymax = max(nvis$y)), 
+                   crs = st_crs(4326))
 aprecip <- st_crop(aprecip, eoz_box)
 aprecip <- aprecip %>% as_tibble() %>% as.data.table()
 aprecip <- aprecip %>% units::drop_units()
@@ -60,49 +61,39 @@ coords_keep_awap <- coords_awap %>%
 
 # subset df of awap coords to just those identified by nn_coords
 coords_keep_awap <- coords_keep_awap[nn_coords$nn.idx[,1],] %>% as.data.table()
+dim(coords_keep_awap)
 
 coords_dict <- tibble(x_vi=st_coordinates(coords_vi)[,"X"], 
-                          y_vi=st_coordinates(coords_vi)[,"Y"], 
-                          x_clim=coords_keep_awap$x, 
-                          y_clim=coords_keep_awap$y)
+                      y_vi=st_coordinates(coords_vi)[,"Y"], 
+                      x_clim=coords_keep_awap$x, 
+                      y_clim=coords_keep_awap$y)
 coords_dict <- setDT(coords_dict)
 
 # test if awap coords object has equal number of rows as coords_vi
 assertthat::are_equal(dim(coords_keep_awap)[1], dim(coords_vi)[1])
+
+
+
 # vis check that vi and clim coords are close
 coords_dict %>% ggplot(data=., aes(x_vi,x_clim))+geom_point()
 coords_dict %>% ggplot(data=., aes(y_vi,y_clim))+geom_point()
 coords_dict %>% head
 coords_dict <- coords_dict %>% rename(x=x_clim,y=y_clim) #!!!
+coords_dict
 
-
-# norms_p[norms_pet, on=.(x,y,month)]
 aprecip <- aprecip %>% rename(x=longitude,y=latitude)
-setDT(aprecip)
-setkey(aprecip,"x","y","time")
-setkey(coords_keep_awap,"x","y")
-
-# left join keeping all coords in "coords_keep_awap"
-aprecip <- aprecip[coords_keep_awap,on=.(x,y)]
-
-# Count NA values by time 
-# aprecip[, lapply(.SD,  function(x) sum(is.na(precip))), time]
-
-coords_dict <- coords_dict %>% rename(x=x_clim,y=y_clim) #!!!
-coords_dict2 %>% head
-# aprecip <- coords_dict[aprecip,on=.(x_clim=x,y_clim=y),allow.cartestian=TRUE]
-# # aprecip <- coords_dict[aprecip,on=.(x_clim=x,y_clim=y),allow.cartestian=TRUE] # !!! non working
-# coords_dict[by=.EACHI][aprecip,on=.(x=x,y=y),by=.EACHI]
-# aprecip[,,by=.EACHI][coords_dict,on=.(x=x,y=y),by=.EACHI]
-# 
-# merge(coords_dict, aprecip,by=c("x","y"),all=TRUE)
 
 # complicated way of doing full join
 aprecip <- merge(aprecip,coords_dict,by=c("x","y"),all=TRUE,allow.cartesian=TRUE)
+aprecip <- aprecip[is.na(x_vi)==F]
+aprecip %>% head
+
+round(aprecip$x[1:5])==round(aprecip$x_vi[1:5])
+round(aprecip$y[1:5])==round(aprecip$y_vi[1:5])
 
 # visual check
-tmp[time%in%c(ymd("1990-01-01",tz='UTC'),
-  ymd("2019-12-01",tz='UTC'))] %>%
+aprecip[time%in%c(ymd("1990-01-01",tz='UTC'),
+               ymd("2019-12-01",tz='UTC'))] %>%
   as_tibble() %>% 
   ggplot(data=., aes(x,y,fill=precip))+
   geom_tile()+
@@ -110,21 +101,308 @@ tmp[time%in%c(ymd("1990-01-01",tz='UTC'),
   scale_fill_viridis_c(direction = -1)+
   facet_grid(~as.factor(time))
 
-aprecip$x %>% unique
-st_coordinates(coords_vi) %>% unique
 #*******************************************************************************
 # END SECTION
 #*******************************************************************************
- 
- 
- 
+
+#*******************************************************************************
+# Extract AWAP pet grid cells for east Oz ----------------------------------------------
+#*******************************************************************************
+apet <- stars::read_ncdf("../data_general/clim_grid/awap/AWAP/monthly/pet/AWAP_monthly_PriestleyTaylor_PET_1990_2019.nc")
+names(apet) <- "pet"
+st_crs(apet) <- st_crs(4326)
+
+eoz_box <- st_bbox(c(xmin = min(nvis$x),
+                     ymin = min(nvis$y),
+                     xmax = max(nvis$x),
+                     ymax = max(nvis$y)), 
+                   crs = st_crs(4326))
+apet <- st_crop(apet, eoz_box)
+apet <- apet %>% as_tibble() %>% as.data.table()
+apet <- apet %>% units::drop_units()
+coords_awap <- apet %>% select(longitude,latitude) %>% distinct()
+coords_awap <- coords_awap %>% rename(x=longitude, y=latitude)
+coords_awap_sf <- st_as_sf(coords_awap, coords = c('x','y'))
+
+coords_vi <- nvis %>% select(x,y) %>% distinct()
+coords_vi <- st_as_sf(coords_vi, coords = c("x","y"))
+st_crs(coords_vi) <- st_crs(4326)
+nn_coords <- RANN::nn2(
+  coords_awap_sf %>% st_coordinates(),
+  coords_vi %>% st_coordinates(), 
+  k=1
+)
+# df of all coords in awap with idx
+coords_keep_awap <- coords_awap %>% 
+  mutate(idx_awap = row_number())
+
+# subset df of awap coords to just those identified by nn_coords
+coords_keep_awap <- coords_keep_awap[nn_coords$nn.idx[,1],] %>% as.data.table()
+dim(coords_keep_awap)
+
+coords_dict <- tibble(x_vi=st_coordinates(coords_vi)[,"X"], 
+                      y_vi=st_coordinates(coords_vi)[,"Y"], 
+                      x_clim=coords_keep_awap$x, 
+                      y_clim=coords_keep_awap$y)
+coords_dict <- setDT(coords_dict)
+
+# test if awap coords object has equal number of rows as coords_vi
+assertthat::are_equal(dim(coords_keep_awap)[1], dim(coords_vi)[1])
 
 
 
+# vis check that vi and clim coords are close
+coords_dict %>% ggplot(data=., aes(x_vi,x_clim))+geom_point()
+coords_dict %>% ggplot(data=., aes(y_vi,y_clim))+geom_point()
+coords_dict %>% head
+coords_dict <- coords_dict %>% rename(x=x_clim,y=y_clim) #!!!
+coords_dict
+
+apet <- apet %>% rename(x=longitude,y=latitude)
+
+# complicated way of doing full join
+apet <- merge(apet,coords_dict,by=c("x","y"),all=TRUE,allow.cartesian=TRUE)
+apet <- apet[is.na(x_vi)==F]
+apet %>% head
+
+round(apet$x[1:5])==round(apet$x_vi[1:5])
+round(apet$y[1:5])==round(apet$y_vi[1:5])
+
+# visual check
+apet[time%in%c(ymd("1990-01-01",tz='UTC'),
+              ymd("2019-12-01",tz='UTC'))] %>%
+  as_tibble() %>% 
+  ggplot(data=., aes(x,y,fill=pet))+
+  geom_tile()+
+  coord_equal()+
+  scale_fill_viridis_c(direction = -1)+
+  facet_grid(~as.factor(time))
+
+#*******************************************************************************
+# END SECTION
+#*******************************************************************************
+
+
+#*******************************************************************************
+# Extract AWAP tmax grid cells for east Oz ----------------------------------------------
+#*******************************************************************************
+atmax <- stars::read_ncdf("../data_general/clim_grid/awap/AWAP/monthly/tmax/AWAP_monthly_tmax_1970_2019.nc")
+names(atmax) <- "tmax"
+st_crs(atmax) <- st_crs(4326)
+
+eoz_box <- st_bbox(c(xmin = min(nvis$x),
+                     ymin = min(nvis$y),
+                     xmax = max(nvis$x),
+                     ymax = max(nvis$y)), 
+                   crs = st_crs(4326))
+atmax <- st_crop(atmax, eoz_box)
+atmax <- atmax %>% as_tibble() %>% as.data.table()
+atmax <- atmax %>% units::drop_units()
+coords_awap <- atmax %>% select(longitude,latitude) %>% distinct()
+coords_awap <- coords_awap %>% rename(x=longitude, y=latitude)
+coords_awap_sf <- st_as_sf(coords_awap, coords = c('x','y'))
+
+coords_vi <- nvis %>% select(x,y) %>% distinct()
+coords_vi <- st_as_sf(coords_vi, coords = c("x","y"))
+st_crs(coords_vi) <- st_crs(4326)
+nn_coords <- RANN::nn2(
+  coords_awap_sf %>% st_coordinates(),
+  coords_vi %>% st_coordinates(), 
+  k=1
+)
+# df of all coords in awap with idx
+coords_keep_awap <- coords_awap %>% 
+  mutate(idx_awap = row_number())
+
+# subset df of awap coords to just those identified by nn_coords
+coords_keep_awap <- coords_keep_awap[nn_coords$nn.idx[,1],] %>% as.data.table()
+dim(coords_keep_awap)
+
+coords_dict <- tibble(x_vi=st_coordinates(coords_vi)[,"X"], 
+                      y_vi=st_coordinates(coords_vi)[,"Y"], 
+                      x_clim=coords_keep_awap$x, 
+                      y_clim=coords_keep_awap$y)
+coords_dict <- setDT(coords_dict)
+
+# test if awap coords object has equal number of rows as coords_vi
+assertthat::are_equal(dim(coords_keep_awap)[1], dim(coords_vi)[1])
 
 
 
+# vis check that vi and clim coords are close
+coords_dict %>% ggplot(data=., aes(x_vi,x_clim))+geom_point()
+coords_dict %>% ggplot(data=., aes(y_vi,y_clim))+geom_point()
+coords_dict %>% head
+coords_dict <- coords_dict %>% rename(x=x_clim,y=y_clim) #!!!
+coords_dict
 
+atmax <- atmax %>% rename(x=longitude,y=latitude)
+
+# complicated way of doing full join
+atmax <- merge(atmax,coords_dict,by=c("x","y"),all=TRUE,allow.cartesian=TRUE)
+atmax <- atmax[is.na(x_vi)==F]
+atmax %>% head
+
+round(atmax$x[1:5])==round(atmax$x_vi[1:5])
+round(atmax$y[1:5])==round(atmax$y_vi[1:5])
+
+# visual check
+atmax[time%in%c(ymd("1990-01-01",tz='UTC'),
+               ymd("2019-12-01",tz='UTC'))] %>%
+  as_tibble() %>% 
+  ggplot(data=., aes(x,y,fill=tmax))+
+  geom_tile()+
+  coord_equal()+
+  scale_fill_viridis_c(direction = -1)+
+  facet_grid(~as.factor(time))
+
+#*******************************************************************************
+# END SECTION
+#*******************************************************************************
+
+
+
+#*******************************************************************************
+# Extract ERA5 pet grid cells for east Oz ----------------------------------------------
+#*******************************************************************************
+e5pet <- stars::read_ncdf("../data_general/clim_grid/era5-land/Oz/Oz/Oz_era5-land_pet_1981_2019.nc")
+names(e5pet) <- "pet"
+st_crs(e5pet) <- st_crs(4326)
+
+eoz_box <- st_bbox(c(xmin = min(nvis$x),
+                     ymin = min(nvis$y),
+                     xmax = max(nvis$x),
+                     ymax = max(nvis$y)), 
+                   crs = st_crs(4326))
+e5pet <- st_crop(e5pet, eoz_box)
+e5pet <- e5pet %>% as_tibble() %>% as.data.table()
+e5pet <- e5pet %>% units::drop_units()
+coords_awap <- e5pet %>% select(longitude,latitude) %>% distinct()
+coords_awap <- coords_awap %>% rename(x=longitude, y=latitude)
+coords_awap_sf <- st_as_sf(coords_awap, coords = c('x','y'))
+
+coords_vi <- nvis %>% select(x,y) %>% distinct()
+coords_vi <- st_as_sf(coords_vi, coords = c("x","y"))
+st_crs(coords_vi) <- st_crs(4326)
+nn_coords <- RANN::nn2(
+  coords_awap_sf %>% st_coordinates(),
+  coords_vi %>% st_coordinates(), 
+  k=1
+)
+# df of all coords in awap with idx
+coords_keep_awap <- coords_awap %>% 
+  mutate(idx_awap = row_number())
+
+# subset df of awap coords to just those identified by nn_coords
+coords_keep_awap <- coords_keep_awap[nn_coords$nn.idx[,1],] %>% as.data.table()
+dim(coords_keep_awap)
+
+coords_dict <- tibble(x_vi=st_coordinates(coords_vi)[,"X"], 
+                      y_vi=st_coordinates(coords_vi)[,"Y"], 
+                      x_clim=coords_keep_awap$x, 
+                      y_clim=coords_keep_awap$y)
+coords_dict <- setDT(coords_dict)
+
+# test if awap coords object has equal number of rows as coords_vi
+assertthat::are_equal(dim(coords_keep_awap)[1], dim(coords_vi)[1])
+
+
+
+# vis check that vi and clim coords are close
+coords_dict %>% ggplot(data=., aes(x_vi,x_clim))+geom_point()
+coords_dict %>% ggplot(data=., aes(y_vi,y_clim))+geom_point()
+coords_dict %>% head
+coords_dict <- coords_dict %>% rename(x=x_clim,y=y_clim) #!!!
+coords_dict
+
+e5pet <- e5pet %>% rename(x=longitude,y=latitude)
+
+# complicated way of doing full join
+e5pet <- merge(e5pet,coords_dict,by=c("x","y"),all=TRUE,allow.cartesian=TRUE)
+e5pet <- e5pet[is.na(x_vi)==F]
+e5pet %>% head
+
+round(e5pet$x[1:5])==round(e5pet$x_vi[1:5])
+round(e5pet$y[1:5])==round(e5pet$y_vi[1:5])
+
+# visual check
+e5pet[time%in%c(ymd("1990-01-01",tz='UTC'),
+                ymd("2019-12-01",tz='UTC'))] %>%
+  as_tibble() %>% 
+  ggplot(data=., aes(x,y,fill=pet))+
+  geom_tile()+
+  coord_equal()+
+  scale_fill_viridis_c(direction = -1)+
+  facet_grid(~as.factor(time))
+
+
+# ATTEMPTING TO RECALIBRATE ERA5-LAND PET TO AWAP PET
+tmp_apet <- apet %>% select(x_vi,y_vi,time,pet) %>% 
+  mutate(time=as.Date(time))
+tmp_e5pet <- e5pet %>% select(x_vi,y_vi,time,pet) %>% 
+  mutate(time=as.Date(time))
+tmp_pet <- tmp_apet[tmp_e5pet,on=.(x_vi,y_vi,time)]
+
+system.time(
+fit_pet <- tmp_pet %>% 
+  filter(is.na(pet)==F) %>% 
+  filter(is.na(i.pet)==F) %>% 
+  sample_frac(0.35) %>% 
+  group_by(x_vi,y_vi) %>% 
+  summarize(beta0 = coef(lm(pet~i.pet+I(i.pet**2)))[1], 
+            beta1 = coef(lm(pet~i.pet+I(i.pet**2)))[2],
+            beta2 = coef(lm(pet~i.pet+I(i.pet**2)))[3]) %>% 
+  ungroup()
+)
+
+setDT(fit_pet)
+tmp_pet <- fit_pet[tmp_pet,on=.(x_vi,y_vi)]
+tmp_pet <- tmp_pet[, `:=`(pet_pred = beta0 + beta1*i.pet + beta2*i.pet**2)]
+  
+# Visual Checks ***************
+# tmp_pet %>% 
+#   filter(is.na(pet_pred)==F) %>% 
+#   sample_frac(0.005) %>% 
+#   ggplot(data=., aes(pet_pred,pet))+
+#   ggpointdensity::geom_pointdensity(alpha=0.1)+
+#   scale_color_viridis_c()+
+#   geom_smooth(method='lm')+
+#   geom_abline(aes(intercept=0,slope=1),color='red')
+
+# tmp_pet %>% 
+#   filter(time==ymd("1995-11-01")) %>% 
+#   ggplot(data=., aes(x_vi,y_vi,fill=pet_pred-pet))+
+#   geom_tile()+
+#   coord_equal()+
+#   scale_fill_gradient2()
+
+#*******************************************************************************
+# END SECTION
+#*******************************************************************************
+
+#*******************************************************************************
+# Join climate data to maintain date structure ---------
+#*******************************************************************************
+jpet <- rbindlist(list(
+  tmp_pet[time>=ymd("1981-01-01") & time<=ymd("1989-12-31")] %>% 
+    .[,.(x_vi,y_vi,time,pet_pred)] %>% 
+    .[,.(x_vi, y_vi,time,pet=pet_pred)],
+  apet[,.(x_vi,y_vi,time,pet)][,`:=`(time=as.Date(time))]
+))
+jpet <- jpet[is.na(pet)==F]
+rm(fit_pet, tmp_pet, tmp_apet, apet);
+gc(reset = T, full = T)
+
+atmax <- atmax[,.(x_vi,y_vi,time,tmax)][,`:=`(time=as.Date(time))]
+aprecip <- aprecip[,.(x_vi,y_vi,time,precip)][,`:=`(time=as.Date(time))]
+tmp_clim <- merge(atmax,jpet,by=c("x_vi","y_vi","time"),all=TRUE,allow.cartesian=TRUE)
+tmp_clim <- merge(tmp_clim,aprecip,by=c("x_vi","y_vi","time"),all=TRUE,allow.cartesian=TRUE)
+rm(aprecip, atmax,e5pet,jpet);
+rm(tmp_e5pet)
+gc(reset = T, full=T)
+#*******************************************************************************
+# END SECTION
+#*******************************************************************************
 
 
 #*******************************************************************************
@@ -149,35 +427,24 @@ base <- base %>% as_tibble() %>% as.data.table()
 base_vc <- base <- base[nvis,on=.(x,y)]
 base <- base_vc; rm(base_vc)
 
-# base[date==ymd("1982-01-01")] %>% 
-#   ggplot(data=., aes(x,y,fill=nirv))+
-#   geom_tile()
-# base_vc[date==ymd("1982-01-01")] %>% 
-#   ggplot(data=., aes(x,y,fill=nirv))+
-#   geom_tile()
-
-unique(apet$x) %in% unique(base$x)
-unique(base$x) %in% unique(apet$x)
-unique(base$x) %in% unique(e5pet$x)
 #*******************************************************************************
 # END SECTION
 #*******************************************************************************
 
 
-
-
-
 #*******************************************************************************
 # JOIN ALL THE PIECES -----------------------------------------------------
 #*******************************************************************************
-tmp <- merge(aprecip %>% mutate(date=as.Date(time)),
+
+base <- merge(tmp_clim %>% rename(date=time),
              base %>% rename(x_vi=x,y_vi=y),
-             by=c("x_vi","y_vi","date"))
-# filter NA precip values [pretty sure these occur in consistent locations so 
-# this will not create gaps in the time index]
-tmp <- tmp[is.na(nirv)==F]
-tmp <- tmp[is.na(precip)==F]
-tmp %>% head
+             by=c("x_vi","y_vi","date"), 
+             all=TRUE,allow.cartesian=TRUE)
+base %>% head
+
+arrow::write_parquet(base, 
+                     sink=paste0("../data_general/Oz_misc_data/ARD_nirv_aclim_",Sys.Date(),".parquet"),
+                     compression='gzip',compression_level = 9)
 #*******************************************************************************
 #*
 #*******************************************************************************
