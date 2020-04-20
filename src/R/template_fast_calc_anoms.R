@@ -17,7 +17,7 @@ tmp <- tmp %>% rename(x=x_vi, y=y_vi)
 tmp_vc <- tmp[date==ymd("2000-01-01"),.(x,y,vc)]
 vec_vc <- unique(tmp$vc) %>% sort
 tmp_vc <- tmp_vc[vc=="Eucalypt Open Forests"]
-tmp <- tmp_vc[tmp,on=.(x,y)] # subset to just the selected vegetation class
+tmp <- tmp[tmp_vc,on=.(x,y)] # subset to just the selected vegetation class
 #*******************************************************************************
 #* END SECTION
 #*******************************************************************************
@@ -147,22 +147,19 @@ names(tmp_my_anoms) <- paste0(names(tmp_my_anoms),"_my")
 # Because this is so memory intensive I'm subsetting in time
 tmp <- tmp[date >= ymd("1978-01-01")]
 
-# precip anom 
+# precip anom lags
 gc(reset = TRUE,full=T)
-tmp <- tmp[order(x,y,date), c(paste0("precip_anom_",1:36)) := shift(precip_anom, 1:36) , .(x,y)][order(date)]
-gc(verbose = T, reset = T, full = T)
-mat_p <- tmp %>% mutate(precip_anom_0=precip_anom) %>% 
-  select(paste0('precip_anom_',0:36))
-tmp <- tmp %>% select(-starts_with("precip_anom_"))
-
-tmp <- tmp[order(x,y,date), c(paste0("pet_anom_",1:36)) := shift(pet_anom, 1:36) , .(x,y)][order(date)]
-gc(verbose = T, reset = T, full = T)
-mat_pet <- tmp %>% mutate(pet_anom_0=pet_anom) %>% 
-  select(paste0('pet_anom_',0:36))
-tmp <- tmp %>% select(-starts_with("pet_anom_"))
+mat_p <- tmp[,.(x,y,date,precip_anom)][order(x,y,date), c(paste0("precip_anom_",1:36)) := shift(precip_anom, 1:36) , .(x,y)][order(date)]
+mat_p <- mat_p %>% rename(precip_anom_0 = precip_anom) %>% select(-x,-y,-date)
 gc(verbose = T, reset = T, full = T)
 
+# pet anom lags
+gc(reset = TRUE,full=T)
+mat_pet <- tmp[,.(x,y,date,pet_anom)][order(x,y,date), c(paste0("pet_anom_",1:36)) := shift(pet_anom, 1:36) , .(x,y)][order(date)]
+mat_pet <- mat_pet %>% rename(pet_anom_0 = pet_anom) %>% select(-x,-y,-date)
+gc(verbose = T, reset = T, full = T)
 
+# P:PET anom lags
 mat_pe <- tmp[,.(x,y,date,pe_anom)][order(x,y,date), c(paste0("pe_anom_",1:36)) := shift(pe_anom, 1:36) , .(x,y)][order(date)]
 mat_pe <- mat_pe %>% rename(pe_anom_0 = pe_anom) %>% select(-x,-y,-date)
 gc(verbose = T, reset = T, full = T)
@@ -187,11 +184,11 @@ tmp$lag_month <- tmp_mat # lag index is needed for GAM
 # tmp$lag_pet_anom <- tmp %>% select(paste0('pet_anom_',0:36))
 # tmp$lag_pe_anom <- tmp %>% select(paste0('pe_anom_',0:36))
 
-tmp$lag_precip_anom <- mat_p 
+tmp$lag_precip_anom <- as.matrix(mat_p)
 rm(mat_p); gc()
-tmp$lag_pet_anom <- mat_pet
+tmp$lag_pet_anom <- as.matrix(mat_pet)
 rm(mat_pet); gc()
-tmp$lag_pe_anom <- mat_pe
+tmp$lag_pe_anom <- as.matrix(mat_pe)
 rm(mat_pe); gc()
 
 # tmp <- tmp %>% select(x,y,vc,date,nirv_anom_sd, lag_month, 
@@ -201,9 +198,9 @@ rm(mat_pe); gc()
 # tmp$lag_pet <- tmp$lag_pet %>% as.matrix()
 # tmp$lag_pe <- tmp$lag_pe %>% as.matrix()
 
-tmp$lag_precip_anom <- tmp$lag_precip_anom %>% as.matrix(); gc(reset = T, full=T)
-tmp$lag_pet_anom <- tmp$lag_pet_anom %>% as.matrix(); gc(reset = T, full=T)
-tmp$lag_pe_anom <- tmp$lag_pe_anom %>% as.matrix(); gc(reset = T, full=T)
+# tmp$lag_precip_anom <- tmp$lag_precip_anom %>% as.matrix(); gc(reset = T, full=T)
+# tmp$lag_pet_anom <- tmp$lag_pet_anom %>% as.matrix(); gc(reset = T, full=T)
+# tmp$lag_pe_anom <- tmp$lag_pe_anom %>% as.matrix(); gc(reset = T, full=T)
 #*******************************************************************************
 #* END SECTION
 #*******************************************************************************

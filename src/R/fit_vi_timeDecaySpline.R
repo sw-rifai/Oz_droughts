@@ -162,7 +162,7 @@ fit <- bam(nirv_anom_sd ~
              # ddate+
              # s(month, bs='cc',k=3)+
              s(x,y,by=ddate)+
-             s(tmax)+
+             # s(tmax)+
              # s(map,mapet)+
              # s(precip_anom_12mo)+
              # s(pet_anom_12mo)+
@@ -170,11 +170,13 @@ fit <- bam(nirv_anom_sd ~
              # s(precip_anom_12mo, pet_anom_12mo)+
              # te(pet_anom, pet_anom_12mo, mapet)+
              # te(precip_anom, precip_anom_12mo,map)
+             # te(lag_pet_anom, lag_precip_anom,by=lag_month, bs='gp',k=5)
              s(lag_month, by=lag_pe_anom, bs='gp',k=5)
              # s(lag_month,by=lag_precip_anom, bs='gp',k=5)+
              # s(lag_month,by=lag_pet_anom, bs='gp',k=5)
            ,
            data=tmp %>% 
+             filter(month %in% c(2,3)) %>% 
              sample_n(40000) %>% 
              filter(between(nirv_anom_sd,-3.5,3.5)) %>% 
              mutate(ddate = decimal_date(date)) 
@@ -194,6 +196,14 @@ plot(fit,rug=F,shade=T, select = 3, scale=0);abline(h=0,col='red',lty=3)
 plot(fit,rug=F,shade=T, select = 4, scale=0);abline(h=0,col='red',lty=3)
 
 plot(fit$model$nirv_anom_sd~fitted(fit)); abline(0,1,col='red')
+
+tmp %>% 
+  sample_n(8000) %>% 
+  mutate(x=round(x,-0.5)) %>% 
+  mutate(map=round(map,-2)) %>% 
+  ggplot(data=., aes(month,nirv))+
+  geom_smooth()+
+  facet_wrap(~map,scales='free')
 
 df_preds <- tmp %>% 
   sample_n(40000) %>% 
