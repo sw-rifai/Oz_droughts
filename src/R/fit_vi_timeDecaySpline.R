@@ -157,10 +157,11 @@ nc <- 6
 if (detectCores()>1) { ## no point otherwise
   cl <- makeCluster(nc) 
   ## could also use makeForkCluster, but read warnings first!
-} else cl <- NULL
+} else cl <- NULLs
 fit <- bam(nirv_anom_sd ~ 
              # ddate+
              # s(month, bs='cc',k=3)+
+             s(vc,bs='re')+
              s(x,y,by=ddate)+
              # s(tmax)+
              # s(map,mapet)+
@@ -171,11 +172,11 @@ fit <- bam(nirv_anom_sd ~
              # te(pet_anom, pet_anom_12mo, mapet)+
              # te(precip_anom, precip_anom_12mo,map)
              # te(lag_pet_anom, lag_precip_anom,by=lag_month, bs='gp',k=5)
-             s(lag_month, by=lag_pe_anom, bs='gp',k=5)
+             te(lag_month, by=lag_pe_anom, bs='gp',k=5)
              # s(lag_month,by=lag_precip_anom, bs='gp',k=5)+
              # s(lag_month,by=lag_pet_anom, bs='gp',k=5)
            ,
-           data=tmp %>% 
+           data=dat %>% 
              filter(month %in% c(2,3)) %>% 
              sample_n(40000) %>% 
              filter(between(nirv_anom_sd,-3.5,3.5)) %>% 

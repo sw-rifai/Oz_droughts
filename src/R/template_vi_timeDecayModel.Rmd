@@ -1,0 +1,277 @@
+---
+title: "NIR-V Time Decay Models"
+output: html_notebook
+author: Sami Rifai
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+---
+
+## Import data 
+```{r eval=FALSE, include=TRUE}
+library(tidyverse); library(lubridate)
+library(data.table); library(mgcv); library(mgcViz)
+setDTthreads(threads=10)
+
+# import
+tmp <- arrow::read_parquet("../data_general/Oz_misc_data/ARD_nirv_aclim_2020-04-18.parquet", 
+                           # col_select = c("x","y","vc","date",
+                           #                "nirv_anom_sd",
+                           #                 "precip","pet")
+                           )
+
+# data.table 
+tmp <- setDT(tmp) # OR: tmp <- as.data.table(tmp)
+```
+ 
+ 
+The $NIR_V$ and climate data set is too large to process on once. 
+Here I am specifying which of the `r length(unique(tmp$vc))` vegetation classes
+to subset to. 
+```{r eval=F, include=T}
+# Subsetting to just one type of vegetation class
+vec_vc <- unique(tmp$vc) %>% sort
+tmp <- tmp[vc=="Eucalypt Tall Open Forests"]
+
+```
+\  
+\  
+
+Big climate anomaly processing chunk with data.table .
+```{r eval=F, include=T}
+# Calculate Climatology --------------------------------------------------------
+# calc norms *******************************************************************
+tmp <- tmp[, `:=`(month = month(date))] # create month
+tmp <- tmp[, `:=`(year = year(date))]   # create year
+tmp <- tmp[,`:=`("pe" = precip/pet)]
+norms_p <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
+               .("precip_u" = mean(precip), 
+                 "precip_sd" = sd(precip)),
+               by=.(x,y,month)]
+norms_pet <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
+                 .(pet_u = mean(pet), 
+                   pet_sd = sd(pet)),
+                 by=.(x,y,month)]
+norms_pe <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
+                 .(pe_u = mean(pe), 
+                   pe_sd = sd(pe)),
+                 by=.(x,y,month)]
+
+norms_map <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
+                 .("ap" = sum(precip)),
+                 by=.(x,y,year)][,.("map"=mean(ap), 
+                                    "ap_sd"=sd(ap)),by=.(x,y)]
+norms_mapet <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
+                 .("apet" = sum(pet)),
+                 by=.(x,y,year)][,.("mapet"=mean(apet), 
+                                    "apet_sd"=sd(apet)),by=.(x,y)]
+norms_mape <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
+                 .("ape" = sum(pe)),
+                 by=.(x,y,year)][,.("mape"=mean(ape), 
+                                    "ape_sd"=sd(ape)),by=.(x,y)]
+
+# join all the data frames *****************************************************
+norms <- norms_p[norms_pet, on=.(x,y,month)] # join data.tables
+norms <- norms[norms_pe, on=.(x,y,month)] # join data.tables
+norms <- norms[norms_map, on=.(x,y)]
+norms <- norms[norms_mapet, on=.(x,y)]
+norms <- norms[norms_mape, on=.(x,y)]
+tmp <- tmp[norms, on=.(x,y,month)]
+
+# calculate the anomalies ******************************************************
+tmp <- tmp[, `:=`(precip_anom = precip-precip_u,  # calc raw anomaly 
+        pet_anom = pet-pet_u, 
+        pe_anom = pe-pe_u)]
+tmp <- tmp[, `:=`(precip_anom_sd = precip_anom/precip_sd,  # calc sd anomaly 
+                  pet_anom_sd = pet_anom/pet_sd, 
+                  pe_anom_sd = pe_anom/pe_sd)]
+
+# calculate the rolling 12-month sums & anomalies
+tmp <- tmp[order(x,y,date)][, precip_12mo := frollsum(precip,n = 12,fill = NA,align='right'), by=.(x,y)]
+tmp <- tmp[order(x,y,date)][, pet_12mo := frollsum(pet,n = 12,fill = NA,align='right'), by=.(x,y)]
+tmp <- tmp[order(x,y,date)][, pe_12mo := frollsum(pe,n = 12,fill = NA,align='right'), by=.(x,y)]
+
+tmp <- tmp[, `:=`(precip_anom_12mo = precip_12mo-map)]
+tmp <- tmp[, `:=`(pet_anom_12mo = pet_12mo-mapet)]
+tmp <- tmp[, `:=`(pe_anom_12mo = pe_12mo-mape)]
+
+```
+
+
+
+### Cast the variables to lagged matrices -----------------------------------
+```{r eval=F, include=T}
+gc(reset = TRUE)
+tmp <- tmp[order(x,y,date), c(paste0("precip_",1:36)) := shift(precip, 1:36) , .(x,y)][order(date)]
+gc(verbose = T, reset = T, full = T)
+
+system.time(
+  tmp <- tmp[order(x,y,date), c(paste0("pet_",1:36)) := shift(pet, 1:36) , .(x,y)][order(date)]
+)
+gc(verbose = T, reset = T, full = T)
+
+tmp <- tmp[order(x,y,date), c(paste0("pe_",1:36)) := shift(pe, 1:36) , .(x,y)][order(date)]
+
+
+# do it for the anom
+gc(reset = TRUE)
+tmp <- tmp[order(x,y,date), c(paste0("precip_anom_",1:36)) := shift(precip_anom, 1:36) , .(x,y)][order(date)]
+gc(verbose = T, reset = T, full = T)
+
+system.time(
+  tmp <- tmp[order(x,y,date), c(paste0("pet_anom_",1:36)) := shift(pet_anom, 1:36) , .(x,y)][order(date)]
+)
+gc(verbose = T, reset = T, full = T)
+
+tmp <- tmp[order(x,y,date), c(paste0("pe_anom_",1:36)) := shift(pe_anom, 1:36) , .(x,y)][order(date)]
+
+
+d1 <- tmp[vc=="Eucalypt Tall Open Forests"]
+lag_n <- 0:36 ## create wavelength matrix...
+j <- 3
+# d2 <- d1[x >= (152+j) & x<(152+j) & y>= (-32+j) & y < (30+j)] # TEMPORARY BREAKING UP DF
+# d2 <- d1[x %in% d1$x[1:10]]
+d2 <- d1
+tmp_mat <- t(matrix(lag_n,length(lag_n),length(d2$x)))
+d2 <- as_tibble(d2)
+d2$lag_month <- tmp_mat # lag index is needed for GAM
+d2 <- d2 %>% rename(precip_0 = precip, 
+              pet_0 = pet, 
+              pe_0 = pe)
+d2$lag_precip <- d2 %>% select(paste0('precip_',0:36))
+d2$lag_pet <- d2 %>% select(paste0('pet_',0:36))
+d2$lag_pe <- d2 %>% select(paste0('pe_',0:36))
+
+d2 <- d2 %>% mutate(precip_anom_0 = precip_anom, 
+                    pet_anom_0 = pet_anom, 
+                    pe_anom_0 = pe_anom)
+d2$lag_precip_anom <- d2 %>% select(paste0('precip_anom_',0:36))
+d2$lag_pet_anom <- d2 %>% select(paste0('pet_anom_',0:36))
+d2$lag_pe_anom <- d2 %>% select(paste0('pe_anom_',0:36))
+
+
+# d2 <- d2 %>% select(x,y,vc,date,nirv_anom_sd, lag_month, 
+#                     lag_precip, lag_pet, 
+#                     lag_precip_anom, lag_pet_anom)
+d2$lag_precip <- d2$lag_precip %>% as.matrix()
+d2$lag_pet <- d2$lag_pet %>% as.matrix()
+d2$lag_pe <- d2$lag_pe %>% as.matrix()
+
+d2$lag_precip_anom <- d2$lag_precip_anom %>% as.matrix()
+d2$lag_pet_anom <- d2$lag_pet_anom %>% as.matrix()
+d2$lag_pe_anom <- d2$lag_pe_anom %>% as.matrix()
+
+# filter extreme outliers
+d2 <- d2 %>% 
+  filter(is.na(nirv_anom_sd)==F) %>% 
+  filter(between(nirv_anom_sd,-3.5,3.5))
+
+```
+
+
+```{r eval=F, include=T}
+sdat <- tmp %>% 
+  filter(month==12) %>% 
+  sample_frac(0.2) %>% 
+  mutate(ddate=decimal_date(date)) %>% 
+  filter(between(nirv_anom_sd,-3.5,3.5)) %>% 
+  filter(between(pe_anom_12mo,-3,4)) %>% 
+  filter(is.na(precip_anom_12mo)==F) %>% 
+  filter(is.na(pet_anom_12mo)==F) %>% 
+  filter(is.na(nirv_anom_sd)==F)
+
+
+fit_st1 <- sdat %>% 
+  bam(nirv_anom_sd ~ te(x,y,ddate,k=5)+
+        scale(precip_anom_12mo)*scale(pet_anom_12mo),
+      data=.,
+      discrete=T,select=T)
+fit_st2 <- sdat %>% 
+  bam(nirv_anom_sd ~ 
+        s(x,y,by=ddate)+
+        s(vc,bs='re')+
+        te(pet_anom, pet_anom_12mo, mapet)+
+        te(precip_anom, precip_anom_12mo,map)
+        # vc*ddate +
+        # s(pe_anom_12mo,k=5)
+        # s(pet_anom, precip_anom_12mo, pet_anom_12mo,mape)
+      ,
+      data=.,
+      discrete=T,select=T)
+
+fit_st1 %>% summary
+fit_st2 %>% summary
+getViz(fit_st1) %>% plot(allTerms=T)
+b <- getViz(fit_st2)
+b %>% plot()
+plot(sm(b,1))+l_fitRaster()+coord_equal()
+plot(sm(b,2))+
+  l_fitRaster()+
+  l_rug()+
+  scale_fill_gradient2(high='blue',low='red')+
+  geom_hline(aes(yintercept=0))+
+  geom_vline(aes(xintercept=0))+
+  scale_x_continuous(expand=c(0,0))+
+  scale_y_continuous(expand=c(0,0))
+
+
+tibble(x=152,y=-30,
+       vc="Eucalypt Tall Open Forests",
+       ddate=1982:2019, 
+       pet_anom_12mo=-100,
+       precip_anom_12mo=500, 
+       pe_anom_12mo=5) %>% 
+  mutate(pred1 = predict(fit_st1, newdata=.)) %>% 
+  mutate(pred2 = predict(fit_st2, newdata=.)) %>% 
+  gather(-ddate,-x,-y,-vc, 
+         -precip_anom_12mo,-pet_anom_12mo, 
+         -pe_anom_12mo, 
+         key = 'model',value='pred') %>% 
+  ggplot(data=., aes(ddate,pred,color=model))+
+  geom_point()
+
+tmp %>% 
+  filter(near(x,152,tol = 0.1)) %>% 
+  filter(near(y,-30,tol=0.1)) %>% 
+  mutate(ddate= decimal_date(date)) %>% 
+  # mutate(pred1 = predict(fit_st1, newdata=.)) %>% 
+  mutate(pred2 = predict(fit_st2, newdata=.)) %>% 
+  select(ddate,starts_with('pred'),nirv_anom_sd) %>% 
+  gather(-ddate,
+         key = 'model',value='pred') %>% 
+  ggplot(data=., aes(ddate,pred,color=model))+
+  geom_point(alpha=0.2)
+  # geom_smooth()+
+  # facet_wrap(~model,ncol=1)
+
+
+
+
+
+tmp %>% 
+  filter(between(nirv_anom_sd, -3.5,3.5)) %>% 
+  filter(year>=2018) %>% 
+  filter(nirv_anom_sd < -1) %>% 
+  sample_n(1e4) %>% 
+  ggplot(data=., aes(precip_anom_12mo, pet_anom_sd,color=nirv_anom_sd))+
+  geom_point(alpha=0.2)+
+  geom_smooth(method='gam',
+              formula=y~s(x,k=50),
+              method.args=list(method='GCV.Cp'))+
+  scale_color_viridis_c(option='B',direction = -1)+
+  theme_linedraw()
+
+```
+
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+plot(cars)
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.

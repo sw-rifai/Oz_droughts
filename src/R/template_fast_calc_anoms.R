@@ -22,8 +22,10 @@ tmp <- tmp[tmp_vc,on=.(x,y)] # subset to just the selected vegetation class
 #* END SECTION
 #*******************************************************************************
 
-# big crazy change
-
+fn_proc <- function(tmp){
+  library(tidyverse); library(lubridate);
+  library(data.table)
+  gc(reset = T, full = T)  
 #*******************************************************************************
 # Calculate Climatology --------------------------------------------------------
 #*******************************************************************************
@@ -207,9 +209,6 @@ rm(mat_pe); gc()
 #* END SECTION
 #*******************************************************************************
 
-
-
-
 #*******************************************************************************
 #  Rejoin with multi year anoms -----
 #*******************************************************************************
@@ -217,11 +216,39 @@ tmp <- bind_cols(tmp, tmp_my_anoms %>% as_tibble())
 #*******************************************************************************
 #* END SECTION
 #*******************************************************************************
+return(tmp)
+}
 
 
 #*******************************************************************************
 #  -----
 #*******************************************************************************
+
+tmp <- arrow::read_parquet("/home/sami/srifai@gmail.com/work/research//data_general/Oz_misc_data/ARD_nirv_aclim_2020-04-18.parquet", 
+)
+
+# data.table 
+tmp <- setDT(tmp) # OR: tmp <- as.data.table(tmp)
+tmp <- tmp %>% rename(x=x_vi, y=y_vi)
+
+
+vec_vc <- unique(tmp$vc) %>% sort
+for(i in 1:8){
+  gc(verbose = F); 
+  # Subsetting to just one type of vegetation class
+  tmp_vc <- tmp[date==ymd("2000-01-01"),.(x,y,vc)]
+  tmp_vc <- tmp_vc[vc==vec_vc[i]]
+  tmp1 <- tmp[tmp_vc,on=.(x,y)] # subset to just the selected vegetation class
+  if(i==1){dat <- fn_proc(tmp1)
+  }else{
+    tmp1 <- fn_proc(tmp1)
+    dat <- bind_rows(dat,tmp1)
+  }
+  print(i); 
+  rm(tmp1); gc(reset = T, full=T, verbose = F)
+}
+
+
 #*******************************************************************************
 #* END SECTION
 #*******************************************************************************

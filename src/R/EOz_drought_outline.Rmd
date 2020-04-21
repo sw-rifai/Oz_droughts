@@ -1,0 +1,218 @@
+---
+title: 'Outline: East Oz Forest Drought'
+author: "Sami Rifai & ..."
+date: "`r format(Sys.time(), '%Y-%m-%d')`"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r echo=FALSE}
+# Some recommended settings. 
+knitr::opts_chunk$set(
+  echo = FALSE,
+  fig.pos = 'h',
+  out.extra = "",   # To force the use of figure enviroment
+  fig.cap = "Please caption every figure"
+)
+```
+```{r echo=FALSE, eval=TRUE, warning=FALSE, message=FALSE}
+library(tidyverse)
+```
+
+
+```{r eval=TRUE, echo=FALSE, warning=FALSE, message=FALSE}
+library(arrow)
+library(tidyverse); library(lubridate);
+library(data.table)
+setDTthreads(threads=8)
+
+#*******************************************************************************
+# Get data  ---------------------------------------------------------
+#*******************************************************************************
+tmp <- arrow::read_parquet("/home/sami/srifai@gmail.com/work/research//data_general/Oz_misc_data/ARD_nirv_aclim_2020-04-18.parquet", 
+)
+
+# data.table 
+tmp <- setDT(tmp) # OR: tmp <- as.data.table(tmp)
+tmp <- tmp %>% rename(x=x_vi, y=y_vi)
+
+#*******************************************************************************
+# Calculate Climatology --------------------------------------------------------
+#*******************************************************************************
+# calc norms 
+tmp <- tmp[, `:=`(month = month(date))] # create month
+tmp <- tmp[, `:=`(year = year(date))]   # create year
+tmp <- tmp[,`:=`("pe" = precip/pet)]
+norms_nirv <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
+                  .("nirv_u" = mean(nirv), 
+                    "nirv_sd" = sd(nirv)),
+                  by=.(x,y,month)] # joining on x,y,month
+norms_p <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
+               .("precip_u" = mean(precip), 
+                 "precip_sd" = sd(precip)),
+               by=.(x,y,month)]
+norms_pet <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
+                 .(pet_u = mean(pet), 
+                   pet_sd = sd(pet)),
+                 by=.(x,y,month)]
+norms_pe <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
+                .(pe_u = mean(pe), 
+                  pe_sd = sd(pe)),
+                by=.(x,y,month)]
+
+norms_map <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
+                 .("ap" = sum(precip)),
+                 by=.(x,y,year)][,.("map"=mean(ap), 
+                                    "ap_sd"=sd(ap)),by=.(x,y)]
+norms_mapet <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
+                   .("apet" = sum(pet)),
+                   by=.(x,y,year)][,.("mapet"=mean(apet), 
+                                      "apet_sd"=sd(apet)),by=.(x,y)]
+norms_mape <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
+                  .("ape" = sum(pe)),
+                  by=.(x,y,year)][,.("mape"=mean(ape), 
+                                     "ape_sd"=sd(ape)),by=.(x,y)]
+
+# join all the data frames ***
+norms <- norms_p[norms_pet, on=.(x,y,month)] # join data.tables
+norms <- norms[norms_pe, on=.(x,y,month)] # join data.tables
+norms <- norms[norms_map, on=.(x,y)]
+norms <- norms[norms_mapet, on=.(x,y)]
+norms <- norms[norms_mape, on=.(x,y)]
+norms <- norms[norms_nirv, on=.(x,y,month)]
+tmp <- norms[tmp, on=.(x,y,month)]
+#*******************************************************************************
+#* END SECTION
+#*******************************************************************************
+
+#*******************************************************************************
+# Calculate the anomalies ------
+#*******************************************************************************
+tmp <- tmp[, `:=`(nirv_anom = nirv - nirv_u, 
+                  precip_anom = precip-precip_u,  # calc raw anomaly 
+                  pet_anom = pet-pet_u, 
+                  pe_anom = pe-pe_u)]
+tmp <- tmp[, `:=`(nirv_anom_sd = nirv_anom/nirv_sd,
+                  precip_anom_sd = precip_anom/precip_sd,  # calc sd anomaly 
+                  pet_anom_sd = pet_anom/pet_sd, 
+                  pe_anom_sd = pe_anom/pe_sd)]
+#*******************************************************************************
+#* END SECTION
+#*******************************************************************************
+
+#*******************************************************************************
+# Calculate the multi-year anomalies ------
+#*******************************************************************************
+# calculate the rolling 12-month sums 
+tmp <- tmp[order(x,y,date)][, nirv_12mo := frollmean(nirv,n = 12,fill = NA,align='right'), by=.(x,y)]
+tmp <- tmp[order(x,y,date)][, precip_12mo := frollsum(precip,n = 12,fill = NA,align='right'), by=.(x,y)]
+tmp <- tmp[order(x,y,date)][, pet_12mo := frollsum(pet,n = 12,fill = NA,align='right'), by=.(x,y)]
+tmp <- tmp[order(x,y,date)][, pe_12mo := frollsum(pe,n = 12,fill = NA,align='right'), by=.(x,y)]
+tmp <- tmp[order(x,y,date)][, nirv_anom_12mo := frollmean(nirv_anom,n = 12,fill = NA,align='right'), by=.(x,y)]
+
+# rolling 2 year sums
+tmp <- tmp[order(x,y,date)][, precip_24mo := frollsum(precip,n = 24,fill = NA,align='right'), by=.(x,y)]
+tmp <- tmp[order(x,y,date)][, pet_24mo := frollsum(pet,n = 24,fill = NA,align='right'), by=.(x,y)]
+tmp <- tmp[order(x,y,date)][, pe_24mo := frollsum(pe,n = 24,fill = NA,align='right'), by=.(x,y)]
+
+# rolling 3 year sums
+tmp <- tmp[order(x,y,date)][, precip_36mo := frollsum(precip,n = 36,fill = NA,align='right'), by=.(x,y)]
+tmp <- tmp[order(x,y,date)][, pet_36mo := frollsum(pet,n = 36,fill = NA,align='right'), by=.(x,y)]
+tmp <- tmp[order(x,y,date)][, pe_36mo := frollsum(pe,n = 36,fill = NA,align='right'), by=.(x,y)]
+
+# rolling 4 year sums
+tmp <- tmp[order(x,y,date)][, precip_48mo := frollsum(precip,n = 48,fill = NA,align='right'), by=.(x,y)]
+tmp <- tmp[order(x,y,date)][, pet_48mo := frollsum(pet,n = 48,fill = NA,align='right'), by=.(x,y)]
+tmp <- tmp[order(x,y,date)][, pe_48mo := frollsum(pe,n = 48,fill = NA,align='right'), by=.(x,y)]
+
+# calc anoms of rolling sums
+tmp <- tmp[, `:=`(precip_anom_12mo = precip_12mo-map)]
+tmp <- tmp[, `:=`(pet_anom_12mo = pet_12mo-mapet)]
+tmp <- tmp[, `:=`(pe_anom_12mo = pe_12mo-mape)]
+
+tmp <- tmp[, `:=`(precip_anom_24mo = precip_24mo-2*map)]
+tmp <- tmp[, `:=`(pet_anom_24mo = pet_24mo-2*mapet)]
+tmp <- tmp[, `:=`(pe_anom_24mo = pe_24mo-2*mape)]
+
+tmp <- tmp[, `:=`(precip_anom_36mo = precip_36mo-3*map)]
+tmp <- tmp[, `:=`(pet_anom_36mo = pet_36mo-3*mapet)]
+tmp <- tmp[, `:=`(pe_anom_36mo = pe_36mo-3*mape)]
+
+tmp <- tmp[, `:=`(precip_anom_48mo = precip_48mo-4*map)]
+tmp <- tmp[, `:=`(pet_anom_48mo = pet_48mo-4*mapet)]
+tmp <- tmp[, `:=`(pe_anom_48mo = pe_48mo-4*mape)]
+
+#*******************************************************************************
+#* END SECTION
+#*******************************************************************************
+
+```
+
+```{r}
+# variables to be used inline with the manuscript text
+range_map <- tmp$map %>% na.omit() %>% range() %>% round(., -1)
+range_pet <- tmp$mapet %>% na.omit() %>% range() %>% round(., -1)
+
+```
+
+
+## 1. Introduction
+
+Australia has a long history multi-year severe droughts. Droughts such as the 
+
+- Donohue et al., 2009  
+- Budyko energy limitation framework  
+- The rate of climate change in eastern Australia  
+
+Prior to the drought of 2017-2019, the Millennium Drought had been the worst Australian drought in methodologically observed record (van Dijk et al., 2013).
+
+Australian trees span an extensive climate gradient. A key determinant of where and what trees can grow is the balance between precipitation (P) and potential evapotranspiration (PET). The ratio of P:PET and similar variants are routed in Budkyo's energy limitation framework (source) where actual evapotranspiration is predominantly ultimately limited by solar radiation or precipitation. Temperate and tropical rainforests dominate the forested regions of eastern Australia where P:PET is less than 1. 
+
+Eastern coastal Australia holds the largest share of tree covered landscapes in Australia yet it is still largely water limited (source).
+
+Questions:  
+1. Has meteorological drought severity changed through time?  
+2. Have vegetation drought responses changed through time?  
+3. Why did forest vegetation respond more to the 2017-2019 drought leading to the "Black Summer" than prior droughts of similar severity?  
+
+## 2. Methods
+### 2.1 Study region
+We focus on eastern Australian vegetation containing trees. Specifically we use the National Vegetation Information System (NVIS) major classes to subset eastern Australia into the focal study regions. These classes are predominantly dominated by trees in the Acacia, Callitris, Casuarina, Eucalyptus, Mallee, Melaleuca genera. 
+
+### 2.2 Regional climate 
+The study region spans a vast gradient in mean annual precipitation (`r round(range_map[1],)` - `r round(range_map[2],)` mm yr^-1) and mean annual potential evapotranspiration (`r round(range_pet[1],)` - `r round(range_pet[2],)` mm yr^-1). 
+<br>
+<br>
+<br>
+NVIS Major Vegetation Classes that contain trees.
+```{r eval=TRUE, echo=FALSE, fig.cap="Blah Blah ;lajdf;lkadjf;ldkajfd;lkjdaf;lkdja;lfdkjalfd;jadljfda;lkjfdlakjf;lkdaj"}
+f1_theme <- theme(panel.background = element_rect(fill = 'gray30'), 
+                  panel.grid = element_blank(), 
+                  legend.position = 'bottom', 
+                  axis.text = element_blank())
+p_vc <- tmp[date==ymd("2000-01-01")] %>% 
+  as_tibble() %>% 
+  ggplot(data=., aes(x,y,fill=vc))+
+  geom_tile()+
+  coord_equal()+
+  scale_fill_viridis_d(
+    # expression(paste("Tmax",degree*C)),
+    option='B')+
+  labs(x=NULL,y=NULL)+
+  scale_x_continuous(expand=c(0,0))+
+  scale_y_continuous(expand=c(0.01,0.01))+
+  f1_theme+
+  theme(legend.position = 'left')
+p_vc
+```
+\caption{Caption here}
+
+
+## 3. Results
+Question 1: Has meteorological drought severity changed through time?  
+Question 2: Have vegetation drought responses changed through time?  
+Question 3: Why did forest vegetation respond more to the 2017-2019 drought leading to the "Black Summer" than prior droughts of similar severity?  
+
+## 4. Discussion
+
