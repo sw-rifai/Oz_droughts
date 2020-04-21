@@ -159,7 +159,7 @@ range_pet <- tmp$mapet %>% na.omit() %>% range() %>% round(., -1)
 
 ## 1. Introduction
 
-Australia has a long history multi-year severe droughts. Droughts such as the 
+Australia has a long history of severe droughts spanning multiple years. Droughts such as the Federation drought, the WWII drought, and the Millennium drought spanned years, caused widespread agricultural collapse, and led to increased bushfires. 
 
 - Donohue et al., 2009  
 - Budyko energy limitation framework  
