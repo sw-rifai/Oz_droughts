@@ -1,3 +1,6 @@
+# Description: Calculate the climatology and meteorological anomalies quickly
+# with the data.frame package. Considerable RAM is required. 
+
 library(arrow)
 library(tidyverse); library(lubridate);
 library(data.table)
@@ -6,26 +9,23 @@ setDTthreads(threads=8)
 #*******************************************************************************
 # Get data  ---------------------------------------------------------
 #*******************************************************************************
-tmp <- arrow::read_parquet("/home/sami/srifai@gmail.com/work/research//data_general/Oz_misc_data/ARD_nirv_aclim_2020-04-18.parquet", 
-)
+tmp <- arrow::read_parquet("/home/sami/srifai@gmail.com/work/research/data_general/Oz_misc_data/ARD_nirv_aclim_2020-04-27.parquet")
 
 # data.table 
 tmp <- setDT(tmp) # OR: tmp <- as.data.table(tmp)
 tmp <- tmp %>% rename(x=x_vi, y=y_vi)
+tmp <- tmp[, pet:=ifelse(pet<50,50,pet)]
+tmp <- tmp[, id := .GRP, by=.(x,y)]
 
 # Subsetting to just one type of vegetation class
-tmp_vc <- tmp[date==ymd("2000-01-01"),.(x,y,vc)]
-vec_vc <- unique(tmp$vc) %>% sort
-tmp_vc <- tmp_vc[vc=="Eucalypt Open Forests"]
-tmp <- tmp[tmp_vc,on=.(x,y)] # subset to just the selected vegetation class
+# tmp_vc <- tmp[date==ymd("2000-01-01"),.(x,y,vc)]
+# vec_vc <- unique(tmp$vc) %>% sort
+# tmp_vc <- tmp_vc[vc=="Eucalypt Open Forests"]
+# tmp <- tmp[tmp_vc,on=.(x,y)] # subset to just the selected vegetation class
 #*******************************************************************************
 #* END SECTION
 #*******************************************************************************
 
-fn_proc <- function(tmp){
-  library(tidyverse); library(lubridate);
-  library(data.table)
-  gc(reset = T, full = T)  
 #*******************************************************************************
 # Calculate Climatology --------------------------------------------------------
 #*******************************************************************************
@@ -34,20 +34,24 @@ tmp <- tmp[, `:=`(month = month(date))] # create month
 tmp <- tmp[, `:=`(year = year(date))]   # create year
 tmp <- tmp[,`:=`("pe" = precip/pet)]
 norms_nirv <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
-                  .("nirv_u" = mean(nirv), 
-                    "nirv_sd" = sd(nirv)),
+                  .("nirv_u" = mean(nirv,na.rm=TRUE), 
+                    "nirv_sd" = sd(nirv,na.rm=TRUE)),
                   by=.(x,y,month)] # joining on x,y,month
 norms_p <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
-               .("precip_u" = mean(precip), 
-                 "precip_sd" = sd(precip)),
+               .("precip_u" = mean(precip,na.rm=TRUE), 
+                 "precip_sd" = sd(precip,na.rm=TRUE)),
                by=.(x,y,month)]
 norms_pet <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
-                 .(pet_u = mean(pet), 
-                   pet_sd = sd(pet)),
+                 .(pet_u = mean(pet,na.rm=TRUE), 
+                   pet_sd = sd(pet,na.rm=TRUE)),
                  by=.(x,y,month)]
 norms_pe <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
-                .(pe_u = mean(pe), 
-                  pe_sd = sd(pe)),
+                .(pe_u = mean(pe,na.rm=TRUE), 
+                  pe_sd = sd(pe,na.rm=TRUE)),
+                by=.(x,y,month)]
+norms_tmax <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
+                .(tmax_u = mean(tmax,na.rm=TRUE), 
+                  tmax_sd = sd(tmax,na.rm=TRUE)),
                 by=.(x,y,month)]
 
 norms_map <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
@@ -59,16 +63,23 @@ norms_mapet <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to 
                    by=.(x,y,year)][,.("mapet"=mean(apet), 
                                       "apet_sd"=sd(apet)),by=.(x,y)]
 norms_mape <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
-                  .("ape" = sum(pe)),
+                  .("ape" = mean(pe)),
                   by=.(x,y,year)][,.("mape"=mean(ape), 
                                      "ape_sd"=sd(ape)),by=.(x,y)]
+norms_matmax <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
+                 .("atmax" = mean(tmax)),
+                 by=.(x,y,year)][,.("matmax"=mean(atmax), 
+                                    "atmax_sd"=sd(atmax)),by=.(x,y)]
 
 # join all the data frames ***
 norms <- norms_p[norms_pet, on=.(x,y,month)] # join data.tables
 norms <- norms[norms_pe, on=.(x,y,month)] # join data.tables
+norms <- norms[norms_tmax, on=.(x,y,month)] # join data.tables
 norms <- norms[norms_map, on=.(x,y)]
 norms <- norms[norms_mapet, on=.(x,y)]
 norms <- norms[norms_mape, on=.(x,y)]
+norms <- norms[norms_matmax, on=.(x,y)]
+
 norms <- norms[norms_nirv, on=.(x,y,month)]
 tmp <- norms[tmp, on=.(x,y,month)]
 #*******************************************************************************
@@ -81,11 +92,13 @@ tmp <- norms[tmp, on=.(x,y,month)]
 tmp <- tmp[, `:=`(nirv_anom = nirv - nirv_u, 
                   precip_anom = precip-precip_u,  # calc raw anomaly 
                   pet_anom = pet-pet_u, 
-                  pe_anom = pe-pe_u)]
+                  pe_anom = pe-pe_u, 
+                  tmax_anom = tmax-tmax_u)]
 tmp <- tmp[, `:=`(nirv_anom_sd = nirv_anom/nirv_sd,
                   precip_anom_sd = precip_anom/precip_sd,  # calc sd anomaly 
                   pet_anom_sd = pet_anom/pet_sd, 
-                  pe_anom_sd = pe_anom/pe_sd)]
+                  pe_anom_sd = pe_anom/pe_sd, 
+                  tmax_anom_sd = tmax_anom/tmax_sd)]
 #*******************************************************************************
 #* END SECTION
 #*******************************************************************************
@@ -98,7 +111,15 @@ tmp <- tmp[order(x,y,date)][, nirv_12mo := frollmean(nirv,n = 12,fill = NA,align
 tmp <- tmp[order(x,y,date)][, precip_12mo := frollsum(precip,n = 12,fill = NA,align='right'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, pet_12mo := frollsum(pet,n = 12,fill = NA,align='right'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, pe_12mo := frollsum(pe,n = 12,fill = NA,align='right'), by=.(x,y)]
+tmp <- tmp[order(x,y,date)][, tmax_anom_12mo := frollapply(tmax_anom,FUN=max,
+                                                           n = 12,fill = NA,align='right'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, nirv_anom_12mo := frollmean(nirv_anom,n = 12,fill = NA,align='right'), by=.(x,y)]
+
+# calculate rolling 3-month anomaly
+tmp <- tmp[order(x,y,date)][, precip_anom_3mo := frollsum(precip_anom,n = 3,fill = NA,align='right'), by=.(x,y)]
+tmp <- tmp[order(x,y,date)][, pet_anom_3mo := frollsum(pet_anom,n = 3,fill = NA,align='right'), by=.(x,y)]
+tmp <- tmp[order(x,y,date)][, pe_anom_3mo := frollmean(pe_anom,n = 3,fill = NA,align='right'), by=.(x,y)]
+tmp <- tmp[order(x,y,date)][, tmax_anom_3mo := frollmean(tmax_anom,n = 3,fill = NA,align='right'), by=.(x,y)]
 
 # rolling 2 year sums
 tmp <- tmp[order(x,y,date)][, precip_24mo := frollsum(precip,n = 24,fill = NA,align='right'), by=.(x,y)]
@@ -132,122 +153,8 @@ tmp <- tmp[, `:=`(precip_anom_48mo = precip_48mo-4*map)]
 tmp <- tmp[, `:=`(pet_anom_48mo = pet_48mo-4*mapet)]
 tmp <- tmp[, `:=`(pe_anom_48mo = pe_48mo-4*mape)]
 
-tmp_my_anoms <- tmp[date >= ymd("1978-01-01")] %>% 
-               select(starts_with("precip_anom_"),
-               starts_with("pet_anom_"), 
-               starts_with("pe_anom_"))
-names(tmp_my_anoms) <- paste0(names(tmp_my_anoms),"_my")
-#*******************************************************************************
-#* END SECTION
-#*******************************************************************************
-
-
-#!!! The following is for for a form of lagged variable GAM where the lagged
-# covariates are organized into matrices. 
-# This can/will def blow up the memory... even 64 GB...  
-#*******************************************************************************
-# Cast the variables to lagged matrices -----------------------------------
-#*******************************************************************************
-# Because this is so memory intensive I'm subsetting in time
-tmp <- tmp[date >= ymd("1978-01-01")]
-
-# precip anom lags
-gc(reset = TRUE,full=T)
-mat_p <- tmp[,.(x,y,date,precip_anom)][order(x,y,date), c(paste0("precip_anom_",1:36)) := shift(precip_anom, 1:36) , .(x,y)][order(date)]
-mat_p <- mat_p %>% rename(precip_anom_0 = precip_anom) %>% select(-x,-y,-date)
-gc(verbose = T, reset = T, full = T)
-
-# pet anom lags
-gc(reset = TRUE,full=T)
-mat_pet <- tmp[,.(x,y,date,pet_anom)][order(x,y,date), c(paste0("pet_anom_",1:36)) := shift(pet_anom, 1:36) , .(x,y)][order(date)]
-mat_pet <- mat_pet %>% rename(pet_anom_0 = pet_anom) %>% select(-x,-y,-date)
-gc(verbose = T, reset = T, full = T)
-
-# P:PET anom lags
-mat_pe <- tmp[,.(x,y,date,pe_anom)][order(x,y,date), c(paste0("pe_anom_",1:36)) := shift(pe_anom, 1:36) , .(x,y)][order(date)]
-mat_pe <- mat_pe %>% rename(pe_anom_0 = pe_anom) %>% select(-x,-y,-date)
-gc(verbose = T, reset = T, full = T)
-
-
-lag_n <- 0:36 ## create time lag matrix...
-
-tmp_mat <- t(matrix(lag_n,length(lag_n),length(tmp$x)))
-tmp <- as_tibble(tmp)
-tmp$lag_month <- tmp_mat # lag index is needed for GAM
-# tmp <- tmp %>% rename(precip_0 = precip, 
-#                     pet_0 = pet, 
-#                     pe_0 = pe)
-# tmp$lag_precip <- tmp %>% select(paste0('precip_',0:36))
-# tmp$lag_pet <- tmp %>% select(paste0('pet_',0:36))
-# tmp$lag_pe <- tmp %>% select(paste0('pe_',0:36))
-
-# tmp <- tmp %>% mutate(precip_anom_0 = precip_anom, 
-#                     pet_anom_0 = pet_anom, 
-#                     pe_anom_0 = pe_anom)
-# tmp$lag_precip_anom <- tmp %>% select(paste0('precip_anom_',0:36))
-# tmp$lag_pet_anom <- tmp %>% select(paste0('pet_anom_',0:36))
-# tmp$lag_pe_anom <- tmp %>% select(paste0('pe_anom_',0:36))
-
-tmp$lag_precip_anom <- as.matrix(mat_p)
-rm(mat_p); gc()
-tmp$lag_pet_anom <- as.matrix(mat_pet)
-rm(mat_pet); gc()
-tmp$lag_pe_anom <- as.matrix(mat_pe)
-rm(mat_pe); gc()
-
-# tmp <- tmp %>% select(x,y,vc,date,nirv_anom_sd, lag_month, 
-#                     lag_precip, lag_pet, 
-#                     lag_precip_anom, lag_pet_anom)
-# tmp$lag_precip <- tmp$lag_precip %>% as.matrix()
-# tmp$lag_pet <- tmp$lag_pet %>% as.matrix()
-# tmp$lag_pe <- tmp$lag_pe %>% as.matrix()
-
-# tmp$lag_precip_anom <- tmp$lag_precip_anom %>% as.matrix(); gc(reset = T, full=T)
-# tmp$lag_pet_anom <- tmp$lag_pet_anom %>% as.matrix(); gc(reset = T, full=T)
-# tmp$lag_pe_anom <- tmp$lag_pe_anom %>% as.matrix(); gc(reset = T, full=T)
-#*******************************************************************************
-#* END SECTION
-#*******************************************************************************
-
-#*******************************************************************************
-#  Rejoin with multi year anoms -----
-#*******************************************************************************
-tmp <- bind_cols(tmp, tmp_my_anoms %>% as_tibble())
-#*******************************************************************************
-#* END SECTION
-#*******************************************************************************
-return(tmp)
-}
-
-
-#*******************************************************************************
-#  -----
-#*******************************************************************************
-
-tmp <- arrow::read_parquet("/home/sami/srifai@gmail.com/work/research//data_general/Oz_misc_data/ARD_nirv_aclim_2020-04-18.parquet", 
-)
-
-# data.table 
-tmp <- setDT(tmp) # OR: tmp <- as.data.table(tmp)
-tmp <- tmp %>% rename(x=x_vi, y=y_vi)
-
-
-vec_vc <- unique(tmp$vc) %>% sort
-for(i in 1:8){
-  gc(verbose = F); 
-  # Subsetting to just one type of vegetation class
-  tmp_vc <- tmp[date==ymd("2000-01-01"),.(x,y,vc)]
-  tmp_vc <- tmp_vc[vc==vec_vc[i]]
-  tmp1 <- tmp[tmp_vc,on=.(x,y)] # subset to just the selected vegetation class
-  if(i==1){dat <- fn_proc(tmp1)
-  }else{
-    tmp1 <- fn_proc(tmp1)
-    dat <- bind_rows(dat,tmp1)
-  }
-  print(i); 
-  rm(tmp1); gc(reset = T, full=T, verbose = F)
-}
-
+tmp <- tmp[order(x,y,date)][, tmax_anom_24mo := frollmean(tmax_anom,n = 24,fill = NA,align='right'), by=.(x,y)]
+tmp <- tmp[order(x,y,date)][, tmax_anom_36mo := frollmean(tmax_anom,n = 36,fill = NA,align='right'), by=.(x,y)]
 
 #*******************************************************************************
 #* END SECTION
@@ -255,48 +162,24 @@ for(i in 1:8){
 
 
 #*******************************************************************************
-#  -----
+#* Add season and hydro year -----
 #*******************************************************************************
+vec_dates <- data.table(date=sort(unique(tmp$date))) %>% 
+  .[,quarter:=quarter(date)] %>% 
+  mutate(q = case_when(quarter==1~"DJF",
+                       quarter==2~"MAM",
+                       quarter==3~"JJA",
+                       quarter==4~"SON")) %>% 
+  mutate(season = factor(q,
+                         levels=c("DJF","MAM","JJA","SON"), 
+                         ordered=T)) %>% 
+  select(date,season) %>% 
+  mutate(hydro_year = year(date+months(1)))
+
+tmp <- tmp[vec_dates,on=.(date)]
 #*******************************************************************************
 #* END SECTION
 #*******************************************************************************
 
-
-#*******************************************************************************
-#  -----
-#*******************************************************************************
-#*******************************************************************************
-#* END SECTION
-#*******************************************************************************
-
-
-#*******************************************************************************
-#  -----
-#*******************************************************************************
-#*******************************************************************************
-#* END SECTION
-#*******************************************************************************
-
-
-#*******************************************************************************
-#  -----
-#*******************************************************************************
-#*******************************************************************************
-#* END SECTION
-#*******************************************************************************
-
-
-#*******************************************************************************
-#  -----
-#*******************************************************************************
-#*******************************************************************************
-#* END SECTION
-#*******************************************************************************
-
-
-#*******************************************************************************
-#  -----
-#*******************************************************************************
-#*******************************************************************************
-#* END SECTION
-#*******************************************************************************
+# write_parquet(tmp, sink="/home/sami/srifai@gmail.com/work/research/data_general/Oz_misc_data/ARD_nirv_aclim_anoms.parquet",
+#               compression = 'snappy')

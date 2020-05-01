@@ -8,6 +8,24 @@ blah_theme <- theme_linedraw()+
         axis.text = element_blank())
 
 
+fn_tsr <- function(vi, d_threshold, r_threshold){
+  # vi: vegetation index
+  # d_threshold: level of vegetation index to signal a disturbance
+  # r_threshold: level of vegetation index to recover from a disturbance
+  # Assumptions: Continuous time record of vi (no gaps)
+  tsr <- rep(0,length(vi)) # time since recovery array
+  vec_d <- vi<d_threshold
+  vec_r <- vi>r_threshold
+  vec_d[is.na(vec_d)==T] <- FALSE
+  vec_r[is.na(vec_r)==T] <- FALSE
+  for(i in seq(2,length(vi))){
+    tsr[i] <- tsr[i-1] + vec_d[i]
+    tsr[i] <- ifelse(tsr[i] >=1 & vec_r[i]==F, tsr[i]+1, 0)
+  }
+  tsr
+}
+
+
 
 # function to cast time series var to multiple lagged columns -------------------------------------------
 jetlag2 <- function(data, variable, n=10){

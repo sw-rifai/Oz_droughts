@@ -375,7 +375,6 @@ tmp_pet <- tmp_pet[, `:=`(pet_pred = beta0 + beta1*i.pet + beta2*i.pet**2)]
 #   geom_tile()+
 #   coord_equal()+
 #   scale_fill_gradient2()
-
 #*******************************************************************************
 # END SECTION
 #*******************************************************************************
@@ -383,12 +382,18 @@ tmp_pet <- tmp_pet[, `:=`(pet_pred = beta0 + beta1*i.pet + beta2*i.pet**2)]
 #*******************************************************************************
 # Join climate data to maintain date structure ---------
 #*******************************************************************************
+tmp_pet[time>=ymd("1981-01-01") & time<=ymd("1989-12-31")] %>% 
+  .[,.(x_vi,y_vi,time,pet_pred)] %>% 
+  .[,.(x_vi, y_vi,time,pet=pet_pred)] %>% 
+  .[is.na(pet)==F]
+
 jpet <- rbindlist(list(
   tmp_pet[time>=ymd("1981-01-01") & time<=ymd("1989-12-31")] %>% 
     .[,.(x_vi,y_vi,time,pet_pred)] %>% 
     .[,.(x_vi, y_vi,time,pet=pet_pred)],
   apet[,.(x_vi,y_vi,time,pet)][,`:=`(time=as.Date(time))]
 ))
+
 jpet <- jpet[is.na(pet)==F]
 rm(fit_pet, tmp_pet, tmp_apet, apet);
 gc(reset = T, full = T)
@@ -396,6 +401,7 @@ gc(reset = T, full = T)
 atmax <- atmax[,.(x_vi,y_vi,time,tmax)][,`:=`(time=as.Date(time))]
 aprecip <- aprecip[,.(x_vi,y_vi,time,precip)][,`:=`(time=as.Date(time))]
 tmp_clim <- merge(atmax,jpet,by=c("x_vi","y_vi","time"),all=TRUE,allow.cartesian=TRUE)
+tmp_clim <- tmp_clim[is.na(pet)==F][order(time,x_vi,y_vi)]
 tmp_clim <- merge(tmp_clim,aprecip,by=c("x_vi","y_vi","time"),all=TRUE,allow.cartesian=TRUE)
 rm(aprecip, atmax,e5pet,jpet);
 rm(tmp_e5pet)
@@ -441,6 +447,7 @@ base <- merge(tmp_clim %>% rename(date=time),
              by=c("x_vi","y_vi","date"), 
              all=TRUE,allow.cartesian=TRUE)
 base %>% head
+base <- base[is.na(pet)==F][order(date,x_vi,y_vi)]
 
 arrow::write_parquet(base, 
                      sink=paste0("../data_general/Oz_misc_data/ARD_nirv_aclim_",Sys.Date(),".parquet"),
