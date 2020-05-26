@@ -1906,3 +1906,433 @@ aggregate(x, "2 days", mean)
 
 plot(st_apply(mod[,,,192:204], 1:2, mean, na.rm=TRUE), 
      col=viridis::inferno(50,end=0.9))
+
+hyb %>% 
+  lazy_dt() %>% 
+  filter(veg_class %in% c(1:6)) %>% 
+  filter(date >= ymd("2014-01-01")) %>% 
+  filter(is.na(ndvi_mcd)==F & is.na(ndvi_myd)==F) %>% 
+  # sample_n(100000) %>% 
+  as_tibble() %>% 
+  ggplot(data=., aes(date, ndvi_myd))+
+  # geom_point()+
+  # geom_abline(aes(intercept=0,slope=1))+
+  geom_smooth(span=0.1)+
+  geom_smooth(aes(date,ndvi_mcd),col='red',span=0.1)+
+  facet_wrap(~vc)
+
+hyb %>% 
+  lazy_dt() %>% 
+  filter(veg_class %in% c(1:6)) %>% 
+  filter(date >= ymd("2001-01-01")) %>% 
+  filter(is.na(ndvi_mcd)==F & is.na(ndvi_myd)==F) %>% 
+  sample_n(10000) %>% 
+  as_tibble() %>% 
+  ggplot(data=., aes(ndvi_mcd, ndvi_myd))+
+  geom_point(alpha=0.1)+
+  geom_abline(aes(intercept=0,slope=1),col='red')+
+  geom_smooth(method='lm')+
+  facet_wrap(~vc) 
+
+
+unique(base$x) %in% unique(tmp_clim$x_vi) %>% table
+unique(base$y) %in% unique(tmp_clim$y_vi) %>% table
+
+v_x1 <- sort(unique(base$x)) %>% round(., 2)
+v_x2 <- sort(unique(tmp_clim$x_vi)) %>% round(., 2)
+table(v_x1 %in% v_x2)
+
+dc1 <- base %>% select(x,y) %>% distinct()
+dc2 <- tmp_clim %>% select(x,y) %>% distinct()
+
+sort(unique(base$x)) %>% length # 403
+sort(unique(tmp_clim$x)) %>% length
+
+sort(unique(base$x)) %>% round(.,2) %>% length
+
+
+
+library(data.table); library(tidyverse)
+tmp <- arrow::read_parquet("/home/sami/scratch/ARD_ndvi_aclim_anoms.parquet") %>% 
+  as.data.table()
+
+tmpc <- tmp[y> -39 & y< -30 & x> 145]
+empty <- expand_grid(x=unique(tmpc$x),y=unique(tmpc$y),date=unique(tmpc$date)) %>% 
+  arrange(x,y,date) %>% as.data.table()
+tmpc <- empty[tmpc,on=.(x,y,date)]
+o <- tmpc %>% 
+  as_tibble() %>% 
+  mutate(year=year(date), 
+         val = ndvi_anom_sd) %>% 
+  mutate(val = ifelse(val > 4.5 | val < -6, NA, val)) %>% 
+  group_by(x,y,year) %>% 
+  summarize(val = mean(val,na.rm=TRUE)) %>% 
+  ungroup() %>% #pull(val) %>% summary
+  # mutate(val = ifelse(year==2011,2.5,val)) %>%
+  group_by(x,y) %>% 
+  arrange(year) %>% 
+  mutate(tsr = fn_tsr(val, d_threshold = -1.5, r_threshold = 1.5)) %>% 
+  ungroup()
+
+o %>% 
+  # mutate(year=year(date)) %>% 
+  # filter(year==2018) %>% pull(tsr) %>% summary
+  ggplot(data=., aes(round(x,2),round(y,2),fill=tsr))+
+  geom_sf(data=oz_poly, inherit.aes = F, fill='white')+
+  geom_tile()+
+  scale_fill_viridis_c(expression(paste("years since ",NIR[V]," recovery")),
+                       option='B', end=0.95,
+                       limits=c(0,5),
+                       oob=scales::squish,
+                       na.value = 'blue'
+  )+
+  labs(x=NULL,y=NULL)+
+  coord_sf(xlim = c(151,153.5),
+           ylim = c(-33.5,-30), expand = FALSE)+
+  facet_wrap(~year, drop = T, nrow = 4)+
+  guides(fill = guide_colorbar(title.position = "top"))+
+  theme(legend.position = 'bottom', 
+        panel.background = element_rect(fill='#99A3C4'), 
+        panel.grid = element_blank(), 
+        axis.ticks = element_blank(), 
+        axis.text = element_blank(), 
+        strip.placement = 'inside', 
+        strip.text = element_text(family='AvantGarde'), 
+        legend.direction = 'horizontal', 
+        legend.key.width = unit(1,units = 'cm'),
+        legend.key.height = unit(0.5,units='cm')
+  )
+
+library(dtplyr)
+tmp %>% 
+  lazy_dt() %>% 
+  filter(date == ymd("1983-01-01")) %>% 
+  as.data.table() %>% 
+  ggplot(data=., aes(x_vi,y_vi,fill=tmax))+
+  geom_tile()+
+  scale_fill_viridis_c()+
+  coord_equal()
+
+p1 <- tmp_clim %>% 
+  lazy_dt() %>% 
+  filter(date <= ymd("1983-12-01")) %>% 
+  group_by(x_vi,y_vi) %>% 
+  summarize(tmax=mean(tmax,na.rm=TRUE)) %>% 
+  ungroup() %>% 
+  as.data.table() #%>% 
+  ggplot(data=., aes(x_vi,y_vi,fill=tmax))+
+  geom_tile()+
+  scale_fill_viridis_c()+
+  coord_equal()
+p2 <- base %>% 
+  lazy_dt() %>% 
+  filter(date <= ymd("1983-12-01")) %>% 
+  group_by(x_vi,y_vi) %>% 
+  summarize(ndvi_mcd=mean(ndvi_mcd,na.rm=TRUE)) %>% 
+  ungroup() %>% 
+  as.data.table() #%>% 
+  ggplot(data=., aes(x_vi,y_vi,fill=ndvi_mcd))+
+  geom_tile()+
+  scale_fill_viridis_c()+
+  coord_equal()
+library(patchwork)
+p1+p2
+
+
+p3 <- merge(p1, 
+      p2,
+      by=c("x_vi","y_vi"), 
+      all=TRUE,allow.cartesian=TRUE)
+tmp %>% 
+  filter(date == max(date)) %>% 
+  ggplot(data=., aes(x_vi,y_vi,fill=pet))+
+  geom_tile()+
+  scale_fill_viridis_c()+
+  coord_equal()
+tmp %>% 
+  filter(date == max(date)) %>% 
+  ggplot(data=., aes(x,y,fill=pet))+
+  geom_tile()+
+  scale_fill_viridis_c()+
+  coord_equal()
+
+
+
+
+
+tmpc <- tmp[y> -39 & y< -30 & x> 145]
+empty <- expand_grid(x=unique(tmpc$x),y=unique(tmpc$y),date=unique(tmpc$date)) %>% 
+  arrange(x,y,date) %>% as.data.table()
+tmpc <- empty[tmpc,on=.(x,y,date)]
+o <- tmpc %>% 
+  group_by(x,y,year) %>% 
+  summarize(val = mean(ndvi_anom,na.rm=TRUE)) %>% 
+  ungroup() %>% 
+  
+  as_tibble() %>% 
+  mutate(val = ifelse(val > 4.5 | val < -6, NA, val)) %>% 
+  group_by(x,y,year) %>% 
+  summarize(val = mean(val,na.rm=TRUE)) %>% 
+  ungroup() %>% #pull(val) %>% summary
+  # mutate(val = ifelse(year==2011,2.5,val)) %>%
+  group_by(x,y) %>% 
+  arrange(year) %>% 
+  mutate(tsr = fn_tsr(val, d_threshold = -1.5, r_threshold = 1.75)) %>% 
+  ungroup()
+
+o %>% 
+  # mutate(year=year(date)) %>% 
+  # filter(year==2018) %>% pull(tsr) %>% summary
+  ggplot(data=., aes(x,y,fill=tsr))+
+  geom_sf(data=oz_poly, inherit.aes = F, fill='white')+
+  geom_tile()+
+  scale_fill_viridis_c(expression(paste("years since ",NIR[V]," recovery")),
+                       option='B', end=0.9,
+                       limits=c(0,30),
+                       oob=scales::squish,
+                       na.value = 'blue'
+  )+
+  labs(x=NULL,y=NULL)+
+  coord_sf(xlim = c(151,153.5),
+           ylim = c(-33.5,-30), expand = FALSE)+
+  facet_wrap(~year, drop = T, nrow = 4)+
+  guides(fill = guide_colorbar(title.position = "top"))+
+  theme(legend.position = 'bottom', 
+        panel.background = element_rect(fill='#99A3C4'), 
+        panel.grid = element_blank(), 
+        axis.ticks = element_blank(), 
+        axis.text = element_blank(), 
+        strip.placement = 'inside', 
+        strip.text = element_text(family='AvantGarde'), 
+        legend.direction = 'horizontal', 
+        legend.key.width = unit(1,units = 'cm'),
+        legend.key.height = unit(0.5,units='cm')
+  )
+
+
+
+
+
+
+tmpc <- tmpc %>% as_tibble()
+tmpc <- tmp[y> -39 & y< -30 & x> 145]
+empty <- expand_grid(x=unique(tmpc$x),y=unique(tmpc$y),date=unique(tmpc$date)) %>% 
+  arrange(x,y,date) %>% as.data.table()
+tmpc <- empty[tmpc,on=.(x,y,date)]
+
+tmpc %>% 
+  as_tibble() %>% 
+  group_by(x,y,year) %>% 
+  summarize(val = mean(ndvi_mcd,na.rm=TRUE)) %>% 
+  ungroup() %>% 
+  inner_join(., {.} %>% 
+      group_by(x,y) %>% 
+      summarize(val_sd = sd(val,na.rm=TRUE), 
+                val_u = mean(val,na.rm=TRUE)) %>% 
+      ungroup(),by=c('x','y')) %>% 
+  mutate(val_anom = val - val_u) %>% 
+  mutate(val_anom_sd = val_anom/val_sd) %>% 
+  group_by(x,y) %>% 
+  arrange(year) %>% 
+  mutate(tsr = fn_tsr(val, d_threshold = -1.5, r_threshold = 1.75)) %>% 
+  ungroup() %>% 
+  ggplot(data=., aes(x,y,fill=tsr))+
+  geom_sf(data=oz_poly, inherit.aes = F, fill='white')+
+  geom_tile()+
+  scale_fill_viridis_c(expression(paste("years since ",NIR[V]," recovery")),
+                       option='B', end=0.9,
+                       limits=c(0,30),
+                       oob=scales::squish,
+                       na.value = 'blue'
+  )+
+  labs(x=NULL,y=NULL)+
+  coord_sf(xlim = c(151,153.5),
+           ylim = c(-33.5,-30), expand = FALSE)+
+  facet_wrap(~year, drop = T, nrow = 4)+
+  guides(fill = guide_colorbar(title.position = "top"))+
+  theme(legend.position = 'bottom', 
+        panel.background = element_rect(fill='#99A3C4'), 
+        panel.grid = element_blank(), 
+        axis.ticks = element_blank(), 
+        axis.text = element_blank(), 
+        strip.placement = 'inside', 
+        strip.text = element_text(family='AvantGarde'), 
+        legend.direction = 'horizontal', 
+        legend.key.width = unit(1,units = 'cm'),
+        legend.key.height = unit(0.5,units='cm')
+  )
+
+? lme4::nlmer
+
+tmp_clim
+tmp_clim[date==min(date)] %>% 
+  ggplot(data=., aes(x_vi,y_vi,fill=vpd15))+
+  geom_tile()+
+  coord_equal()+
+  scale_fill_viridis_c(option='B')
+
+
+tmp_clim <- tmp_clim %>% 
+  group_by(x_vi,y_vi) %>% 
+  mutate(id = cur_group_id()) %>% 
+  ungroup()
+
+tmp_clim %>% 
+  filter(id %in% sample(64000,10)) %>% 
+  filter(between(date, ymd("1990-01-01"), ymd("2010-12-01"))) %>% 
+  ggplot(data=., aes(date, ndvi_mcd,color=as.factor(id)))+
+  geom_line()+
+  geom_smooth(se=F,span=0.5)+
+  facet_wrap(~id, scales = 'free')
+
+library(dtplyr)
+train <- tmp %>% lazy_dt() %>% 
+  filter(is.na(ndvi_anom_sd)==F) %>%
+  filter(str_detect(vc,"Eucalypt")) %>% 
+  filter(str_detect(vc,"Forest")) %>% 
+  sample_n(1e5) %>% 
+  as_tibble()
+test <- tmp %>% lazy_dt() %>% sample_n(1e5) %>% as_tibble()
+
+
+tmp[vc=="Eucalypt Tall Open Forests"] %>% 
+  .[ndvi_mcd > 0] %>% 
+  .[date >= ymd("2000-01-01")] %>% dim
+sdat <- tmp %>% 
+  lazy_dt() %>% 
+  # filter(season=="DJF") %>% 
+  filter(ndvi_mcd > 0) %>% 
+  mutate(ddate=decimal_date(date)) %>% 
+  filter(between(ndvi_anom_sd,-5,5)) %>% 
+  filter(between(pe_anom_12mo,-4,4)) %>% 
+  filter(is.na(precip_anom_12mo)==F) %>% 
+  filter(is.na(pet_anom_12mo)==F) %>% 
+  filter(date >= ymd("2000-01-01")) %>% 
+  filter(vc=="Eucalypt Tall Open Forests") %>% 
+  as_tibble()
+
+stest <- tmp %>% 
+  lazy_dt() %>% 
+  # filter(season=="DJF") %>% 
+  filter(ndvi_mcd > 0) %>% 
+  mutate(ddate=decimal_date(date)) %>% 
+  filter(between(ndvi_anom_sd,-5,5)) %>% 
+  filter(between(pe_anom_12mo,-4,4)) %>% 
+  filter(is.na(precip_anom_12mo)==F) %>% 
+  filter(is.na(pet_anom_12mo)==F) %>% 
+  sample_n(1e5) %>% 
+  as_tibble()
+
+sdat <- tmp[vc=="Eucalypt Tall Open Forests"] %>% 
+  .[ndvi_mcd > 0] %>% 
+  .[date >= ymd("2000-01-01")] %>% 
+  as_tibble()
+
+sdat$t_threshold <- sdat %>% select(paste0("t",35:45)) %>% as.matrix()
+tdegs <- 35:45 ## 
+sdat$t_degs <- t(matrix(tdegs,length(tdegs),length(sdat$t35)))
+
+m <- bam(ndvi_anom_sd ~
+           # s(precip_anom_12mo,k=5)+
+           # s(precip_anom_36mo,k=5)+
+           #                   s(pet_anom_3mo,k=5) +
+           #                   s(precip_anom_6mo,k=5)+
+           # s(tmax_u)+
+           #                    s(vpd15_anom_3mo,k=5),
+           # s(tmax_anom_3mo),
+           s(tmax_u, t42),
+           # s(tmax_anom, by= tmax_anom),
+           # s(t35,by=tmax_anom),
+           # s(t_threshold, by=t_degs),
+                 # s(t_degs,by=t_threshold),
+           # s(vpd15_anom_sd),
+         data=sdat %>%
+           filter(date >= ymd("2000-01-01")) %>% 
+           filter(vc=="Eucalypt Tall Open Forests"), 
+         select=TRUE,method='fREML')
+summary(m)
+plot(m,select = 1,scale = 0)
+plot(m,select = 2,scale = 0); abline(h=0)
+plot(m,select = 3,scale = 0)
+getViz(m) %>% plot
+
+m2 <- bam(ndvi_anom_sd ~ s(vpd15_anom_sd, 
+                           tmax_anom_3mo,
+                           precip_anom_12mo), 
+         data=sdat %>%
+           filter(date >= ymd("2000-01-01")) %>% 
+           filter(vc=="Eucalypt Tall Open Forests"), 
+         select=TRUE,method='fREML',discrete=TRUE)
+summary(m2)
+plotSlice(sm(getViz(m2),1),fix = list("tmax_anom_3mo"=c(-2,0,2)))+
+  l_fitRaster()+l_fitContour()+l_rug()
+
+
+sdat %>% 
+  select(tmax_anom_sd, vpd15_anom_sd, pet_anom_sd) %>% 
+  drop_na() %>% cor
+
+
+tmp[date==ymd("1999-01-01")] %>% 
+  ggplot(data=.,aes(x,y,fill=precip_u))+
+  geom_tile()+
+  coord_equal()+
+  scale_fill_viridis_c(limits=c(0,300),na.value ='red')
+
+tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
+    .("ap" = sum(precip,na.rm=TRUE)),
+    by=.(x,y,year)][,.("map"=mean(ap,na.rm=TRUE), 
+                       "ap_sd"=sd(ap,na.rm=TRUE)),by=.(x,y)] %>% 
+  ggplot(data=.,aes(x,y,fill=map))+
+  geom_tile()+
+  coord_equal()+
+  scale_fill_viridis_c(limits=c(0,3000),na.value ='red')
+
+tmp[date>=ymd("1983-01-01") & date <= ymd("1983-12-31")] %>% 
+  .[,.("val" = sum(is.na(precip)==F)), by=.(x,y)] %>% 
+  pull(val) %>% table
+  ggplot(data=.,aes(x,y,fill=val))+
+  geom_tile()+
+  coord_equal()+
+  scale_fill_viridis_c(#limits=c(0,300),
+                       na.value ='red')
+
+aprecip[time>=ymd("1983-01-01") & time <= ymd("1983-01-31")] %>% 
+    .[,.("val" = sum(is.na(precip)==F)), by=.(x_vi,y_vi)] %>% 
+    pull(val) %>% table
+  ggplot(data=.,aes(x_vi,y_vi,fill=val))+
+    geom_tile()+
+    coord_equal()+
+    scale_fill_viridis_c(#limits=c(0,300),
+      na.value ='red')
+
+coords_dict %>% ggplot(data=., aes(x_clim,y_clim,fill=x_clim))+
+  geom_tile()+
+  coord_equal()+
+  scale_fill_viridis_c()
+  
+coords_dict %>% ggplot(data=., aes(x_vi,y_vi,fill=x_clim))+
+  geom_tile()+
+  coord_equal()+
+  scale_fill_viridis_c()
+
+coords_dict %>% dim
+coords_dict %>% distinct() %>% dim
+coords_dict[,c("x","y")] %>% distinct() %>% dim
+
+
+aprecip[is.na(x_vi)==F &
+          is.na(y_vi)==F][time>=ymd('2000-01-01',tz='UTC')&
+          time<=ymd('2000-12-31',tz='UTC')] %>% 
+  .[,.(val=sum(precip,na.rm=TRUE)),by=.(x_vi,y_vi)] %>% 
+ ggplot(data=.,aes(x_vi,y_vi,fill=val))+
+  geom_tile()+
+  coord_equal()+
+  scale_fill_viridis_c(#limits=c(0,300),
+    na.value ='red')
+
+tmp[date==ymd("2019-01-01")] %>% 
+  ggplot(data=., aes(x,y,fill=precip_anom_36mo))+
+  geom_tile()+
+  coord_equal()+
+  scale_fill_gradient2()

@@ -1,19 +1,19 @@
 # Description: Calculate the climatology and meteorological anomalies quickly
-# with the data.frame package. Considerable RAM is required. 
+# with the data.table package. Considerable RAM (~60+ GB) is required. 
 
 library(arrow)
-library(tidyverse); library(lubridate);
-library(data.table)
+library(tidyverse); 
+library(data.table); library(lubridate);
 setDTthreads(threads=8)
 
 #*******************************************************************************
 # Get data  ---------------------------------------------------------
 #*******************************************************************************
-tmp <- arrow::read_parquet("/home/sami/srifai@gmail.com/work/research/data_general/Oz_misc_data/ARD_nirv_aclim_2020-04-27.parquet")
+tmp <- arrow::read_parquet("/home/sami/srifai@gmail.com/work/research/data_general/Oz_misc_data/ARD_ndvi_aclim_2020-05-25.parquet")
 
 # data.table 
 tmp <- setDT(tmp) # OR: tmp <- as.data.table(tmp)
-tmp <- tmp %>% rename(x=x_vi, y=y_vi)
+tmp <- tmp %>% select(-x,-y) %>% rename(x=x_vi, y=y_vi)
 tmp <- tmp[, pet:=ifelse(pet<50,50,pet)]
 tmp <- tmp[, id := .GRP, by=.(x,y)]
 
@@ -33,13 +33,17 @@ tmp <- tmp[, id := .GRP, by=.(x,y)]
 tmp <- tmp[, `:=`(month = month(date))] # create month
 tmp <- tmp[, `:=`(year = year(date))]   # create year
 tmp <- tmp[,`:=`("pe" = precip/pet)]
-norms_nirv <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
-                  .("nirv_u" = mean(nirv,na.rm=TRUE), 
-                    "nirv_sd" = sd(nirv,na.rm=TRUE)),
+norms_ndvi <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
+                  .("ndvi_u" = mean(ndvi_mcd,na.rm=TRUE), 
+                    "ndvi_sd" = sd(ndvi_mcd,na.rm=TRUE)),
                   by=.(x,y,month)] # joining on x,y,month
 norms_p <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
                .("precip_u" = mean(precip,na.rm=TRUE), 
                  "precip_sd" = sd(precip,na.rm=TRUE)),
+               by=.(x,y,month)]
+norms_vpd <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
+               .("vpd15_u" = mean(vpd15,na.rm=TRUE), 
+                 "vpd15_sd" = sd(vpd15,na.rm=TRUE)),
                by=.(x,y,month)]
 norms_pet <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
                  .(pet_u = mean(pet,na.rm=TRUE), 
@@ -70,18 +74,26 @@ norms_matmax <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to
                  .("atmax" = mean(tmax)),
                  by=.(x,y,year)][,.("matmax"=mean(atmax), 
                                     "atmax_sd"=sd(atmax)),by=.(x,y)]
+norms_mavpd <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
+                    .("avpd" = mean(vpd15)),
+                    by=.(x,y,year)][,.("mavpd15"=mean(avpd), 
+                                       "avpd15_sd"=sd(avpd)),by=.(x,y)]
 
 # join all the data frames ***
 norms <- norms_p[norms_pet, on=.(x,y,month)] # join data.tables
+norms <- norms[norms_vpd, on=.(x,y,month)] # join data.tables
 norms <- norms[norms_pe, on=.(x,y,month)] # join data.tables
 norms <- norms[norms_tmax, on=.(x,y,month)] # join data.tables
 norms <- norms[norms_map, on=.(x,y)]
 norms <- norms[norms_mapet, on=.(x,y)]
 norms <- norms[norms_mape, on=.(x,y)]
 norms <- norms[norms_matmax, on=.(x,y)]
+norms <- norms[norms_mavpd, on=.(x,y)]
 
-norms <- norms[norms_nirv, on=.(x,y,month)]
+norms <- norms[norms_ndvi, on=.(x,y,month)]
 tmp <- norms[tmp, on=.(x,y,month)]
+rm(norms); 
+gc(verbose = T, reset = T, full = T)
 #*******************************************************************************
 #* END SECTION
 #*******************************************************************************
@@ -89,16 +101,18 @@ tmp <- norms[tmp, on=.(x,y,month)]
 #*******************************************************************************
 # Calculate the anomalies ------
 #*******************************************************************************
-tmp <- tmp[, `:=`(nirv_anom = nirv - nirv_u, 
+tmp <- tmp[, `:=`(ndvi_anom = ndvi_mcd - ndvi_u, 
                   precip_anom = precip-precip_u,  # calc raw anomaly 
                   pet_anom = pet-pet_u, 
                   pe_anom = pe-pe_u, 
-                  tmax_anom = tmax-tmax_u)]
-tmp <- tmp[, `:=`(nirv_anom_sd = nirv_anom/nirv_sd,
+                  tmax_anom = tmax-tmax_u, 
+                  vpd15_anom = vpd15 - vpd15_u)]
+tmp <- tmp[, `:=`(ndvi_anom_sd = ndvi_anom/ndvi_sd,
                   precip_anom_sd = precip_anom/precip_sd,  # calc sd anomaly 
                   pet_anom_sd = pet_anom/pet_sd, 
                   pe_anom_sd = pe_anom/pe_sd, 
-                  tmax_anom_sd = tmax_anom/tmax_sd)]
+                  tmax_anom_sd = tmax_anom/tmax_sd, 
+                  vpd15_anom_sd = vpd15_anom/vpd15_sd)]
 #*******************************************************************************
 #* END SECTION
 #*******************************************************************************
@@ -107,55 +121,85 @@ tmp <- tmp[, `:=`(nirv_anom_sd = nirv_anom/nirv_sd,
 # Calculate the multi-year anomalies ------
 #*******************************************************************************
 # calculate the rolling 12-month sums 
-tmp <- tmp[order(x,y,date)][, nirv_12mo := frollmean(nirv,n = 12,fill = NA,align='right'), by=.(x,y)]
+tmp <- tmp[order(x,y,date)][, ndvi_12mo := frollmean(ndvi_mcd,n = 12,fill = NA,align='right'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, precip_12mo := frollsum(precip,n = 12,fill = NA,align='right'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, pet_12mo := frollsum(pet,n = 12,fill = NA,align='right'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, pe_12mo := frollsum(pe,n = 12,fill = NA,align='right'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, tmax_anom_12mo := frollapply(tmax_anom,FUN=max,
                                                            n = 12,fill = NA,align='right'), by=.(x,y)]
-tmp <- tmp[order(x,y,date)][, nirv_anom_12mo := frollmean(nirv_anom,n = 12,fill = NA,align='right'), by=.(x,y)]
+tmp <- tmp[order(x,y,date)][, vpd15_12mo := frollapply(vpd15_anom,FUN=mean,
+                                                          n = 12,fill = NA,align='right'), by=.(x,y)]
+tmp <- tmp[order(x,y,date)][, vpd15_anom_12mo := frollapply(vpd15_anom,FUN=mean,
+                                                           n = 12,fill = NA,align='right'), by=.(x,y)]
+tmp <- tmp[order(x,y,date)][, ndvi_anom_12mo := frollmean(ndvi_anom,n = 12,fill = NA,align='right'), by=.(x,y)]
+
+gc(verbose = T, reset = T, full = T)
 
 # calculate rolling 3-month anomaly
 tmp <- tmp[order(x,y,date)][, precip_anom_3mo := frollsum(precip_anom,n = 3,fill = NA,align='right'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, pet_anom_3mo := frollsum(pet_anom,n = 3,fill = NA,align='right'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, pe_anom_3mo := frollmean(pe_anom,n = 3,fill = NA,align='right'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, tmax_anom_3mo := frollmean(tmax_anom,n = 3,fill = NA,align='right'), by=.(x,y)]
+tmp <- tmp[order(x,y,date)][, vpd15_anom_3mo := frollmean(vpd15_anom,n = 3,fill = NA,align='right'), by=.(x,y)]
+gc()
 
-# rolling 2 year sums
-tmp <- tmp[order(x,y,date)][, precip_24mo := frollsum(precip,n = 24,fill = NA,align='right'), by=.(x,y)]
-tmp <- tmp[order(x,y,date)][, pet_24mo := frollsum(pet,n = 24,fill = NA,align='right'), by=.(x,y)]
-tmp <- tmp[order(x,y,date)][, pe_24mo := frollsum(pe,n = 24,fill = NA,align='right'), by=.(x,y)]
+# calculate rolling 6-month anomaly
+tmp <- tmp[order(x,y,date)][, precip_anom_6mo := frollsum(precip_anom,n = 6,fill = NA,align='right'), by=.(x,y)]
+tmp <- tmp[order(x,y,date)][, pet_anom_6mo := frollsum(pet_anom,n = 6,fill = NA,align='right'), by=.(x,y)]
+tmp <- tmp[order(x,y,date)][, pe_anom_6mo := frollmean(pe_anom,n = 6,fill = NA,align='right'), by=.(x,y)]
+tmp <- tmp[order(x,y,date)][, tmax_anom_6mo := frollmean(tmax_anom,n = 6,fill = NA,align='right'), by=.(x,y)]
+tmp <- tmp[order(x,y,date)][, vpd15_anom_6mo := frollmean(vpd15_anom,n = 6,fill = NA,align='right'), by=.(x,y)]
+gc()
+
+# # rolling 2 year sums
+# tmp <- tmp[order(x,y,date)][, precip_24mo := frollsum(precip,n = 24,fill = NA,align='right'), by=.(x,y)]
+# tmp <- tmp[order(x,y,date)][, pet_24mo := frollsum(pet,n = 24,fill = NA,align='right'), by=.(x,y)]
+# tmp <- tmp[order(x,y,date)][, pe_24mo := frollsum(pe,n = 24,fill = NA,align='right'), by=.(x,y)]
+# tmp <- tmp[order(x,y,date)][, vpd15_24mo := frollmean(vpd15,n = 24,fill = NA,align='right'), by=.(x,y)]
+# gc()
 
 # rolling 3 year sums
 tmp <- tmp[order(x,y,date)][, precip_36mo := frollsum(precip,n = 36,fill = NA,align='right'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, pet_36mo := frollsum(pet,n = 36,fill = NA,align='right'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, pe_36mo := frollsum(pe,n = 36,fill = NA,align='right'), by=.(x,y)]
+tmp <- tmp[order(x,y,date)][, vpd15_36mo := frollmean(vpd15,n = 36,fill = NA,align='right'), by=.(x,y)]
+gc()
 
-# rolling 4 year sums
-tmp <- tmp[order(x,y,date)][, precip_48mo := frollsum(precip,n = 48,fill = NA,align='right'), by=.(x,y)]
-tmp <- tmp[order(x,y,date)][, pet_48mo := frollsum(pet,n = 48,fill = NA,align='right'), by=.(x,y)]
-tmp <- tmp[order(x,y,date)][, pe_48mo := frollsum(pe,n = 48,fill = NA,align='right'), by=.(x,y)]
+# # rolling 4 year sums
+# tmp <- tmp[order(x,y,date)][, precip_48mo := frollsum(precip,n = 48,fill = NA,align='right'), by=.(x,y)]
+# tmp <- tmp[order(x,y,date)][, pet_48mo := frollsum(pet,n = 48,fill = NA,align='right'), by=.(x,y)]
+# tmp <- tmp[order(x,y,date)][, pe_48mo := frollsum(pe,n = 48,fill = NA,align='right'), by=.(x,y)]
+# tmp <- tmp[order(x,y,date)][, vpd15_48mo := frollmean(vpd15,n = 48,fill = NA,align='right'), by=.(x,y)]
+# gc()
 
 # calc anoms of rolling sums
 tmp <- tmp[, `:=`(precip_anom_12mo = precip_12mo-map)]
 tmp <- tmp[, `:=`(pet_anom_12mo = pet_12mo-mapet)]
 tmp <- tmp[, `:=`(pe_anom_12mo = pe_12mo-mape)]
+tmp <- tmp[, `:=`(vpd15_anom_12mo = vpd15_12mo-mavpd15)]
+gc()
 
-tmp <- tmp[, `:=`(precip_anom_24mo = precip_24mo-2*map)]
-tmp <- tmp[, `:=`(pet_anom_24mo = pet_24mo-2*mapet)]
-tmp <- tmp[, `:=`(pe_anom_24mo = pe_24mo-2*mape)]
+# tmp <- tmp[, `:=`(precip_anom_24mo = precip_24mo-2*map)]
+# tmp <- tmp[, `:=`(pet_anom_24mo = pet_24mo-2*mapet)]
+# tmp <- tmp[, `:=`(pe_anom_24mo = pe_24mo-2*mape)]
+# tmp <- tmp[, `:=`(vpd15_anom_24mo = vpd15_24mo-mavpd15)]
+# gc()
 
 tmp <- tmp[, `:=`(precip_anom_36mo = precip_36mo-3*map)]
 tmp <- tmp[, `:=`(pet_anom_36mo = pet_36mo-3*mapet)]
 tmp <- tmp[, `:=`(pe_anom_36mo = pe_36mo-3*mape)]
-
-tmp <- tmp[, `:=`(precip_anom_48mo = precip_48mo-4*map)]
-tmp <- tmp[, `:=`(pet_anom_48mo = pet_48mo-4*mapet)]
-tmp <- tmp[, `:=`(pe_anom_48mo = pe_48mo-4*mape)]
-
-tmp <- tmp[order(x,y,date)][, tmax_anom_24mo := frollmean(tmax_anom,n = 24,fill = NA,align='right'), by=.(x,y)]
+tmp <- tmp[, `:=`(vpd15_anom_36mo = vpd15_36mo-mavpd15)]
+gc()
+ 
+# tmp <- tmp[, `:=`(precip_anom_48mo = precip_48mo-4*map)]
+# tmp <- tmp[, `:=`(pet_anom_48mo = pet_48mo-4*mapet)]
+# tmp <- tmp[, `:=`(pe_anom_48mo = pe_48mo-4*mape)]
+# tmp <- tmp[, `:=`(vpd15_anom_48mo = vpd15_48mo-mavpd15)]
+# gc()
+ 
+# tmp <- tmp[order(x,y,date)][, tmax_anom_24mo := frollmean(tmax_anom,n = 24,fill = NA,align='right'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, tmax_anom_36mo := frollmean(tmax_anom,n = 36,fill = NA,align='right'), by=.(x,y)]
-
+gc(verbose = T, reset = T, full = T)
 #*******************************************************************************
 #* END SECTION
 #*******************************************************************************
@@ -177,9 +221,11 @@ vec_dates <- data.table(date=sort(unique(tmp$date))) %>%
   mutate(hydro_year = year(date+months(1)))
 
 tmp <- tmp[vec_dates,on=.(date)]
+gc(verbose = T, reset = T, full = T)
 #*******************************************************************************
 #* END SECTION
 #*******************************************************************************
 
-# write_parquet(tmp, sink="/home/sami/srifai@gmail.com/work/research/data_general/Oz_misc_data/ARD_nirv_aclim_anoms.parquet",
-#               compression = 'snappy')
+write_parquet(tmp, sink="/home/sami/scratch/ARD_ndvi_aclim_anoms.parquet",
+              compression = 'snappy')
+gc()

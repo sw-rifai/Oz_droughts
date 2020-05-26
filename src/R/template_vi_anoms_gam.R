@@ -1,21 +1,50 @@
-library(mgcv); library(mgcViz); library(tidyverse); library(lubridate); 
+library(mgcv); 
+library(mgcViz); library(tidyverse); library(lubridate); 
 library(data.table)
+library(dtplyr)
 
-source("src/R/template_fast_calc_anoms.R")
+# source("src/R/template_fast_calc_anoms.R")
+tmp <- arrow::read_parquet("/home/sami/scratch/ARD_ndvi_aclim_anoms.parquet") 
+tmp <- setDT(tmp)
+tmp <- tmp[is.na(ndvi_anom_sd)==F]
+tmp <- tmp[veg_class %in% c(2:5)]
+gc()
+ 
+# tmp %>% lazy_dt() %>% 
+#   sample_frac(0.01) %>% 
+#   as_tibble() %>% 
+#   select(vc,veg_class) %>% 
+#   distinct() %>% 
+#   View
 
 sdat <- tmp %>% 
+  lazy_dt() %>% 
   # filter(season=="DJF") %>% 
-  sample_frac(0.025) %>% 
+  filter(ndvi_mcd > 0) %>% 
   mutate(ddate=decimal_date(date)) %>% 
-  filter(between(nirv_anom_sd,-5,3.5)) %>% 
+  filter(between(ndvi_anom_sd,-5,5)) %>% 
   filter(between(pe_anom_12mo,-4,4)) %>% 
   filter(is.na(precip_anom_12mo)==F) %>% 
   filter(is.na(pet_anom_12mo)==F) %>% 
-  filter(is.na(nirv_anom_sd)==F)
+  sample_n(1e5) %>% 
+  as_tibble()
+
+stest <- tmp %>% 
+  lazy_dt() %>% 
+  # filter(season=="DJF") %>% 
+  filter(ndvi_mcd > 0) %>% 
+  mutate(ddate=decimal_date(date)) %>% 
+  filter(between(ndvi_anom_sd,-5,5)) %>% 
+  filter(between(pe_anom_12mo,-4,4)) %>% 
+  filter(is.na(precip_anom_12mo)==F) %>% 
+  filter(is.na(pet_anom_12mo)==F) %>% 
+  sample_n(1e5) %>% 
+  as_tibble()
+
 
 
 fit_st0 <- sdat %>% 
-  bam(nirv_anom_sd ~ 
+  bam(ndvi_anom_sd ~ 
         s(x,y,month,bs=c("tp","tp","cc"))+
         s(vc,bs='re')+
         te(precip_u, pet_u, tmax_u)+
@@ -23,7 +52,8 @@ fit_st0 <- sdat %>%
       data=.,
       discrete=T,select=T)
 fit_st1 <- sdat %>% 
-  bam(nirv_anom_sd ~ 
+  bam(ndvi_anom_sd ~ 
+        s(vpd15_anom_sd)+
         s(x,y,month,bs=c("tp","tp","cc"))+
         s(vc,bs='re')+
         te(precip_u, pet_u, tmax_u)+
@@ -31,8 +61,10 @@ fit_st1 <- sdat %>%
         te(map, mapet, matmax),
       data=.,
       discrete=T,select=T)
+summary(fit_st1)
+plot(fit_st1)
 fit_st2 <- sdat %>% 
-  bam(nirv_anom_sd ~ 
+  bam(ndvi_anom_sd ~ 
         s(x,y,month,bs=c("tp","tp","cc"))+
         s(vc,bs='re')+
         te(precip_u, pet_u, tmax_u)+
@@ -42,7 +74,7 @@ fit_st2 <- sdat %>%
       data=.,
       discrete=T,select=T)
 fit_st3 <- sdat %>% 
-  bam(nirv_anom_sd ~ 
+  bam(ndvi_anom_sd ~ 
         s(x,y,month,bs=c("tp","tp","cc"))+
         s(vc,bs='re')+
         te(precip_u, pet_u, tmax_u)+
@@ -53,7 +85,7 @@ fit_st3 <- sdat %>%
       data=.,
       discrete=T,select=T)
 fit_st4 <- sdat %>% 
-  bam(nirv_anom_sd ~ 
+  bam(ndvi_anom_sd ~ 
         s(x,y,month,bs=c("tp","tp","cc"))+
         s(vc,bs='re')+
         te(precip_u, pet_u, tmax_u)+
@@ -109,7 +141,7 @@ tmp %>%
   mutate(pred2 = predict(fit_st2, newdata=.)) %>% 
   mutate(pred3 = predict(fit_st3, newdata=.)) %>% 
   mutate(pred4 = predict(fit_st4, newdata=.)) %>% 
-  select(ddate,starts_with('pred'),nirv_anom_sd) %>% 
+  select(ddate,starts_with('pred'),ndvi_anom_sd) %>% 
   gather(-ddate,
          key = 'model',value='pred') %>% 
   ggplot(data=., aes(ddate,pred,color=model))+
@@ -128,7 +160,7 @@ tmp %>%
   mutate(pred2 = predict(fit_st2, newdata=.)) %>% 
   mutate(pred3 = predict(fit_st3, newdata=.)) %>% 
   mutate(pred4 = predict(fit_st4, newdata=.)) %>% 
-  select(ddate,starts_with('pred'),nirv_anom_sd) %>% 
+  select(ddate,starts_with('pred'),ndvi_anom_sd) %>% 
   gather(-ddate,
          key = 'model',value='pred') %>% 
   ggplot(data=., aes(ddate,pred,color=model))+

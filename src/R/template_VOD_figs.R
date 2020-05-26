@@ -59,11 +59,33 @@ oz_poly <- st_as_sf(oz_poly)
 oz_poly <- st_simplify(oz_poly, dTolerance = 0.05)
 raster()
 
-out[hydro_year==2019 & vod_sigma > 0 & vod_sigma<2] %>% 
+orig <- stars::read_stars("../data_general/lpdr_test/LPDR_Oz/2002/AMSRU_Mland_2002170A.tif") %>% 
+  sf::st_crs()
+oz_poly2 <- sf::st_transform(oz_poly, orig)
+oz_poly2 %>% filter(NAME_1 == "Queensland") %>% st_bbox()
+nvis_mask <- stars::read_stars("../data_general/NVIS/nvis51_majorVegClass_0p05.tif")
+names(nvis_mask) <- "vc"
+nvis_mask <- nvis_mask %>% mutate(blah=ifelse(vc<=15,1,0))
+nvis_mask['blah'] %>% plot(col=sf.colors(2))
+nvis_mask['vc']['vc'!=99] %>% plot(col=sf.colors(33,categorical = T))
+# 
+#   plot(col=sf.colors(32))
+
+# Plot Sigma --------------------------------------------------------------
+p_sigma <- out[vod_sigma>-0.5 & vod_sigma<2] %>% 
+  as_tibble() %>% 
   ggplot(data=., aes(x,y,fill=vod_sigma))+
+  geom_sf(data=oz_poly2,fill='grey30',color='grey10',inherit.aes = F)+
   geom_tile()+
-  scale_fill_viridis_c(option='B')+
-  facet_wrap(~season)+
+  scale_fill_viridis_c(expression(paste(sigma)),
+                       option='B', 
+                       limits=c(-0.1,1.5), 
+                       na.value = 'black', 
+                       oob=scales::squish)+
+  coord_sf(xlim = c(13578402, 14792697),
+           ylim = c(-5209194,-3006637), expand = FALSE)+
+  labs(x=NULL,y=NULL)+
+  facet_grid(season~hydro_year)+
   theme(legend.position = 'bottom', 
         panel.background = element_rect(fill='#99A3C4'), 
         panel.grid = element_blank(), 
@@ -73,34 +95,39 @@ out[hydro_year==2019 & vod_sigma > 0 & vod_sigma<2] %>%
         strip.text = element_text(family='AvantGarde'), 
         legend.direction = 'horizontal', 
         legend.key.width = unit(1,units = 'cm'),
-        legend.key.height = unit(0.5,units='cm')
+        legend.key.height = unit(0.25,units='cm'), 
+        legend.margin = margin(0,0,0,0), 
+        legend.spacing = unit(0,'cm')
   )
+ggsave(p_sigma, filename = "figures/map_vod_sigma_seasonal_2002_2019.png", 
+       width=20,height=15,units='cm',type='cairo',dpi='retina')
 
 
 
-# Convert bizarre CRS -----------------------------------------------------
-orig <- stars::read_stars("../data_general/lpdr_test/LPDR_Oz/2002/AMSRU_Mland_2002170A.tif") %>% 
-  sf::st_crs()
-oz_poly2 <- sf::st_transform(oz_poly, orig)
-
-coords_orig <- out %>% select(x,y) %>% distinct()
-tmp <- raster::raster("../data_general/lpdr_test/LPDR_Oz/2002/AMSRU_Mland_2002170A.tif")
-srs_crs <- raster::crs(tmp)
-coords <- sp::SpatialPoints(cbind(coords_orig$x, coords_orig$y), 
-                            proj4string = srs_crs)
-coords_sf <- st_as_sf(coords)
-st_crs(4326)
-coords_lonlat_vod <- sf::st_transform(coords_sf, st_crs(4326))
-df_coords_lonlat_vod <- coords_lonlat_vod %>% st_coordinates() %>%
-  as_tibble() %>% rename(lon=X,lat=Y) %>% 
-  bind_cols(coords_orig, .)
-out <- inner_join(out, df_coords_lonlat_vod, by=c('x','y'))
-
-coords <- bind_cols(coords_orig, 
-                    sf::st_coordinates(coords_lonlat_vod) %>% 
-                      as_tibble() %>%
-                      rename(lon=X, lat=Y))
-coords_lonlat_vod
+# 
+# # Convert bizarre CRS -----------------------------------------------------
+# orig <- stars::read_stars("../data_general/lpdr_test/LPDR_Oz/2002/AMSRU_Mland_2002170A.tif") %>% 
+#   sf::st_crs()
+# oz_poly2 <- sf::st_transform(oz_poly, orig)
+# 
+# coords_orig <- out %>% select(x,y) %>% distinct()
+# tmp <- raster::raster("../data_general/lpdr_test/LPDR_Oz/2002/AMSRU_Mland_2002170A.tif")
+# srs_crs <- raster::crs(tmp)
+# coords <- sp::SpatialPoints(cbind(coords_orig$x, coords_orig$y), 
+#                             proj4string = srs_crs)
+# coords_sf <- st_as_sf(coords)
+# st_crs(4326)
+# coords_lonlat_vod <- sf::st_transform(coords_sf, st_crs(4326))
+# df_coords_lonlat_vod <- coords_lonlat_vod %>% st_coordinates() %>%
+#   as_tibble() %>% rename(lon=X,lat=Y) %>% 
+#   bind_cols(coords_orig, .)
+# out <- inner_join(out, df_coords_lonlat_vod, by=c('x','y'))
+# 
+# coords <- bind_cols(coords_orig, 
+#                     sf::st_coordinates(coords_lonlat_vod) %>% 
+#                       as_tibble() %>%
+#                       rename(lon=X, lat=Y))
+# coords_lonlat_vod
 
 
 # 
