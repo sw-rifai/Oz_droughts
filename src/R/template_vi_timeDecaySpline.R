@@ -1,11 +1,20 @@
 library(tidyverse); library(lubridate)
 library(data.table); 
 library(mgcv); library(mgcViz)
+library(gratia)
 setDTthreads(threads=10)
 
 # Get data 
-source("src/R/template_fast_calc_anoms.R")
+# source("src/R/template_fast_calc_anoms.R")
+tmp <- arrow::read_parquet("/home/sami/scratch/ARD_ndvi_aclim_anoms.parquet")
+# data.table 
+tmp <- setDT(tmp) # OR: tmp <- as.data.table(tmp)
 
+tmp[,.(val=mean(ndvi_u,na.rm=TRUE), 
+       nobs=sum(is.na(ndvi_mcd)==F)),by=vc]
+
+# tmp <- tmp[str_detect(vc,"Eucalypt")]
+tmp <- tmp[vc %in% c("Eucalypt Tall Open Forests","Eucalypt Open Forests")]
 
 # Process lags 
 # source("src/R/template_fast_calc_lagMatrix.R")
@@ -22,7 +31,7 @@ fn_proc <- function(tmp,n_lags=13){
   # Cast the variables to lagged matrices -----------------------------------
   #*******************************************************************************
   # Because this is so memory intensive I'm subsetting in time
-  tmp <- tmp[date >= ymd("1978-01-01")]
+  tmp <- tmp[date >= ymd("2001-01-01")]
   
   # precip anom lags
   gc(reset = TRUE,full=T)
@@ -45,6 +54,11 @@ fn_proc <- function(tmp,n_lags=13){
   mat_tmax <- tmp[,.(x,y,date,tmax_anom)][order(x,y,date), c(paste0("tmax_anom_",1:n_lags)) := shift(tmax_anom, 1:n_lags) , .(x,y)][order(date)]
   mat_tmax <- mat_tmax %>% rename(tmax_anom_0 = tmax_anom) %>% select(-x,-y,-date)
   gc(verbose = T, reset = T, full = T)
+
+  # VPD15 anom lags
+  mat_vpd15 <- tmp[,.(x,y,date,vpd15_anom)][order(x,y,date), c(paste0("vpd15_anom_",1:n_lags)) := shift(vpd15_anom, 1:n_lags) , .(x,y)][order(date)]
+  mat_vpd15 <- mat_vpd15 %>% rename(vpd15_anom_0 = vpd15_anom) %>% select(-x,-y,-date)
+  gc(verbose = T, reset = T, full = T)
   
   lag_n <- 0:n_lags ## create time lag matrix...
   
@@ -60,6 +74,8 @@ fn_proc <- function(tmp,n_lags=13){
   rm(mat_pe); gc()
   tmp$lag_tmax_anom <- as.matrix(mat_tmax)
   rm(mat_tmax); gc()
+  tmp$lag_vpd15_anom <- as.matrix(mat_vpd15)
+  rm(mat_vpd15); gc()
   
 
   #*******************************************************************************
@@ -67,138 +83,285 @@ fn_proc <- function(tmp,n_lags=13){
   #*******************************************************************************
   return(tmp)
 }
-
+gc(full=TRUE,reset = TRUE)
 tmp1 <- fn_proc(tmp, n_lags = 13)
+gc(full=TRUE,reset = TRUE)
 
-
-
-
-
-# P + PET + Tmax model ---------------------------------------------------
+# P + PET + VPD model ---------------------------------------------------
 library(mgcv); library(mgcViz)
-library(parallel)  
-nc <- 6
-if (detectCores()>1) { ## no point otherwise
-  cl <- makeCluster(nc) 
-  ## could also use makeForkCluster, but read warnings first!
-} else cl <- NULLs
-library(mgcv); library(mgcViz)
-fit_son <- bam(nirv_anom_sd ~ 
-                 s(vc,bs='re')+
+tmp1 %>% group_by(vc,season) %>% summarize(val=mean(ndvi_u,na.rm=TRUE))
+
+fit1_mam <- bam(ndvi_anom_sd ~ 
+                  s(x,y,fx = TRUE)+
+                  s(lag_month,by=lag_precip_anom, bs='gp',k=5)+
+                  s(lag_month,by=lag_pet_anom, bs='gp',k=5)+
+                  s(lag_month,by=lag_vpd15_anom, bs='gp',k=5),
+                data=tmp1 %>% 
+                  filter(season=='MAM') %>% 
+                  filter(vc == "Eucalypt Tall Open Forests") %>% 
+                  sample_n(50000) %>% 
+                  filter(between(ndvi_anom_sd,-3.5,3.5)), 
+                select=T, method='fREML', discrete = T, nthreads = 6)
+fit2_mam <- bam(ndvi_anom_sd ~ 
+                  s(x,y,fx = TRUE)+
+                  s(lag_month,by=lag_precip_anom, bs='gp',k=5)+
+                  s(lag_month,by=lag_pet_anom, bs='gp',k=5)+
+                  s(lag_month,by=lag_vpd15_anom, bs='gp',k=5),
+                data=tmp1 %>% 
+                  filter(season=='MAM') %>% 
+                  filter(vc == "Eucalypt Open Forests") %>% 
+                  sample_n(50000) %>% 
+                  filter(between(ndvi_anom_sd,-3.5,3.5)), 
+                select=T, method='fREML', discrete = T, nthreads = 6)
+fit1_son <- bam(ndvi_anom_sd ~ 
+                  s(x,y,fx = TRUE)+
+                  s(lag_month,by=lag_precip_anom, bs='gp',k=5)+
+                  s(lag_month,by=lag_pet_anom, bs='gp',k=5)+
+                  s(lag_month,by=lag_vpd15_anom, bs='gp',k=5),
+                data=tmp1 %>% 
+                  filter(season=='SON') %>% 
+                  filter(vc == "Eucalypt Tall Open Forests") %>% 
+                  sample_n(50000) %>% 
+                  filter(between(ndvi_anom_sd,-3.5,3.5)), 
+                select=T, method='fREML', discrete = T, nthreads = 6)
+fit2_son <- bam(ndvi_anom_sd ~ 
+                  s(x,y,fx = TRUE)+
+                  s(lag_month,by=lag_precip_anom, bs='gp',k=5)+
+                  s(lag_month,by=lag_pet_anom, bs='gp',k=5)+
+                  s(lag_month,by=lag_vpd15_anom, bs='gp',k=5),
+                data=tmp1 %>% 
+                  filter(season=='SON') %>% 
+                  filter(vc == "Eucalypt Open Forests") %>% 
+                  sample_n(50000) %>% 
+                  filter(between(ndvi_anom_sd,-3.5,3.5)), 
+                select=T, method='fREML', discrete = T, nthreads = 6)
+
+plot(fit1_mam, select = 4, scale=0);abline(h=0)
+evaluate_smooth(fit1_mam, smooth = "s(lag_month):lag_vpd15_anom") %>% 
+  mutate(est=est) %>% draw()
+sm(getViz(fit1_son),2) %>% plot
+evaluate_smooth(fit1_son,smooth = "s(lag_month):lag_precip_anom") %>% 
+  ggplot(data=., aes(lag_month,-est))+geom_line()
+
+
+library(gratia)
+bind_rows(
+ bind_rows(
+  evaluate_smooth(fit1_mam, smooth = "s(lag_month):lag_precip_anom",unconditional = T) %>% mutate(est=-est),
+  evaluate_smooth(fit1_mam, smooth = "s(lag_month):lag_pet_anom",unconditional = T),
+  evaluate_smooth(fit1_mam, smooth = "s(lag_month):lag_vpd15_anom",unconditional = T)
+  ) %>% 
+  mutate(vc="Eucalypt Tall Open Forests",season="MAM"),
+ bind_rows(
+  evaluate_smooth(fit2_mam, smooth = "s(lag_month):lag_precip_anom",unconditional = T) %>% mutate(est=-est),
+  evaluate_smooth(fit2_mam, smooth = "s(lag_month):lag_pet_anom",unconditional = T),
+  evaluate_smooth(fit2_mam, smooth = "s(lag_month):lag_vpd15_anom",unconditional = T)
+  ) %>% 
+  mutate(vc="Eucalypt Open Forests",season="MAM"),
+ bind_rows(
+   evaluate_smooth(fit1_son, smooth = "s(lag_month):lag_precip_anom",unconditional = T) %>% mutate(est=-est),
+   evaluate_smooth(fit1_son, smooth = "s(lag_month):lag_pet_anom",unconditional = T),
+   evaluate_smooth(fit1_son, smooth = "s(lag_month):lag_vpd15_anom",unconditional = T)
+ ) %>% 
+   mutate(vc="Eucalypt Tall Open Forests",season="SON"),
+ bind_rows(
+   evaluate_smooth(fit2_son, smooth = "s(lag_month):lag_precip_anom",unconditional = T) %>% mutate(est=-est),
+   evaluate_smooth(fit2_son, smooth = "s(lag_month):lag_pet_anom",unconditional = T),
+   evaluate_smooth(fit2_son, smooth = "s(lag_month):lag_vpd15_anom",unconditional = T)
+ ) %>% 
+   mutate(vc="Eucalypt Open Forests",season="SON",
+          est=est) # why is this necessary???
+ ) %>% 
+  mutate(smooth=case_when(smooth=="s(lag_month):lag_precip_anom"~'Precip',
+                          smooth=="s(lag_month):lag_pet_anom"~'PET',
+                          smooth=="s(lag_month):lag_vpd15_anom"~'VPD',)) %>% 
+  # group_by(vc,smooth,season) %>% 
+  # mutate(est_scale = scale(est,center = F), 
+  #        se_scale = scale(se,center=F)) %>% 
+  # ungroup() %>% 
+  mutate(ci_level=0.95) %>%
+  mutate(crit = qnorm((1 - ci_level) / 2, lower.tail = FALSE)) %>%
+  mutate(upper = est+ crit*se,
+         lower = est - crit*se) %>%
+  ggplot(data=., aes(lag_month,est,color=vc))+
+  geom_hline(aes(yintercept=0))+
+  geom_ribbon(mapping = aes_string(ymin = "lower",
+                                   ymax = "upper"),
+              alpha = 0.3,lty=0)+
+  geom_line()+
+  scale_x_continuous(expand=c(0,0), breaks = c(1:12))+
+  scale_color_viridis_d("",end=0.8)+
+  labs(x='Months prior', y=expression(paste(beta)))+
+  facet_grid(smooth~vc+season, scales = 'free_y')+
+  theme_linedraw()+
+  theme(panel.grid = element_blank(), 
+        legend.position = 'bottom')
+ggsave(filename = "figures/ndvi_anom_sigma_lagModel_P_PET_VPD_2season2VC.png",
+       width = 22, height = 15, units='cm', dpi='retina',type = 'cairo')
+
+# plot(fit2_son,select=3,scale=0)
+# 
+# load_mgcv()
+# dat <- gamSim(1, n = 400, dist = "normal", scale = 2)
+# m1 <- gam(y ~ s(x0) + s(x1) + s(x2) + s(x3), data = dat, method = "REML")
+# evaluate_smooth(m1, "s(x1)") %>% draw()
+# plot(m1,select = 2)
+# evaluate_smooth(m1,smooth = "s(x1)")$est %>% plot
+
+# library(parallel)  
+# nc <- 6
+# if (detectCores()>1) { ## no point otherwise
+#   cl <- makeCluster(nc) 
+#   ## could also use makeForkCluster, but read warnings first!
+# } else cl <- NULLs
+fit1_son <- bam(ndvi_anom_sd ~ 
+                  s(x,y,fx = TRUE)+
                  s(lag_month,by=lag_precip_anom, bs='gp',k=5)+
                  s(lag_month,by=lag_pet_anom, bs='gp',k=5)+
-                 s(lag_month,by=lag_tmax_anom, bs='gp',k=5),
-               data=tmp1 %>% #filter(season=='SON') %>% 
+                 s(lag_month,by=lag_vpd15_anom, bs='gp',k=5),
+               data=tmp1 %>% 
+                 filter(season=='SON') %>% 
+                 filter(vc == "Eucalypt Tall Open Forests") %>% 
                  sample_n(50000) %>% 
-                 filter(between(nirv_anom_sd,-3.5,3.5)), 
+                 filter(between(ndvi_anom_sd,-3.5,3.5)), 
                select=T, method='fREML', discrete = T, nthreads = 6)
-fit_djf <- bam(nirv_anom_sd ~ 
-                 s(vc,bs='re')+
-                 s(lag_month,by=lag_precip_anom, bs='gp',k=5)+
-                 s(lag_month,by=lag_pet_anom, bs='gp',k=5)+
-                 s(lag_month,by=lag_tmax_anom, bs='gp',k=5),
-               data=tmp1 %>% filter(season=='DJF') %>% sample_n(50000) %>% 
-                 filter(between(nirv_anom_sd,-3.5,3.5)), 
+fit1_djf <- bam(ndvi_anom_sd ~ 
+                  s(x,y,fx = TRUE)+
+                  s(lag_month,by=lag_precip_anom, bs='gp',k=5)+
+                  s(lag_month,by=lag_pet_anom, bs='gp',k=5)+
+                  s(lag_month,by=lag_vpd15_anom, bs='gp',k=5),
+                data=tmp1 %>% filter(season=='DJF') %>% 
+                 filter(vc == "Eucalypt Tall Open Forests") %>% 
+                 sample_n(50000) %>% 
+                 filter(between(ndvi_anom_sd,-3.5,3.5)), 
                select=T, method='fREML', discrete = T, nthreads = 6)
-fit_mam <- bam(nirv_anom_sd ~ 
-                 s(vc,bs='re')+
-                 s(lag_month,by=lag_precip_anom, bs='gp',k=5)+
-                 s(lag_month,by=lag_pet_anom, bs='gp',k=5)+
-                 s(lag_month,by=lag_tmax_anom, bs='gp',k=5),
-               data=tmp1 %>% filter(season=='MAM') %>% sample_n(50000) %>% 
-                 filter(between(nirv_anom_sd,-3.5,3.5)), 
+fit1_mam <- bam(ndvi_anom_sd ~ 
+                  s(x,y,fx = TRUE)+
+                  s(lag_month,by=lag_precip_anom, bs='gp',k=5)+
+                  s(lag_month,by=lag_pet_anom, bs='gp',k=5)+
+                  s(lag_month,by=lag_vpd15_anom, bs='gp',k=5),
+                data=tmp1 %>% filter(season=='MAM') %>%
+                 filter(vc == "Eucalypt Tall Open Forests") %>% 
+                 sample_n(50000) %>% 
+                 filter(between(ndvi_anom_sd,-3.5,3.5)), 
                select=T, method='fREML', discrete = T, nthreads = 6)
-fit_jja <- bam(nirv_anom_sd ~ 
-                 s(vc,bs='re')+
-                 s(lag_month,by=lag_precip_anom, bs='gp',k=5)+
-                 s(lag_month,by=lag_pet_anom, bs='gp',k=5)+
-                 s(lag_month,by=lag_tmax_anom, bs='gp',k=5)
-               ,
-               data=tmp1 %>% filter(season=='JJA') %>% sample_n(50000) %>% 
-                 filter(between(nirv_anom_sd,-3.5,3.5)), 
+fit1_jja <- bam(ndvi_anom_sd ~ 
+                  s(x,y,fx = TRUE)+
+                  s(lag_month,by=lag_precip_anom, bs='gp',k=5)+
+                  s(lag_month,by=lag_pet_anom, bs='gp',k=5)+
+                  s(lag_month,by=lag_vpd15_anom, bs='gp',k=5),
+                data=tmp1 %>% filter(season=='JJA') %>% 
+                   filter(vc == "Eucalypt Tall Open Forests") %>% 
+                   sample_n(50000) %>% 
+                 filter(between(ndvi_anom_sd,-3.5,3.5)), 
                select=T, method='fREML', discrete = T, nthreads = 6)
-summary(fit_son); summary(fit_djf); summary(fit_mam); summary(fit_jja)
+summary(fit1_son); summary(fit1_djf); summary(fit1_mam); summary(fit1_jja)
 
-p1 <- plot(sm(getViz(fit_son),2))+
+
+fit2_djf <- bam(ndvi_anom_sd ~ 
+                  s(x,y,fx = TRUE)+
+                  s(lag_month,by=lag_precip_anom, bs='gp',k=5)+
+                  s(lag_month,by=lag_pet_anom, bs='gp',k=5)+
+                  s(lag_month,by=lag_vpd15_anom, bs='gp',k=5),
+                data=tmp1 %>% filter(season=='DJF') %>% 
+                  filter(vc == "Eucalypt Woodlands") %>% 
+                  sample_n(50000) %>% 
+                  filter(between(ndvi_anom_sd,-3.5,3.5)), 
+                select=T, method='fREML', discrete = T, nthreads = 6)
+fit2_jja <- bam(ndvi_anom_sd ~ 
+                  s(x,y,fx = TRUE)+
+                  s(lag_month,by=lag_precip_anom, bs='gp',k=5)+
+                  s(lag_month,by=lag_pet_anom, bs='gp',k=5)+
+                  s(lag_month,by=lag_vpd15_anom, bs='gp',k=5),
+                data=tmp1 %>% filter(season=='JJA') %>% 
+                  filter(vc == "Eucalypt Woodlands") %>% 
+                  sample_n(50000) %>% 
+                  filter(between(ndvi_anom_sd,-3.5,3.5)), 
+                select=T, method='fREML', discrete = T, nthreads = 6)
+
+
+
+
+p1 <- plot(sm(getViz(fit1_son),2))+
   l_ciPoly() + 
   l_fitLine() + geom_hline(yintercept = 0, linetype = 2)+
   scale_x_continuous(expand=c(0,0), breaks = seq(0,12,length.out = 7))+
   scale_y_continuous(limits=c(-0.004,0.008))+
   labs(x="Lag Month",y=expression(paste(beta~Precip)),title="SON")
-p2 <- plot(sm(getViz(fit_djf),2))+
+p2 <- plot(sm(getViz(fit1_djf),2))+
   l_ciPoly() + 
   l_fitLine() + geom_hline(yintercept = 0, linetype = 2)+
   scale_x_continuous(expand=c(0,0), breaks = seq(0,12,length.out = 7))+
   scale_y_continuous(limits=c(-0.004,0.008))+
   labs(x="Lag Month",y=expression(paste(beta~Precip)),title="DJF")
-p3 <- plot(sm(getViz(fit_mam),2))+
+p3 <- plot(sm(getViz(fit1_mam),2))+
   l_ciPoly() + 
   l_fitLine() + geom_hline(yintercept = 0, linetype = 2)+
   scale_x_continuous(expand=c(0,0), breaks = seq(0,12,length.out = 7))+
   scale_y_continuous(limits=c(-0.004,0.008))+
   labs(x="Lag Month",y=expression(paste(beta~Precip)),title="MAM")
-p4 <- plot(sm(getViz(fit_jja),2))+
+p4 <- plot(sm(getViz(fit1_jja),2))+
   l_ciPoly() + 
   l_fitLine() + geom_hline(yintercept = 0, linetype = 2)+
   scale_x_continuous(expand=c(0,0), breaks = seq(0,12,length.out = 7))+
   scale_y_continuous(limits=c(-0.004,0.008))+
   labs(x="Lag Month",y=expression(paste(beta~Precip)),title="JJA")
-pet1 <- plot(sm(getViz(fit_son),3))+
+pet1 <- plot(sm(getViz(fit1_son),3))+
   l_ciPoly() + 
   l_fitLine() + geom_hline(yintercept = 0, linetype = 2)+
   scale_x_continuous(expand=c(0,0), breaks = seq(0,12,length.out = 7))+
   scale_y_continuous(limits=c(-0.007,0.01))+  
   labs(x="Lag Month",y=expression(paste(beta~PET)),title="SON")
-pet2 <- plot(sm(getViz(fit_djf),3))+
+pet2 <- plot(sm(getViz(fit1_djf),3))+
   l_ciPoly() + 
   l_fitLine() + geom_hline(yintercept = 0, linetype = 2)+
   scale_x_continuous(expand=c(0,0), breaks = seq(0,12,length.out = 7))+
   scale_y_continuous(limits=c(-0.007,0.01))+  
   labs(x="Lag Month",y=expression(paste(beta~PET)),title="DJF")
-pet3 <- plot(sm(getViz(fit_mam),3))+
+pet3 <- plot(sm(getViz(fit1_mam),3))+
   l_ciPoly() + 
   l_fitLine() + geom_hline(yintercept = 0, linetype = 2)+
   scale_x_continuous(expand=c(0,0), breaks = seq(0,12,length.out = 7))+
   scale_y_continuous(limits=c(-0.007,0.01))+  
   labs(x="Lag Month",y=expression(paste(beta~PET)),title="MAM")
-pet4 <- plot(sm(getViz(fit_jja),3))+
+pet4 <- plot(sm(getViz(fit1_jja),3))+
   l_ciPoly() + 
   l_fitLine() + geom_hline(yintercept = 0, linetype = 2)+
   scale_x_continuous(expand=c(0,0), breaks = seq(0,12,length.out = 7))+
   scale_y_continuous(limits=c(-0.007,0.01))+  
   labs(x="Lag Month",y=expression(paste(beta~PET)),title="JJA")
-tmax1 <- plot(sm(getViz(fit_son),4))+
+vpd1 <- plot(sm(getViz(fit1_son),4))+
   l_ciPoly() + 
   l_fitLine() + geom_hline(yintercept = 0, linetype = 2)+
   scale_x_continuous(expand=c(0,0), breaks = seq(0,12,length.out = 7))+
-  scale_y_continuous(limits=c(-0.1,0.05))+
-  labs(x="Lag Month",y=expression(paste(beta~Tmax)),title="SON")
-tmax2 <- plot(sm(getViz(fit_djf),4))+
+  # scale_y_continuous(limits=c(-0.1,0.05))+
+  labs(x="Lag Month",y=expression(paste(beta~vpd)),title="SON")
+vpd2 <- plot(sm(getViz(fit1_djf),4))+
   l_ciPoly() + 
   l_fitLine() + geom_hline(yintercept = 0, linetype = 2)+
   scale_x_continuous(expand=c(0,0), breaks = seq(0,12,length.out = 7))+
-  scale_y_continuous(limits=c(-0.1,0.05))+
+  # scale_y_continuous(limits=c(-0.1,0.05))+
   labs(x="Lag Month",
-       y=expression(paste(beta~Tmax)),
+       y=expression(paste(beta~vpd)),
        title="DJF")
-tmax3 <- plot(sm(getViz(fit_mam),4))+
+vpd3 <- plot(sm(getViz(fit1_mam),4))+
   l_ciPoly() + 
   l_fitLine() + geom_hline(yintercept = 0, linetype = 2)+
   scale_x_continuous(expand=c(0,0), breaks = seq(0,12,length.out = 7))+
-  scale_y_continuous(limits=c(-0.1,0.05))+
-  labs(x="Lag Month",y=expression(paste(beta~Tmax)),title="MAM")
-tmax4 <- plot(sm(getViz(fit_jja),4))+
+  # scale_y_continuous(limits=c(-0.1,0.05))+
+  labs(x="Lag Month",y=expression(paste(beta~vpd)),title="MAM")
+vpd4 <- plot(sm(getViz(fit1_jja),4))+
   l_ciPoly() + 
   l_fitLine() + geom_hline(yintercept = 0, linetype = 2)+
   scale_x_continuous(expand=c(0,0), breaks = seq(0,12,length.out = 7))+
-  scale_y_continuous(limits=c(-0.1,0.05))+
-  labs(x="Lag Month",y=expression(paste(beta~Tmax)),title="JJA")
+  # scale_y_continuous(limits=c(-0.1,0.05))+
+  labs(x="Lag Month",y=expression(paste(beta~vpd)),title="JJA")
 
 p_all <- mgcViz::gridPrint(p1,p2,p3,p4, 
                   pet1,pet2,pet3,pet4,
-                  tmax1,tmax2,tmax3,tmax4,
+                  vpd1,vpd2,vpd3,vpd4,
                   ncol=4)
-ggsave(p_all, filename = "figures/nirv_anom_sigma_lagModel_P_PET_Tmax.png",
+ggsave(p_all, filename = "figures/ndvi_anom_sigma_lagModel_P_PET_Tmax.png",
        width = 22, height = 15, units='cm', dpi='retina',type = 'cairo')
 
 # P + PET + P:PET model ---------------------------------------------------
@@ -210,39 +373,39 @@ if (detectCores()>1) { ## no point otherwise
   ## could also use makeForkCluster, but read warnings first!
 } else cl <- NULLs
 library(mgcv); library(mgcViz)
-fit_son <- bam(nirv_anom_sd ~ 
+fit_son <- bam(ndvi_anom_sd ~ 
                  s(vc,bs='re')+
                  s(lag_month,by=lag_precip_anom, bs='gp',k=5)+
                  s(lag_month,by=lag_pet_anom, bs='gp',k=5)+
                  s(lag_month,by=lag_pe_anom, bs='gp',k=5),
                data=tmp1 %>% #filter(season=='SON') %>% 
                  sample_n(50000) %>% 
-                 filter(between(nirv_anom_sd,-3.5,3.5)), 
+                 filter(between(ndvi_anom_sd,-3.5,3.5)), 
                select=T, method='fREML', discrete = T, nthreads = 6)
-fit_djf <- bam(nirv_anom_sd ~ 
+fit_djf <- bam(ndvi_anom_sd ~ 
                  s(vc,bs='re')+
                  s(lag_month,by=lag_precip_anom, bs='gp',k=5)+
                  s(lag_month,by=lag_pet_anom, bs='gp',k=5)+
                  s(lag_month,by=lag_pe_anom, bs='gp',k=5),
                data=tmp1 %>% filter(season=='DJF') %>% sample_n(50000) %>% 
-                 filter(between(nirv_anom_sd,-3.5,3.5)), 
+                 filter(between(ndvi_anom_sd,-3.5,3.5)), 
                select=T, method='fREML', discrete = T, nthreads = 6)
-fit_mam <- bam(nirv_anom_sd ~ 
+fit_mam <- bam(ndvi_anom_sd ~ 
                  s(vc,bs='re')+
                  s(lag_month,by=lag_precip_anom, bs='gp',k=5)+
                  s(lag_month,by=lag_pet_anom, bs='gp',k=5)+
                  s(lag_month,by=lag_pe_anom, bs='gp',k=5),
                data=tmp1 %>% filter(season=='MAM') %>% sample_n(50000) %>% 
-                 filter(between(nirv_anom_sd,-3.5,3.5)), 
+                 filter(between(ndvi_anom_sd,-3.5,3.5)), 
                select=T, method='fREML', discrete = T, nthreads = 6)
-fit_jja <- bam(nirv_anom_sd ~ 
+fit_jja <- bam(ndvi_anom_sd ~ 
                  s(vc,bs='re')+
                  s(lag_month,by=lag_precip_anom, bs='gp',k=5)+
                  s(lag_month,by=lag_pet_anom, bs='gp',k=5)+
                  s(lag_month,by=lag_pe_anom, bs='gp',k=5)
                ,
                data=tmp1 %>% filter(season=='JJA') %>% sample_n(50000) %>% 
-                 filter(between(nirv_anom_sd,-3.5,3.5)), 
+                 filter(between(ndvi_anom_sd,-3.5,3.5)), 
                select=T, method='fREML', discrete = T, nthreads = 6)
 summary(fit_son); summary(fit_djf); summary(fit_mam); summary(fit_jja)
 
@@ -338,40 +501,40 @@ p_all <- mgcViz::gridPrint(p1,p2,p3,p4,
                            pet1,pet2,pet3,pet4,
                            pe1,pe2,pe3,pe4,
                            ncol=4)
-ggsave(p_all, filename = "figures/nirv_anom_sigma_lagModel_P_PET_PE.png",
+ggsave(p_all, filename = "figures/ndvi_anom_sigma_lagModel_P_PET_PE.png",
        width = 22, height = 15, units='cm', dpi='retina',type = 'cairo')
 
 
 
 # P & PET model -----------------------------------------------------------
-fit_son <- bam(nirv_anom_sd ~ 
+fit_son <- bam(ndvi_anom_sd ~ 
                  s(vc,bs='re')+
                  s(lag_month,by=lag_precip_anom, bs='gp',k=5)+
                  s(lag_month,by=lag_pet_anom, bs='gp',k=5),
                data=tmp1 %>% #filter(season=='SON') %>% 
                  sample_n(50000) %>% 
-                 filter(between(nirv_anom_sd,-3.5,3.5)), 
+                 filter(between(ndvi_anom_sd,-3.5,3.5)), 
                select=T, method='fREML', discrete = T, nthreads = 6)
-fit_djf <- bam(nirv_anom_sd ~ 
+fit_djf <- bam(ndvi_anom_sd ~ 
                  s(vc,bs='re')+
                  s(lag_month,by=lag_precip_anom, bs='gp',k=5)+
                  s(lag_month,by=lag_pet_anom, bs='gp',k=5),
                data=tmp1 %>% filter(season=='DJF') %>% sample_n(50000) %>% 
-                 filter(between(nirv_anom_sd,-3.5,3.5)), 
+                 filter(between(ndvi_anom_sd,-3.5,3.5)), 
                select=T, method='fREML', discrete = T, nthreads = 6)
-fit_mam <- bam(nirv_anom_sd ~ 
+fit_mam <- bam(ndvi_anom_sd ~ 
                  s(vc,bs='re')+
                  s(lag_month,by=lag_precip_anom, bs='gp',k=5)+
                  s(lag_month,by=lag_pet_anom, bs='gp',k=5),
                data=tmp1 %>% filter(season=='MAM') %>% sample_n(50000) %>% 
-                 filter(between(nirv_anom_sd,-3.5,3.5)), 
+                 filter(between(ndvi_anom_sd,-3.5,3.5)), 
                select=T, method='fREML', discrete = T, nthreads = 6)
-fit_jja <- bam(nirv_anom_sd ~ 
+fit_jja <- bam(ndvi_anom_sd ~ 
                  s(vc,bs='re')+
                  s(lag_month,by=lag_precip_anom, bs='gp',k=5)+
                  s(lag_month,by=lag_pet_anom, bs='gp',k=5),
                data=tmp1 %>% filter(season=='JJA') %>% sample_n(50000) %>% 
-                 filter(between(nirv_anom_sd,-3.5,3.5)), 
+                 filter(between(ndvi_anom_sd,-3.5,3.5)), 
                select=T, method='fREML', discrete = T, nthreads = 6)
 summary(fit_son); summary(fit_djf); summary(fit_mam); summary(fit_jja)
 
@@ -442,7 +605,7 @@ pet4 <- plot(sm(getViz(fit_jja),3))+
 p_all <- mgcViz::gridPrint(p1,p2,p3,p4, 
                            pet1,pet2,pet3,pet4,
                            ncol=4)
-ggsave(p_all, filename = "figures/nirv_anom_sigma_lagModel_P_PET.png",
+ggsave(p_all, filename = "figures/ndvi_anom_sigma_lagModel_P_PET.png",
        width = 22, height = 11, units='cm', dpi='retina',type = 'cairo')
 
 
@@ -496,7 +659,7 @@ ggsave(p_all, filename = "figures/nirv_anom_sigma_lagModel_P_PET.png",
 
 
 
-# fit <- bam(nirv_anom_sd ~ 
+# fit <- bam(ndvi_anom_sd ~ 
 #              # ddate+
 #              # s(month, bs='cc',k=3)+
 #              s(vc,bs='re')+
@@ -517,7 +680,7 @@ ggsave(p_all, filename = "figures/nirv_anom_sigma_lagModel_P_PET.png",
 #            data=tmp %>% 
 #              filter(month %in% c(2,3)) %>% 
 #              sample_n(40000) %>% 
-#              filter(between(nirv_anom_sd,-3.5,3.5)) %>% 
+#              filter(between(ndvi_anom_sd,-3.5,3.5)) %>% 
 #              mutate(ddate = decimal_date(date)) 
 #              # filter(month %in% c(12,1,2))
 #            , 
@@ -534,7 +697,7 @@ ggsave(p_all, filename = "figures/nirv_anom_sigma_lagModel_P_PET.png",
 # plot(fit,rug=F,shade=T, select = 3, scale=0);abline(h=0,col='red',lty=3)
 # plot(fit,rug=F,shade=T, select = 4, scale=0);abline(h=0,col='red',lty=3)
 # 
-# plot(fit$model$nirv_anom_sd~fitted(fit)); abline(0,1,col='red')
+# plot(fit$model$ndvi_anom_sd~fitted(fit)); abline(0,1,col='red')
 # 
 # tmp %>% 
 #   sample_n(8000) %>% 
@@ -551,25 +714,25 @@ ggsave(p_all, filename = "figures/nirv_anom_sigma_lagModel_P_PET.png",
 #   mutate(pred = predict(fit,newdata=., type='response')) 
 # df_preds %>% 
 #   # sample_frac(0.5) %>% 
-#   ggplot(data=., aes(date, nirv_anom_sd))+
+#   ggplot(data=., aes(date, ndvi_anom_sd))+
 #   # geom_point(alpha=0.1)+
 #   # geom_point(aes(date, pred),color='darkgreen',alpha=0.1)+
 #   geom_smooth(color='black')+
 #   geom_smooth(aes(date, pred),color='darkgreen')
 # 
 #   # group_by(date) %>% 
-#   # summarize(obs = mean(nirv_anom_sd,na.rm=T), 
+#   # summarize(obs = mean(ndvi_anom_sd,na.rm=T), 
 #   #           pred = pred) %>% 
 #   
 # 
 # (d2 %>% select(x,y) %>% distinct() %>% dim())[1]*(as.numeric((ymd("2019-01-01")-ymd("1986-01-01")))/30)/36
 # 
-# fit2 <- bam(nirv_anom_sd ~ 
+# fit2 <- bam(ndvi_anom_sd ~ 
 #              ddate+
 #              s(x,y,fx = TRUE)+ # unpenalized spatial term
 #              s(lag_month,by=lag_precip_anom, bs='gp')+
 #              s(lag_month,by=lag_pet_anom, bs='gp'),
-#            data=d2 %>% filter(between(nirv_anom_sd,-6,6)) %>% 
+#            data=d2 %>% filter(between(ndvi_anom_sd,-6,6)) %>% 
 #              mutate(ddate = decimal_date(date)) %>% 
 #              filter(month %in% c(12,1,2)), 
 #            select=T, method='fREML', 
@@ -582,7 +745,7 @@ ggsave(p_all, filename = "figures/nirv_anom_sigma_lagModel_P_PET.png",
 # plot(fit2,rug=F,shade=T, select = 1, scale=0);abline(h=0,col='red',lty=3)
 # plot(fit2,rug=F,shade=T, select = 2, scale=0);abline(h=0,col='red',lty=3)
 # plot(fit2,rug=F,shade=T, select = 3, scale=0);abline(h=0,col='red',lty=3)
-# plot(fit2$model$nirv_anom_sd~fitted(fit2)); abline(0,1,col='red')
+# plot(fit2$model$ndvi_anom_sd~fitted(fit2)); abline(0,1,col='red')
 # b <- getViz(fit2)
 # plot(b, allTerms = T)
 # 
@@ -590,14 +753,14 @@ ggsave(p_all, filename = "figures/nirv_anom_sigma_lagModel_P_PET.png",
 # 
 # # xgboost -----------------------------------------------------------------
 # library(xgboost)
-# d2 <- d2 %>% filter(is.na(precip_anom_36)==F & is.na(nirv_anom_sd)==F) %>% 
-#   filter(between(nirv_anom_sd,-4,4))
+# d2 <- d2 %>% filter(is.na(precip_anom_36)==F & is.na(ndvi_anom_sd)==F) %>% 
+#   filter(between(ndvi_anom_sd,-4,4))
 # idx_train <- sample.int(dim(d2)[1],10000)
-# vec_label <- d2$nirv_anom_sd[idx_train]
+# vec_label <- d2$ndvi_anom_sd[idx_train]
 # mat_dat <- d2 %>% select(starts_with(c("m","precip_anom","pet_anom"))) %>% as.matrix()
 # mat_dat <- mat_dat[idx_train,]
 # 
-# vec_test <- d2$nirv_anom_sd[-idx_train]
+# vec_test <- d2$ndvi_anom_sd[-idx_train]
 # mat_test <- as.matrix(d2 %>% 
 #                         select(starts_with(c("m",
 #                                              "precip_anom",
@@ -637,11 +800,11 @@ ggsave(p_all, filename = "figures/nirv_anom_sigma_lagModel_P_PET.png",
 #   geom_smooth(aes(precip_anom_12mo,pred),color='darkgreen',method='lm')
 #   
 # # scratch ----------------------------------------------------------------------
-# fit <- bam(nirv_anom_sd ~ 
+# fit <- bam(ndvi_anom_sd ~ 
 #              # s(ddate)+
 #              # s(lag_month,by=lag_precip, bs='gp',k=7)+
 #              s(lag_pet,lag_precip,by=lag_n, bs='gp', k=7),
-#            data=d2 %>% filter(between(nirv_anom_sd,-6,6)) %>% 
+#            data=d2 %>% filter(between(ndvi_anom_sd,-6,6)) %>% 
 #              mutate(ddate = decimal_date(date)), 
 #            select=T, method='fREML', discrete = T
 # )
@@ -672,7 +835,7 @@ ggsave(p_all, filename = "figures/nirv_anom_sigma_lagModel_P_PET.png",
 # lag_n <- matrix(0:36,nrow = 1, byrow = T)
 # d1$lag_n <- lag_n
 # 
-# fit <- bam(nirv_anom_sd ~ 
+# fit <- bam(ndvi_anom_sd ~ 
 #              s(lag_n_precip,by=lag_precip,bs="gp")+
 #              s(lag_n_pet,by=lag_pet,bs="gp"),
 #            data=v1, 
@@ -680,7 +843,7 @@ ggsave(p_all, filename = "figures/nirv_anom_sigma_lagModel_P_PET.png",
 # summary(fit)
 # 
 # # scratch 
-# fit <- bam(nirv_anom_sd ~ 
+# fit <- bam(ndvi_anom_sd ~ 
 #              # s(lag_n_precip,by=lag_precip,bs="gp")+
 #              s(lag_n_pet,lag_pet,bs="gp"),
 #            data=v1, 
@@ -740,7 +903,7 @@ ggsave(p_all, filename = "figures/nirv_anom_sigma_lagModel_P_PET.png",
 # 
 # microbenchmark::microbenchmark(
 # junk %>%
-#   select(x,y,date,vc,nirv_anom_sd,precip,pet) %>% 
+#   select(x,y,date,vc,ndvi_anom_sd,precip,pet) %>% 
 #   group_by(x,y,vc) %>% 
 #   arrange(date) %>% 
 #   jetlag2(., precip, 36)
@@ -748,7 +911,7 @@ ggsave(p_all, filename = "figures/nirv_anom_sigma_lagModel_P_PET.png",
 # 
 # microbenchmark::microbenchmark(
 # junk_dt %>%
-#   select(x,y,id,date,vc,nirv_anom_sd,precip,pet) %>% 
+#   select(x,y,id,date,vc,ndvi_anom_sd,precip,pet) %>% 
 #   group_by(x,y) %>% 
 #   arrange(date) %>% 
 #   jetlag2_dt(., precip, 36)
@@ -758,17 +921,17 @@ ggsave(p_all, filename = "figures/nirv_anom_sigma_lagModel_P_PET.png",
 # junk_dt <- data.table(junk)
 # junk_l <- lazy_dt(junk_dt)
 # junk_dt %>%
-#   select(x,y,id,date,vc,nirv_anom_sd,precip,pet) %>% 
+#   select(x,y,id,date,vc,ndvi_anom_sd,precip,pet) %>% 
 #   group_by(x,y) %>% 
 #   arrange(date) %>% 
 #   jetlag2_dt(., precip, 36)
 # 
-# junk_l %>% select(x,y,id,date,vc,nirv_anom_sd,precip,pet) %>% 
+# junk_l %>% select(x,y,id,date,vc,ndvi_anom_sd,precip,pet) %>% 
 #   group_by(x,y) %>% 
 #   arrange(date)
 # 
 # # Data Table approach
-# o1 <- junk_dt[, .(x, y, id, date, vc, nirv_anom_sd, precip, pet)][order(date)]  
+# o1 <- junk_dt[, .(x, y, id, date, vc, ndvi_anom_sd, precip, pet)][order(date)]  
 # jetlag2_dt(o1, precip, 36)
 # 
 # #setDT(df)[order(time), c("a", "b", "c") := shift(x, 1:3) , id][order(id, time)]
@@ -796,7 +959,7 @@ ggsave(p_all, filename = "figures/nirv_anom_sigma_lagModel_P_PET.png",
 # )
 # microbenchmark::microbenchmark(
 #   junk %>%
-#     select(x,y,id,date,vc,nirv_anom_sd,precip,pet) %>% 
+#     select(x,y,id,date,vc,ndvi_anom_sd,precip,pet) %>% 
 #     group_by(id) %>% 
 #     arrange(date) %>% 
 #     jetlag2(., precip, 36)
@@ -826,7 +989,7 @@ ggsave(p_all, filename = "figures/nirv_anom_sigma_lagModel_P_PET.png",
 #                .combine=rbind) %dopar% {
 #                  out <- tmp %>%
 #                    filter(id == vec_id[i]) %>% 
-#                    select(x,y,vc,nirv_anom_sd,precip,pet) %>% 
+#                    select(x,y,vc,ndvi_anom_sd,precip,pet) %>% 
 #                    group_by(x,y,vc) %>% 
 #                    jetlag2(., precip, 36) %>% 
 #                    ungroup() %>% 
@@ -872,7 +1035,7 @@ ggsave(p_all, filename = "figures/nirv_anom_sigma_lagModel_P_PET.png",
 # 
 # microbenchmark(
 #   junk %>% 
-#     select(x,y,vc,nirv_anom_sd,precip,pet) %>% 
+#     select(x,y,vc,ndvi_anom_sd,precip,pet) %>% 
 #     group_by(x,y,vc) %>% 
 #     jetlag2(., precip, 36) %>% 
 #     ungroup() %>% 
@@ -884,7 +1047,7 @@ ggsave(p_all, filename = "figures/nirv_anom_sigma_lagModel_P_PET.png",
 # )
 # 
 # microbenchmark({
-# o <-  junk %>% select(x,y,vc,nirv_anom_sd,precip,pet)
+# o <-  junk %>% select(x,y,vc,ndvi_anom_sd,precip,pet)
 # o <- o %>% group_by(x,y,vc) %>% 
 #     jetlag2(., precip, 36) %>% 
 #     ungroup()
@@ -901,7 +1064,7 @@ ggsave(p_all, filename = "figures/nirv_anom_sigma_lagModel_P_PET.png",
 # junk_dt <- data.table(junk)
 # junk_l <- lazy_dt(junk_dt)
 # microbenchmark({
-#   o <-  junk_l %>% select(x,y,vc,nirv_anom_sd,precip,pet)
+#   o <-  junk_l %>% select(x,y,vc,ndvi_anom_sd,precip,pet)
 #   o <- o %>% group_by(x,y,vc) %>% 
 #     jetlag2(., precip, 36) %>% 
 #     ungroup()
@@ -921,7 +1084,7 @@ ggsave(p_all, filename = "figures/nirv_anom_sigma_lagModel_P_PET.png",
 # 
 # system.time(
 # tmp$`Acacia Forests and Woodlands` %>% 
-#   select(x,y,vc,nirv_anom_sd,precip,pet) %>% 
+#   select(x,y,vc,ndvi_anom_sd,precip,pet) %>% 
 #   group_by(x,y,vc) %>% 
 #   jetlag2(., precip, 36) %>% 
 #   ungroup() %>% 
@@ -939,7 +1102,7 @@ ggsave(p_all, filename = "figures/nirv_anom_sigma_lagModel_P_PET.png",
 # }
 # v1 <- tmp %>% 
 #   # filter(vc == vec_vc[1]) %>% 
-#   select(x,y,vc,nirv_anom_sd,precip,pet) %>% 
+#   select(x,y,vc,ndvi_anom_sd,precip,pet) %>% 
 #   group_by(x,y,vc) %>% 
 #   jetlag2(., precip, 36) %>% 
 #   ungroup() %>% 
@@ -949,7 +1112,7 @@ ggsave(p_all, filename = "figures/nirv_anom_sigma_lagModel_P_PET.png",
 #   rename(lag_pet = lag_var, 
 #          lag_n_pet = lag_n)
 # 
-# fit <- bam(nirv_anom_sd ~ 
+# fit <- bam(ndvi_anom_sd ~ 
 #              s(lag_n_precip,by=lag_precip,bs="gp")+
 #              s(lag_n_pet,by=lag_pet,bs="gp"),data=v1, 
 #            select=T, method='fREML', discrete = T)
@@ -994,7 +1157,7 @@ ggsave(p_all, filename = "figures/nirv_anom_sigma_lagModel_P_PET.png",
 # 
 # 
 # pmat <- jetlag(junk, precip, 35) %>% 
-#   select(nirv_anom_sd, precip, starts_with('lag'))
+#   select(ndvi_anom_sd, precip, starts_with('lag'))
 # names(pmat) <- c('nirv',paste0("precip",0:35))
 # pmat <- pmat %>% filter(precip35 >= 0)
 # pmat$p <- pmat[,2:37] %>% as.matrix()
@@ -1040,7 +1203,7 @@ ggsave(p_all, filename = "figures/nirv_anom_sigma_lagModel_P_PET.png",
 # 
 # junk2 <- junk %>% 
 #   # filter(x > 151) %>% 
-#   select(x,y,nirv_anom_sd,precip,pet) %>% 
+#   select(x,y,ndvi_anom_sd,precip,pet) %>% 
 #   group_by(x,y) %>% 
 #   jetlag2(., precip, 36) %>% 
 #   ungroup() %>% 
@@ -1050,7 +1213,7 @@ ggsave(p_all, filename = "figures/nirv_anom_sigma_lagModel_P_PET.png",
 #   rename(lag_pet = lag_var, 
 #          lag_n_pet = lag_n)
 #   
-# fit <- bam(nirv_anom_sd ~ s(lag_n_precip,by=lag_precip,bs="gp")+
+# fit <- bam(ndvi_anom_sd ~ s(lag_n_precip,by=lag_precip,bs="gp")+
 #              s(lag_n_pet,by=lag_pet,bs="gp"),data=junk2, 
 #            select=T, method='fREML', discrete = T)
 # plot(fit,rug=FALSE,shade=TRUE,main="Estimated function"); abline(h=0,col='red')
@@ -1120,7 +1283,7 @@ ggsave(p_all, filename = "figures/nirv_anom_sigma_lagModel_P_PET.png",
 # 
 # 
 # 
-# fit2 <- bam(nirv_anom_sd ~ 
+# fit2 <- bam(ndvi_anom_sd ~ 
 #              ddate+
 #               # s(pe_anom_36)
 #               # s(log(pe),k=5)
@@ -1136,7 +1299,7 @@ ggsave(p_all, filename = "figures/nirv_anom_sigma_lagModel_P_PET.png",
 #              # s(lag_month,by=lag_pet_anom, bs='gp')+
 #             s(lag_month,by=lag_pe_anom, bs='gp',m=c(2,12,2))
 #             ,
-#            data=d2 %>% filter(between(nirv_anom_sd,-3.5,3.5)) %>% 
+#            data=d2 %>% filter(between(ndvi_anom_sd,-3.5,3.5)) %>% 
 #              mutate(ddate = decimal_date(date)) %>% 
 #              filter(month %in% c(12,1,2)), 
 #            select=T, method='fREML', discrete = T, 

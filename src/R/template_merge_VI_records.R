@@ -229,12 +229,13 @@ o <- o1[o2,on=.(x,y,date)]
 rm(o1,o2); gc()
 
 o <- o[,`:=`(ndvi_mcd=(nir-red)/(nir+red))]
+o <- o[,`:=`(evi2_mcd=2.5*(nir-red)/(nir+2.4*red+1))]
 o <- o[,`:=`(nirv_mcd=ndvi_mcd*nir)]
 o <- o[,`:=`(year=year(date))]
 o <- o %>% lazy_dt() %>% 
   filter(is.na(ndvi_mcd)==F & red > 0 & nir > 0) %>% 
   as.data.table()
-o <- o %>% lazy_dt() %>% select(x,y,date,ndvi_mcd,nirv_mcd) %>% as.data.table()
+o <- o %>% lazy_dt() %>% select(x,y,date,ndvi_mcd,evi2_mcd,nirv_mcd) %>% as.data.table()
 hyb <- o[dat,on=.(x,y,date)]
 
 # hyb <- hyb[is.na(ndvi_mcd)==F & is.na(ndvi)==F]
@@ -361,39 +362,62 @@ summary(m4_ndvi)
 # gratia::appraise(m1_ndvi)
 # bbmle::AICtab(m0_ndvi,m1_ndvi)
 
+m4_evi2 <- bam(evi2_mcd~
+                 s(sz)+s(nir_c)+s(red_c)+s(ndvi_c,m = 1)+
+                 s(x,y)+s(vc,bs='re'),
+               family=betar(link='logit'),
+               select = TRUE, discrete=TRUE, method='fREML', nthreads = 8,
+               data=train)
+m4_nirv <- bam(nirv_mcd~
+                 s(sz)+s(red_c)+s(nir_c,ndvi_c,m = 1)+
+                 s(x,y)+s(vc,bs='re'),
+               family=betar(link='logit'),
+               select = TRUE, 
+               discrete=TRUE, method='fREML', nthreads = 8,
+               data=train)
+
+
 hyb <- hyb %>% lazy_dt() %>% 
   filter(str_detect(vc,"Eucalypt")==T |
            str_detect(vc,"Rainforests")==T |
            str_detect(vc,"Forest")==T | 
            str_detect(vc,"Woodlands")) %>% 
-  mutate(ndvi_hyb = predict(m4_ndvi, newdata=., n.threads = 8,type='response')) %>% 
+  mutate(ndvi_hyb = predict(m4_ndvi, newdata=., n.threads = 8,type='response'), 
+         evi2_hyb = predict(m4_evi2, newdata=., n.threads = 8,type='response'), 
+         nirv_hyb = predict(m4_nirv, newdata=., n.threads = 8,type='response')) %>% 
   as.data.table()
 
 hyb <- hyb %>% lazy_dt() %>% 
-  mutate(ndvi_mcd = ifelse(is.na(ndvi_mcd)==TRUE, ndvi_hyb, ndvi_mcd)) %>% 
-  as.data.table()
+  mutate(ndvi_m = coalesce(ndvi_mcd, ndvi_hyb), 
+         evi2_m = coalesce(evi2_mcd, evi2_hyb), 
+         nirv_m = coalesce(nirv_mcd, nirv_hyb)) %>% 
+  as.data.table() %>% 
+  group_by(x,y) %>% 
+  mutate(id = cur_group_id()) %>% 
+  ungroup()
 
-hyb %>% lazy_dt() %>% select(x,y,date,vc,veg_class,ndvi_mcd) %>% 
-  filter(is.na(ndvi_mcd)==F) %>% 
+hyb %>% lazy_dt() %>% 
+  filter(is.na(ndvi_m)==F) %>% 
   as.data.table() %>% 
   arrow::write_parquet(sink = 
           paste0("../data_general/MCD43/MCD64_AVHRR_NDVI_hybrid_",Sys.Date(),".parquet"))
 
-hyb[is.na(vc)==F] %>%
-  lazy_dt() %>%
-  filter(date >= ymd("2001-01-01")) %>%
-  filter(date < ymd("2015-01-01")) %>%
-  filter(veg_class %in% c(1:6)) %>% 
-  mutate(month=month(date)) %>%
-  group_by(vc,date) %>%
-  summarize(val1 = mean(ndvi_hyb, na.rm=TRUE), 
-            val2 = mean(ndvi_mcd, na.rm=TRUE)) %>% 
-  ungroup() %>% 
-  as_tibble() %>% 
-  ggplot(data=., aes(date,val1))+
-  geom_smooth(method='lm')+
-  geom_smooth(aes(date,val2),col='black',method='lm')+
-  facet_wrap(~vc,scales = 'free')
+# hyb[is.na(vc)==F] %>%
+#   lazy_dt() %>%
+#   filter(date >= ymd("2001-01-01")) %>%
+#   filter(date < ymd("2015-01-01")) %>%
+#   filter(veg_class %in% c(1:6)) %>% 
+#   mutate(month=month(date)) %>%
+#   group_by(vc,date) %>%
+#   summarize(val1 = mean(ndvi_hyb, na.rm=TRUE), 
+#             val2 = mean(ndvi_mcd, na.rm=TRUE)) %>% 
+#   ungroup() %>% 
+#   as_tibble() %>% 
+#   ggplot(data=., aes(date,val1))+
+#   geom_smooth(method='lm')+
+#   geom_smooth(aes(date,val2),col='black',method='lm')+
+#   facet_wrap(~vc,scales = 'free')
+
 # 
 # 
 # 
@@ -467,35 +491,35 @@ hyb[is.na(vc)==F] %>%
 #             # family=gaussian(link='log'),
 #             select = TRUE, discrete=TRUE, method='fREML', 
 #             data=train, nthreads = 8)
-# summary(m1.4)
-bbmle::AICtab(m0,m1.1,m1.2,m1.3,m1.4)
+# # summary(m1.4)
+# bbmle::AICtab(m0,m1.1,m1.2,m1.3,m1.4)
+# # 
+# test$veg_class %>% table %>% sort
 # 
-test$veg_class %>% table %>% sort
-
-test %>%
-  lazy_dt() %>%
-  mutate(month=month(date)) %>%
-  filter(veg_class %in% c(5,11,3,6,2,9,7,1,13)) %>%
-  rename(obs=ndvi_mcd) %>%
-  mutate(pred0 = predict(m0_ndvi,newdata=.,type='response'),
-         pred1 = predict(m1.2,newdata=.,type='response'),
-         pred2 = predict(m2_ndvi,newdata=.,type='response'),
-         pred3 = predict(m3_ndvi,newdata=.,type='response'),
-         pred4 = predict(m4_ndvi,newdata=.,type='response')
-         ) %>%
-  select(vc,date,obs,pred0,pred1,pred2,pred3,pred4) %>%
-  as_tibble() %>%
-  gather(-vc,-date,-obs, key='method',value='estimate') %>%
-  group_by(vc,date,method) %>%
-  summarize(rmse = sqrt(mean((estimate-obs)**2)),
-            r2 = cor(estimate,obs)) %>%
-  ungroup() %>%
-  ggplot(data=., aes(date,r2,color=method))+
-  # geom_point()+
-  geom_smooth(se=F,span=0.1)+
-  scale_color_brewer(type='qual')+
-  facet_wrap(~vc)+
-  theme_linedraw()
+# test %>%
+#   lazy_dt() %>%
+#   mutate(month=month(date)) %>%
+#   filter(veg_class %in% c(5,11,3,6,2,9,7,1,13)) %>%
+#   rename(obs=ndvi_mcd) %>%
+#   mutate(pred0 = predict(m0_ndvi,newdata=.,type='response'),
+#          pred1 = predict(m1.2,newdata=.,type='response'),
+#          pred2 = predict(m2_ndvi,newdata=.,type='response'),
+#          pred3 = predict(m3_ndvi,newdata=.,type='response'),
+#          pred4 = predict(m4_ndvi,newdata=.,type='response')
+#          ) %>%
+#   select(vc,date,obs,pred0,pred1,pred2,pred3,pred4) %>%
+#   as_tibble() %>%
+#   gather(-vc,-date,-obs, key='method',value='estimate') %>%
+#   group_by(vc,date,method) %>%
+#   summarize(rmse = sqrt(mean((estimate-obs)**2)),
+#             r2 = cor(estimate,obs)) %>%
+#   ungroup() %>%
+#   ggplot(data=., aes(date,r2,color=method))+
+#   # geom_point()+
+#   geom_smooth(se=F,span=0.1)+
+#   scale_color_brewer(type='qual')+
+#   facet_wrap(~vc)+
+#   theme_linedraw()
 # 
 # test %>% 
 #   lazy_dt() %>% 

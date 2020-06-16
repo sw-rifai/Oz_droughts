@@ -9,12 +9,12 @@ setDTthreads(threads=8)
 #*******************************************************************************
 # Get data  ---------------------------------------------------------
 #*******************************************************************************
-tmp <- arrow::read_parquet("/home/sami/srifai@gmail.com/work/research/data_general/Oz_misc_data/ARD_ndvi_aclim_2020-05-25.parquet")
+tmp <- arrow::read_parquet("/home/sami/srifai@gmail.com/work/research/data_general/Oz_misc_data/ARD_ndvi_aclim_2020-05-31.parquet")
 
 # data.table 
 tmp <- setDT(tmp) # OR: tmp <- as.data.table(tmp)
-tmp <- tmp %>% select(-x,-y) %>% rename(x=x_vi, y=y_vi)
-tmp <- tmp[, pet:=ifelse(pet<50,50,pet)]
+tmp <- tmp %>% select(-x.x,-x.y,-y.x,-y.y) %>% rename(x=x_vi, y=y_vi)
+tmp <- tmp[, pet:=ifelse(pet<0,0,pet)]
 tmp <- tmp[, id := .GRP, by=.(x,y)]
 
 # Subsetting to just one type of vegetation class
@@ -57,6 +57,10 @@ norms_tmax <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to r
                 .(tmax_u = mean(tmax,na.rm=TRUE), 
                   tmax_sd = sd(tmax,na.rm=TRUE)),
                 by=.(x,y,month)]
+norms_tmin <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
+                  .(tmin_u = mean(tmin,na.rm=TRUE), 
+                    tmin_sd = sd(tmin,na.rm=TRUE)),
+                  by=.(x,y,month)]
 
 norms_map <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
                  .("ap" = sum(precip)),
@@ -74,6 +78,10 @@ norms_matmax <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to
                  .("atmax" = mean(tmax)),
                  by=.(x,y,year)][,.("matmax"=mean(atmax), 
                                     "atmax_sd"=sd(atmax)),by=.(x,y)]
+norms_matmin <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
+                    .("atmin" = mean(tmin)),
+                    by=.(x,y,year)][,.("matmin"=mean(atmin), 
+                                       "atmin_sd"=sd(atmin)),by=.(x,y)]
 norms_mavpd <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
                     .("avpd" = mean(vpd15)),
                     by=.(x,y,year)][,.("mavpd15"=mean(avpd), 
@@ -84,10 +92,12 @@ norms <- norms_p[norms_pet, on=.(x,y,month)] # join data.tables
 norms <- norms[norms_vpd, on=.(x,y,month)] # join data.tables
 norms <- norms[norms_pe, on=.(x,y,month)] # join data.tables
 norms <- norms[norms_tmax, on=.(x,y,month)] # join data.tables
+norms <- norms[norms_tmin, on=.(x,y,month)]
 norms <- norms[norms_map, on=.(x,y)]
 norms <- norms[norms_mapet, on=.(x,y)]
 norms <- norms[norms_mape, on=.(x,y)]
 norms <- norms[norms_matmax, on=.(x,y)]
+norms <- norms[norms_matmin, on=.(x,y)]
 norms <- norms[norms_mavpd, on=.(x,y)]
 
 norms <- norms[norms_ndvi, on=.(x,y,month)]
@@ -106,12 +116,14 @@ tmp <- tmp[, `:=`(ndvi_anom = ndvi_mcd - ndvi_u,
                   pet_anom = pet-pet_u, 
                   pe_anom = pe-pe_u, 
                   tmax_anom = tmax-tmax_u, 
+                  tmin_anom = tmin-tmin_u, 
                   vpd15_anom = vpd15 - vpd15_u)]
 tmp <- tmp[, `:=`(ndvi_anom_sd = ndvi_anom/ndvi_sd,
                   precip_anom_sd = precip_anom/precip_sd,  # calc sd anomaly 
                   pet_anom_sd = pet_anom/pet_sd, 
                   pe_anom_sd = pe_anom/pe_sd, 
                   tmax_anom_sd = tmax_anom/tmax_sd, 
+                  tmin_anom_sd = tmin_anom/tmin_sd, 
                   vpd15_anom_sd = vpd15_anom/vpd15_sd)]
 #*******************************************************************************
 #* END SECTION
@@ -127,6 +139,8 @@ tmp <- tmp[order(x,y,date)][, pet_12mo := frollsum(pet,n = 12,fill = NA,align='r
 tmp <- tmp[order(x,y,date)][, pe_12mo := frollsum(pe,n = 12,fill = NA,align='right'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, tmax_anom_12mo := frollapply(tmax_anom,FUN=max,
                                                            n = 12,fill = NA,align='right'), by=.(x,y)]
+tmp <- tmp[order(x,y,date)][, tmin_anom_12mo := frollapply(tmin_anom,FUN=max,
+                                                           n = 12,fill = NA,align='right'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, vpd15_12mo := frollapply(vpd15_anom,FUN=mean,
                                                           n = 12,fill = NA,align='right'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, vpd15_anom_12mo := frollapply(vpd15_anom,FUN=mean,
@@ -140,6 +154,7 @@ tmp <- tmp[order(x,y,date)][, precip_anom_3mo := frollsum(precip_anom,n = 3,fill
 tmp <- tmp[order(x,y,date)][, pet_anom_3mo := frollsum(pet_anom,n = 3,fill = NA,align='right'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, pe_anom_3mo := frollmean(pe_anom,n = 3,fill = NA,align='right'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, tmax_anom_3mo := frollmean(tmax_anom,n = 3,fill = NA,align='right'), by=.(x,y)]
+tmp <- tmp[order(x,y,date)][, tmin_anom_3mo := frollmean(tmin_anom,n = 3,fill = NA,align='right'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, vpd15_anom_3mo := frollmean(vpd15_anom,n = 3,fill = NA,align='right'), by=.(x,y)]
 gc()
 

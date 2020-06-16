@@ -2336,3 +2336,1122 @@ tmp[date==ymd("2019-01-01")] %>%
   geom_tile()+
   coord_equal()+
   scale_fill_gradient2()
+
+m4_evi2 <- bam(evi2_mcd~
+                 s(sz)+s(nir_c)+s(red_c)+s(ndvi_c,m = 1)+
+                 s(x,y)+s(vc,bs='re'),
+               family=betar(link='logit'),
+               select = TRUE, discrete=TRUE, method='fREML', nthreads = 8,
+               data=train)
+m4_nirv <- bam(nirv_mcd~
+                 s(sz)+s(red_c)+s(nir_c,ndvi_c,m = 1)+
+                 s(x,y)+s(vc,bs='re'),
+               family=betar(link='logit'),
+               select = TRUE, 
+               discrete=TRUE, method='fREML', nthreads = 8,
+               data=train)
+
+coalesce(c(1,2,NA),
+         c(NA,1,2))
+
+
+hyb <- hyb %>% lazy_dt() %>% 
+  mutate(ndvi_m = coalesce(ndvi_mcd, ndvi_hyb), 
+         evi2_m = coalesce(evi2_mcd, evi2_hyb), 
+         nirv_m = coalesce(nirv_mcd, nirv_hyb)) %>% 
+  as.data.table() %>% 
+  group_by(x,y) %>% 
+  mutate(id = cur_group_id()) %>% 
+  ungroup()
+
+tmp %>% 
+  filter(id==100) %>% 
+  ggplot(data=., aes(ndvi_hyb, ndvi_c))+
+  geom_point()+
+  geom_abline(aes(intercept=0,slope=1),col='red')
+tmp %>% 
+  filter(id==1000) %>% 
+  ggplot(data=., aes(date, ndvi_m))+
+  geom_point()+geom_smooth()+
+  geom_point(aes(date,ndvi_mcd),col='red',size=0.2)
+
+
+tmp_clim %>% 
+  filter(id==30000) %>% 
+  filter(date>=ymd('2000-01-01')) %>% 
+  ggplot(data=., aes(date, ndvi_m))+
+  geom_smooth(color='black',method='lm')+
+  geom_smooth(aes(date,evi2_m),col='red',method='lm')+
+  geom_smooth(aes(date,nirv_m),col='blue',method='lm')
+
+tmp[ndvi_anom_sd >= -5 & ndvi_anom_sd <= 5] %>%
+  .[date>= ymd("1982-01-01") & date<= ymd("1982-01-01")] %>% pull(ndvi_mcd) %>% hist
+
+
+tmp$ndvi_mcd
+
+
+lt_t35_season %>% 
+  ggplot(data=.,aes(x,y,fill=b1))+
+  geom_tile()+
+  coord_equal()+
+  scale_fill_gradient2(high='orange',low='blue',limits=c(-0.25,0.25))+
+  # scale_fill_viridis_c(option='B')+
+  facet_wrap(~season,ncol=4)
+
+
+tmp1
+summary(fit_son)
+plot(fit_son, scale = 0)
+
+tmp1 %>% #filter(season=='SON') %>% 
+  sample_n(50000) %>% 
+  filter(between(ndvi_anom_sd,-3.5,3.5)) %>% 
+  select(vpd15_anom, pet_anom, precip_anom, tmax_anom) %>% 
+  cor
+
+
+alt <- bam(ndvi_anom_sd ~ 
+                 s(mandvi,vc,bs='fs')+
+                 s(vc,bs='re')+
+                 s(lag_month,by=lag_precip_anom, bs='gp',k=5)+
+                 s(lag_month,by=lag_pet_anom, bs='gp',k=5)+
+                 s(lag_month,by=lag_vpd15_anom, bs='gp',k=5)+
+                 s(x,y,fx = TRUE),
+               data=tmp1 %>% #filter(season=='SON') %>% 
+                 sample_n(50000) %>% 
+                 filter(between(ndvi_anom_sd,-3.5,3.5)), 
+               select=T, method='fREML', discrete = T, nthreads = 6)
+bbmle::AICtab(alt,fit_son)
+
+
+
+fit_son <- bam(ndvi_anom_sd ~ 
+                 # s(ndvi_u)+
+                 # te(map,mavpd15,mapet)+
+                 s(lag_month,by=lag_precip_anom, bs='gp',k=5)+
+                 s(lag_month,by=lag_pet_anom, bs='gp',k=5)+
+                 s(lag_month,by=lag_vpd15_anom, bs='gp',k=5)+
+                 s(x,y,fx = TRUE),
+               data=tmp1 %>% filter(season=='SON') %>% 
+                 filter(between(ndvi_anom_sd,-3.5,3.5)) %>% 
+                 filter(vc == "Eucalypt Tall Open Forests") %>% 
+                 sample_n(50000), 
+               select=T, method='fREML', discrete = T, nthreads = 6)
+summary(fit_son)
+plot(fit_son, scale = 0)
+
+
+
+p1 <- plot(sm(getViz(fit_son),1))+
+  l_ciPoly() + 
+  l_fitLine() + geom_hline(yintercept = 0, linetype = 2)+
+  scale_x_continuous(expand=c(0,0), breaks = seq(0,12,length.out = 7))+
+  scale_y_continuous(limits=c(-0.004,0.008))+
+  labs(x="Lag Month",y=expression(paste(beta~Precip)),title="SON")
+p1
+
+
+alt <- bam(ndvi_anom_sd ~ 
+                 # s(ndvi_u)+
+                 # te(map,mavpd15,mapet)+
+                 s(lag_month,by=lag_precip_anom, bs='gp',k=5)+
+                 s(lag_month,by=lag_pet_anom, bs='gp',k=5)+
+                 s(lag_month,by=lag_vpd15_anom, bs='gp',k=5)+
+                 s(x,y,fx = TRUE),
+               data=tmp1 %>% filter(season=='SON') %>% 
+                 filter(between(ndvi_anom_sd,-3.5,3.5)) %>% 
+                 filter(vc == "Eucalypt Woodlands") %>% 
+                 sample_n(50000), 
+               select=T, method='fREML', discrete = T, nthreads = 6)
+p2 <- plot(sm(getViz(alt),1))+
+  l_ciPoly() + 
+  l_fitLine() + geom_hline(yintercept = 0, linetype = 2)+
+  scale_x_continuous(expand=c(0,0), breaks = seq(0,12,length.out = 7))+
+  scale_y_continuous(limits=c(-0.004,0.008))+
+  labs(x="Lag Month",y=expression(paste(beta~Precip)),title="SON")
+p2
+library(patchwork)
+p1+p2
+
+tmp1$vc %>% table
+
+
+
+mgcViz::gridPrint(p1,p2,p3,p4, 
+                  ncol=4)
+
+library(gratia)
+bb1 <- evaluate_smooth(fit1_djf,smooth = "s(lag_month):lag_precip_anom")
+bb2 <- evaluate_smooth(fit2_djf,smooth = "s(lag_month):lag_precip_anom")
+bind_rows(bb1 %>% mutate(vc="Eucalypt Tall Open Forests"),
+          bb2 %>% mutate(vc="Eucalypt Woodlands")) %>% 
+  group_by(vc) %>% 
+  mutate(est_s = scale(est)) %>% 
+  ungroup() %>% 
+  ggplot(data=., aes(lag_month,est_s,color=vc))+geom_line()
+
+bb1 <- evaluate_smooth(fit1_djf,smooth = "s(lag_month):lag_pet_anom")
+bb2 <- evaluate_smooth(fit2_djf,smooth = "s(lag_month):lag_pet_anom")
+bind_rows(bb1 %>% mutate(vc="Eucalypt Tall Open Forests"),
+          bb2 %>% mutate(vc="Eucalypt Woodlands")) %>% 
+  group_by(vc) %>% 
+  mutate(est_s = scale(est)) %>% 
+  ungroup() %>% 
+  ggplot(data=., aes(lag_month,est_s,color=vc))+geom_line()
+
+bb1 <- evaluate_smooth(fit1_djf,smooth = "s(lag_month):lag_vpd15_anom")
+bb2 <- evaluate_smooth(fit2_djf,smooth = "s(lag_month):lag_vpd15_anom")
+bind_rows(bb1 %>% mutate(vc="Eucalypt Tall Open Forests"),
+          bb2 %>% mutate(vc="Eucalypt Woodlands")) %>% 
+  group_by(vc) %>% 
+  mutate(est_s = scale(est)) %>% 
+  ungroup() %>% 
+  ggplot(data=., aes(lag_month,est_s,color=vc))+geom_line()
+
+tmp %>% 
+  group_by(vc,season) %>% 
+  summarize(val = mean(ndvi_u,na.rm=TRUE), 
+            val2 = mean(ndvi_sd, na.rm=TRUE))
+
+
+library(dtplyr)
+
+tmp %>% lazy_dt() %>% 
+  group_by(vc,hydro_year) %>% 
+  summarize(val = mean(ndvi_mcd,na.rm=TRUE)) %>% 
+  ungroup() %>% 
+  as_tibble() %>% 
+  ggplot(data=., aes(hydro_year,val,color=vc))+
+  geom_line()
+
+vi[date<=ymd("1999-01-01")]
+
+
+gc()
+clim_p_anom <- tmp[date>=ymd("2001-01-01")] %>% 
+  lazy_dt() %>% 
+  mutate(zone = case_when(y > -23.5 ~ 'Tropical', 
+                          y <= -23.5 & y > -35 ~ 'Subtropical',
+                          y <= -35 ~ 'Temperate')) %>%
+  mutate(zone = factor(zone, levels =      c("Tropical","Subtropical","Temperate"),ordered = T)) %>%
+  group_by(date,zone) %>% 
+               summarize(precip_anom_12mo = mean(precip_anom_12mo,na.rm=TRUE)) %>% 
+               ungroup() %>% 
+  as_tibble()
+  
+tmp[date>=ymd("2001-01-01")] %>% 
+  lazy_dt() %>% 
+  mutate(zone = case_when(y > -23.5 ~ 'Tropical', 
+                          y <= -23.5 & y > -35 ~ 'Subtropical',
+                          y <= -35 ~ 'Temperate')) %>%
+  mutate(zone = factor(zone, levels =      c("Tropical","Subtropical","Temperate"),ordered = T)) %>%
+  inner_join(., {.} %>% group_by(date,zone) %>% 
+               summarize(precip_anom_12mo = mean(precip_anom_12mo,na.rm=TRUE)) %>% 
+               ungroup(), by=c("date","zone"))
+  group_by(vc,zone,date) %>% 
+  summarize(val = mean(ndvi_mcd,na.rm=TRUE), 
+            nobs = sum(is.na(ndvi_mcd)==F)) %>% 
+  ungroup() %>% 
+  as_tibble() %>% 
+  inner_join(., {.} %>% 
+               mutate(year=year(date)) %>% 
+               filter(year >=2001 & year<= 2015) %>% 
+               group_by(vc,zone) %>% 
+               summarize(mandvi=mean(val,na.rm=TRUE)) %>% 
+               ungroup(), 
+             by=c("vc","zone")) %>% 
+  group_by(vc,zone) %>% 
+  arrange(date) %>% 
+  mutate(val_12mo = RcppRoll::roll_meanr(val,n=12,fill=NA)) %>% 
+  ungroup() %>% 
+  mutate(val_anom_12mo = val_12mo-mandvi) %>% 
+  filter(nobs > 500) %>% 
+  filter(date <= ymd("2019-10-01")) %>% 
+    inner_join(., clim_p_anom, by=c("date","zone")) %>% 
+  ggplot(data=., aes(date,precip_anom_12mo,color=vc))+
+  geom_hline(aes(yintercept=0))+
+  geom_line()+
+  scale_color_paletteer_d("awtools::bpalette")+
+  facet_wrap(~zone,nrow=3)+
+  theme_linedraw()+
+  theme(panel.grid = element_blank(), 
+        legend.position = 'right')
+
+  
+  
+  
+#########################3
+names(tmp)
+
+c(
+  # "ap_sd", "ape_sd", "apet_sd", "atmax_sd", "avpd15_sd", 
+  "date", "hydro_year", "id", 
+  # "map", "mape", "mapet", "matmax", "mavpd15", 
+  # "month", "ndvi_12mo", 
+  "ndvi_anom", "ndvi_anom_12mo","ndvi_anom_sd", 
+  "ndvi_mcd", 
+  # "ndvi_sd", "ndvi_u", "pe", "pe_12mo", "pe_36mo", 
+  # "pe_anom", "pe_anom_12mo", "pe_anom_36mo", "pe_anom_3mo", "pe_anom_6mo", 
+  # "pe_anom_sd", "pe_sd", "pe_u", "pet", "pet_12mo", "pet_36mo", 
+  # "pet_anom", "pet_anom_12mo", "pet_anom_36mo", "pet_anom_3mo", 
+  # "pet_anom_6mo", "pet_anom_sd", "pet_sd", "pet_u", "precip", "precip_12mo", 
+  # "precip_36mo", "precip_anom", "precip_anom_12mo", "precip_anom_36mo", 
+  # "precip_anom_3mo", "precip_anom_6mo", "precip_anom_sd", "precip_sd", 
+  # "precip_u", "season", "t35", "t36", "t37", "t38", "t39", "t40", 
+  # "t41", "t42", "t43", "t44", "t45", "tmax", "tmax_anom", "tmax_anom_12mo", 
+  # "tmax_anom_36mo", "tmax_anom_3mo", "tmax_anom_6mo", "tmax_anom_sd", 
+  # "tmax_sd", "tmax_u", "vc", "veg_class", "vp15", "vp9", "vpd15", 
+  # "vpd15_12mo", "vpd15_36mo", "vpd15_anom", "vpd15_anom_12mo", 
+  # "vpd15_anom_36mo", "vpd15_anom_3mo", "vpd15_anom_6mo", "vpd15_anom_sd", 
+  # "vpd15_sd", "vpd15_u", 
+  "x", "y", "year")
+
+
+
+tmp <- arrow::read_parquet("/home/sami/scratch/ARD_ndvi_aclim_anoms.parquet",
+                           col_select = c(
+                             # "ap_sd", "ape_sd", "apet_sd", "atmax_sd", "avpd15_sd", 
+                             "date", "hydro_year", "id", 
+                             # "map", "mape", "mapet", "matmax", "mavpd15", 
+                             # "month", "ndvi_12mo", 
+                             "ndvi_anom", "ndvi_anom_12mo","ndvi_anom_sd", 
+                             "ndvi_mcd", 
+                             # "ndvi_sd", "ndvi_u", "pe", "pe_12mo", "pe_36mo", 
+                             # "pe_anom", "pe_anom_12mo", "pe_anom_36mo", "pe_anom_3mo", "pe_anom_6mo", 
+                             # "pe_anom_sd", "pe_sd", "pe_u", "pet", "pet_12mo", "pet_36mo", 
+                             # "pet_anom", "pet_anom_12mo", "pet_anom_36mo", "pet_anom_3mo", 
+                             # "pet_anom_6mo", "pet_anom_sd", "pet_sd", "pet_u", "precip", "precip_12mo", 
+                             # "precip_36mo", "precip_anom", "precip_anom_12mo", "precip_anom_36mo", 
+                             # "precip_anom_3mo", "precip_anom_6mo", "precip_anom_sd", "precip_sd", 
+                             # "precip_u", "season", "t35", "t36", "t37", "t38", "t39", "t40", 
+                             # "t41", "t42", "t43", "t44", "t45", "tmax", "tmax_anom", "tmax_anom_12mo", 
+                             # "tmax_anom_36mo", "tmax_anom_3mo", "tmax_anom_6mo", "tmax_anom_sd", 
+                             # "tmax_sd", "tmax_u", "vc", "veg_class", "vp15", "vp9", "vpd15", 
+                             # "vpd15_12mo", "vpd15_36mo", "vpd15_anom", "vpd15_anom_12mo", 
+                             # "vpd15_anom_36mo", "vpd15_anom_3mo", "vpd15_anom_6mo", "vpd15_anom_sd", 
+                             # "vpd15_sd", "vpd15_u", 
+                             "x", "y", "year"))
+
+
+library(tidyverse); library(data.table); library(lubridate); library(dtplyr)
+tmp <- arrow::read_parquet("/home/sami/scratch/ARD_ndvi_aclim_anoms.parquet",
+                           col_select = c(
+                             "date", "hydro_year", "id","season","precip_anom", 
+                             "precip_anom_12mo","map",
+                             # "ndvi_anom", "ndvi_anom_12mo","ndvi_anom_sd", 
+                             # "ndvi_mcd", 
+                             "x", "y", "year")) %>% as.data.table()
+tmp %>% lazy_dt() %>% 
+  filter(hydro_year >= 1982 & hydro_year < 2020) %>% 
+  filter(y < -23.5 & y > -35) %>% 
+  group_by(hydro_year,season) %>% 
+  summarize(val = mean(precip_anom,na.rm=TRUE)) %>% 
+  ungroup() %>% 
+  group_by(season) %>% 
+  mutate(val_pr = percent_rank(val)*100) %>% 
+  ungroup() %>% 
+  as_tibble() %>% 
+  ggplot(data=., aes(hydro_year, val_pr, color=season))+geom_line()+theme_dark()+
+  geom_vline(aes(xintercept=2017),col='red')+
+  geom_vline(aes(xintercept=2003),col='red')
+
+
+
+
+
+tmp <- arrow::read_parquet("/home/sami/scratch/ARD_ndvi_aclim_anoms.parquet",
+                           col_select = c(
+                             "date", "hydro_year", "id","season","precip_anom", 
+                             "precip_anom_3mo","precip_anom_36mo",
+                             "precip_anom_12mo","map", 
+                             "tmax","tmax_anom","tmax_anom_sd", "matmax",
+                             "vpd15","vpd15_anom","vpd15_anom_sd","mavpd15",
+                             "pet","mapet","pet_anom","pet_anom_3mo",
+                             "pe","mape",
+                             "ndvi_anom", "ndvi_anom_12mo","ndvi_anom_sd",
+                             "ndvi_mcd",
+                             'vc','veg_class',
+                             "x", "y", "year")) %>% as.data.table()
+unique(tmp[,.(vc,veg_class)]) %>% View
+
+library(paletteer)
+vec_ids <- tmp[veg_class %in% 2:3][,.(id)] %>% unique %>% pull(id)
+# sample randomly
+tmp %>% lazy_dt() %>% 
+  filter(veg_class %in% 1:4) %>% 
+  sample_n(10000) %>% 
+  as_tibble() %>% 
+  ggplot(data=., aes(tmax, ndvi_mcd,
+                     color=hydro_year, 
+                     group=vc))+
+  geom_point()+
+  scale_color_viridis_c()+
+  geom_smooth(se=F,color='red')+
+  facet_wrap(~vc, scales='free')
+
+set.seed(1)
+tmp[veg_class==3] %>% 
+  # .[id %in% c(44208,41405,42710,40976,3926,41028,1205,1897,13756)] %>%
+  .[id %in% sample(vec_ids, 500)] %>%
+  ggplot(data=., aes(tmax, ndvi_mcd,
+                     # color=as.factor(id),
+                     color=matmax,
+                     # color=hydro_year, 
+                     group=vc))+
+  geom_point(alpha=0.5)+
+  geom_vline(aes(xintercept=32.5),col='red')+
+  scale_color_viridis_c(option='B',end=0.9)+
+  geom_smooth(se=F, aes(tmax, ndvi_mcd,group=as.factor(id)), 
+              span=0.5)
+
+tmp[veg_class %in% c(1:4)] %>% 
+  .[y> -35 & y < -23.5] %>% 
+  .[id %in% sample(vec_ids, 100)] %>%
+  lazy_dt() %>% 
+  filter(ndvi_mcd > 0) %>% 
+  mutate(matmax = cut_interval(matmax,4), 
+         map = cut_interval(map,4), 
+         mapet = cut_interval(mapet,4), 
+         mape = cut_interval(mape,4)) %>% 
+  as_tibble() %>% 
+  ggplot(data=., aes(tmax_anom, ndvi_anom_sd,
+                     color=as.factor(id),
+                     # color=matmax,
+                     ))+
+  geom_point(alpha=0.25,color='black')+
+  geom_hline(aes(yintercept=0),col='yellow')+
+  geom_vline(aes(xintercept=0),col='blue')+
+  geom_vline(aes(xintercept=2),col='red')+
+  # scale_color_viridis_c(option='B',end=0.9)+
+  geom_smooth(se=F,inherit.aes = T, 
+              # method='lm',
+              # aes(tmax_anom, ndvi_anom,color=vc),
+              span=0.5)+
+  facet_grid(~mape, labeller = label_both)+
+  theme(legend.position = 'bottom')
+
+
+library(mgcv); library(mgcViz)
+# pe: precip/pet
+
+test <- tmp[veg_class %in% c(2:3)] %>% 
+  .[y> -35 & y < -23.5] %>% 
+  .[id %in% sample(vec_ids, 1000)] %>% 
+  .[,`:=`(id=as.factor(id))]
+m1 <- bam(ndvi_anom_sd~s(mape,by=tmax_anom,k=5)+s(id,bs='re'),
+         data=test,
+         select=T, discrete = T, method='fREML')
+summary(m1)
+
+m2 <- bam(ndvi_anom_sd~s(mape,by=vpd15_anom,k=5,bs='ts')+s(id,bs='re'),
+         data=test,
+         select=T, discrete = T, method='fREML')
+summary(m2)
+
+m3 <- bam(ndvi_anom_sd~s(mape,by=vpd15_anom,k=5)+
+            s(map,by=precip_anom,k=5)+
+            s(id,bs='re'), 
+          data=test, 
+          select=T, discrete = T, method='fREML')
+m4 <- bam(ndvi_anom_sd~s(mape,by=vpd15_anom,k=5)+
+            s(map,by=precip_anom,k=5)+
+            s(mapet,by=pet_anom,k=5)+
+            s(id,bs='re'), 
+          data=test, 
+          select=T, discrete = T, method='fREML')
+m5 <- bam(ndvi_anom_sd~
+            s(mape,by=vpd15_anom,k=5)+
+            s(map,by=precip_anom,k=5)+
+            s(mapet,by=pet_anom,k=5)+
+            s(map,by=precip_anom_3mo,k=5)+
+            s(id,bs='re'), 
+          data=test, 
+          select=T, discrete = T, method='fREML')
+
+m6 <- bam(ndvi_anom_sd~
+            s(mape,vpd15_anom,precip_anom_3mo,k=5)+
+            s(id,bs='re'), 
+          data=test, 
+          select=T, discrete = T, method='fREML', nthreads = 8)
+
+
+
+bbmle::AICtab(m1,m2,m3,m4,m5,m6)
+
+plot(m2,select = 1)
+plot(m3,select = 2,scale = 0)
+plot(m5,scale=0,pages=1)
+summary(m2)
+summary(m5)
+
+
+plot(sm(getViz(m1),1))+
+  l_fitRaster()+
+  l_fitContour()+
+  l_rug()+
+  scale_fill_gradient2()
+
+
+
+
+
+
+# MCD43  ------------------------------------------------------------
+o1 <- stars::read_stars("../data_general/MCD15/MCD15A3_LAI_5000m_SE_Oz_mmean_maskFireDefor_2003_2019.tif") %>% 
+  # slice('band', seq(1,by=2,to = 456)) %>% 
+  st_set_dimensions(., 3, 
+                    values=seq(ymd("2003-01-01"),ymd("2019-12-01"),by="1 month"), 
+                    names = 'date') %>%  
+  as_tibble() %>% 
+  as.data.table() %>% 
+  set_names(c("x","y","date","lai"))
+o1
+
+
+o1 %>% lazy_dt() %>% 
+  # filter(hydro_year >= 1982 & hydro_year < 2020) %>% 
+  filter(y < -23.5 & y > -35) %>% 
+  mutate(year=year(date)) %>% 
+  group_by(year) %>% 
+  summarize(val = mean(lai,na.rm=TRUE)) %>% 
+  ungroup() %>% 
+  # group_by(season) %>% 
+  mutate(val_pr = percent_rank(val)*100) %>% 
+  ungroup() %>% 
+  as_tibble() %>% 
+  ggplot(data=., aes(year, val))+geom_line()+theme_dark()+
+  geom_vline(aes(xintercept=2017),col='red')+
+  geom_vline(aes(xintercept=2003),col='red')
+
+
+o1 %>% filter(date==ymd("2019-09-01")) %>% ggplot(aes(x,y,fill=lai))+geom_tile()
+
+
+
+
+
+
+
+
+
+
+###########################################################################
+tmp <- arrow::read_parquet("/home/sami/scratch/ARD_ndvi_aclim_anoms.parquet",
+                           col_select = c(
+                             "date", "hydro_year", "id","season","precip_anom", 
+                             "precip_anom_3mo","precip_anom_36mo",
+                             "precip_anom_12mo","map", 
+                             "tmax","tmax_anom","tmax_anom_sd", "matmax",
+                             "vpd15","vpd15_anom","vpd15_anom_sd","mavpd15",
+                             "vpd15_u",
+                             "pet","mapet","pet_anom","pet_anom_3mo","pet_u",
+                             "pe","mape",
+                             "ndvi_anom", "ndvi_anom_12mo","ndvi_anom_sd",
+                             "ndvi_mcd",
+                             'vc','veg_class',
+                             'month',
+                             "x", "y", "year")) %>% as.data.table()
+unique(tmp[,.(vc,veg_class)]) %>% View
+
+train <- tmp[veg_class%in%c(2:3)]  %>% 
+  .[y> -35 & y < -23.5] %>% 
+  .[ndvi_anom_sd > -3.5 & ndvi_anom_sd < 3.5] %>% 
+  # .[hydro_year >= min_year & hydro_year <= max_year] %>% 
+  .[,`:=`(id=as.factor(id))] %>% 
+  .[sample(.N,50000)]
+
+m <- bam(ndvi_anom_sd~
+            s(mape,by=vpd15_anom,k=5)+
+            s(map,by=precip_anom,k=5)+
+            s(mapet,by=pet_anom,k=5)+
+            s(map,by=precip_anom_3mo,k=5)+
+            s(map,by=precip_anom_12mo,k=5)+
+            # s(id,bs='re'), 
+          data=train, 
+          select=T, discrete = T, method='fREML')
+plot(m,scale=0,pages=1)
+
+m1 <- bam(ndvi_anom_sd~
+           s(mape,by=vpd15_anom,k=5)+
+           # s(map,by=precip_anom,k=5)+
+           s(mapet,by=pet_anom,k=5)+
+           s(map,by=precip_anom_3mo,k=5)+
+           s(map,by=precip_anom_12mo,k=5),
+           data=train, 
+         select=T, discrete = T, method='fREML')
+summary(m1)
+print(plot(getViz(m2),allTerms=T),pages=1)
+
+
+train <- train %>% lazy_dt() %>% 
+  mutate(x_p12 = (precip_anom_12mo)/(precip_anom_12mo+map), 
+         # x_v = (vpd15_anom - vpd15_u)/(vpd15_anom+vpd15_u), 
+         x_v = (vpd15-vpd15_u)/(vpd15+vpd15_u),
+         x_p3 = (precip_anom_3mo-map)/(precip_anom_3mo+map), 
+         x_pet3 = -(pet_anom_3mo - pet_u)/(pet_u) - 1) %>% 
+  as_tibble()
+
+m2 <- bam(ndvi_anom_sd~ 
+            x_v*season + x_p12*season + x_p3*season + 
+            s(x_pet3,by=season, k=5),
+          data=train, 
+          select=T, discrete = T, method='fREML')
+summary(m2)
+print(plot(getViz(m2),allTerms=T),pages=1)
+
+m3 <- bam(ndvi_anom_sd~ 
+            s(month,by=x_v, bs='cc', k=5)+
+            s(month,by=x_p12, bs='cc', k=5)+
+            s(month,by=vc,bs='fs', xt=list(bs='cc'))+
+            s(mandvi,ndvi_u)+
+            s(x,y,fx = TRUE, k=60),
+            # s(x_v,by=season,bs='fs') + 
+            # x_p12*season + x_p3*season + 
+            # t2(x_pet3,season, k=5, bs='fs', xt=list(bs='cr'), full=TRUE),
+          data=train, 
+          select=T, discrete = T, method='fREML')
+summary(m3)
+print(plot(getViz(m3),allTerms=T),pages=1)
+plot(m3, scale=0, pages=1)
+appraise(m3)
+curve(-(x-100)/(x+100),-50,150)
+
+ggplot(data=train, aes(pet_anom_3mo,x_pet3,color=mapet))+
+  geom_point()+scale_color_viridis_c()
+
+for(i in 1986:2014){
+  min_year <- i-5
+  max_year <- i+5
+  train <- tmp[veg_class%in%c(2:3)]  %>% 
+  .[y> -35 & y < -23.5] %>% 
+  .[hydro_year >= min_year & hydro_year <= max_year] %>% 
+  .[,`:=`(id=as.factor(id))] %>% 
+  .[sample(.N,50000)]
+  m <- bam(ndvi_anom_sd~
+        s(mape,vpd15_anom,precip_anom_3mo,k=5)+
+        s(id,bs='re'), 
+      data=train, 
+      select=T, discrete = T, method='fREML', nthreads = 8)
+}
+test <- tmp[veg_class %in% c(2:3)] %>% 
+  .[y> -35 & y < -23.5] %>% 
+  .[id %in% sample(vec_ids, 1000)] %>% 
+  .[,`:=`(id=as.factor(id))]
+
+tmp %>% lazy_dt() %>% mutate(id=as.factor(id)) %>% show_query()
+
+m6 <- bam(ndvi_anom_sd~
+            s(mape,vpd15_anom,precip_anom_3mo,k=5)+
+            s(id,bs='re'), 
+          data=test, 
+          select=T, discrete = T, method='fREML', nthreads = 8)
+
+
+25*(1000*1000)
+
+
+# nice
+tmp %>% 
+  sample_n(1e4) %>% 
+  filter(mape <10) %>% 
+  ggplot(data=., aes(mape, ndvi_mcd))+geom_point()+
+  geom_smooth(color='red')+
+  geom_vline(aes(xintercept=1),col='red')+
+  geom_smooth(method='gam',se=F,
+              formula=y~x,
+              method.args=list(family=betar(link='probit')))
+  # geom_smooth(method='nls',se=F,
+  #             formula=y~SSlogis(mape,Asym,xmid,scal),
+  #             method.args=list(start("Asym"=1, 
+  #                                    "xmin"=0.5,
+  #                                    "scal"=0.25)))
+
+nls(ndvi_3mo~log(beta*mape/(1+mape)), 
+    data=dat1 %>% sample_n(1e4), 
+    start=list("beta"=1))
+
+
+
+
+# Blah
+tmp %>% 
+  sample_n(1e5) %>% 
+  filter(mape <10) %>% 
+  ggplot(data=., aes(mapet, ndvi_3mo))+geom_point()+
+  geom_smooth()
+
+#
+tmp %>% 
+  sample_n(1e5) %>% 
+  filter(mape <10) %>% 
+  ggplot(data=., aes(map, ndvi_3mo))+geom_point()+
+  geom_smooth()
+
+curve(SSlogis(x, Asym = 1, xmid = 0.5,scal = 0.2), 0,3,ylim=c(0,1))
+
+m <- nls(ndvi_3mo~SSlogis(mape,Asym, xmid,scal), 
+         start=list(Asym= 1, 
+                    xmid = 0.5, 
+                    scal = 0.2), 
+         data=dat1 %>% 
+           sample_n(1e4))
+summary(m)
+plot(ndvi_3mo~mape,data=dat1 %>% sample_n(1e4))
+curve(SSlogis(x, Asym = coef(m)["Asym"], xmid = coef(m)["xmid"],scal = coef(m)["scal"]), 0,3,ylim=c(0,1),add=T,col='red')
+abline(v=coef(m)["xmid"],col='red')
+abline(h=coef(m)["Asym"],col='red')
+abline(0,coef(m)["scal"],col='red')
+
+
+md <- tmp  %>% 
+  .[y> -35 & y < -23.5] %>% 
+  .[ndvi_anom_sd > -3.5 & ndvi_anom_sd < 3.5] %>% 
+  .[ndvi_mcd > 0] %>% 
+  # .[year < 1990] %>%
+  .[is.infinite(mape)==F] %>% 
+  sample_n(4e5) %>% select(mape,ndvi_3mo,year)
+
+m1 <- nls(ndvi_3mo~SSlogis(mape,Asym, xmid,scal), 
+         start=list(Asym= 1, 
+                    xmid = 0.5, 
+                    scal = 0.2), 
+         data=md %>% filter(year<1990))
+m2 <- nls(ndvi_3mo~SSlogis(mape,Asym, xmid,scal), 
+          start=list(Asym= 1, 
+                     xmid = 0.5, 
+                     scal = 0.2), 
+          data=md %>% filter(between(year,1990,1999)))
+m3 <- nls(ndvi_3mo~SSlogis(mape,Asym, xmid,scal), 
+          start=list(Asym= 1, 
+                     xmid = 0.5, 
+                     scal = 0.2), 
+          data=md %>% filter(between(year,2000,2009)))
+m4 <- nls(ndvi_3mo~SSlogis(mape,Asym, xmid,scal), 
+          start=list(Asym= 1, 
+                     xmid = 0.5, 
+                     scal = 0.2), 
+          data=md %>% filter(between(year,2010,2019)))
+
+vec_cols <- viridis::inferno(5)
+curve(SSlogis(x, Asym = coef(m1)["Asym"], xmid = coef(m1)["xmid"],scal = coef(m1)["scal"]), 0.01,3,ylim=c(0,0.8),add=F,col=vec_cols[1])
+curve(SSlogis(x, Asym = coef(m2)["Asym"], xmid = coef(m2)["xmid"],scal = coef(m2)["scal"]), 0.01,3,add=T,col=vec_cols[2])
+curve(SSlogis(x, Asym = coef(m3)["Asym"], xmid = coef(m3)["xmid"],scal = coef(m3)["scal"]), 0.01,3,add=T,col=vec_cols[3])
+curve(SSlogis(x, Asym = coef(m4)["Asym"], xmid = coef(m4)["xmid"],scal = coef(m4)["scal"]), 0.01,3,add=T,col=vec_cols[4])
+
+j1 <- tmp  %>% 
+  .[y> -35 & y < -23.5] %>% 
+  # .[year < 1990] %>% 
+  .[,.(ep = sum(pet,na.rm=TRUE)/sum(precip,na.rm=TRUE), 
+       ndvi = mean(ndvi_mcd,na.rm=TRUE)),by=.(x,y,year,vc)] %>% 
+  .[,.(maep = mean(ep,na.rm=TRUE), 
+       maep_sd = sd(ep,na.rm=TRUE), 
+       mandvi = mean(ndvi,na.rm=TRUE), 
+       mandvi_sd = sd(ndvi,na.rm=TRUE)),
+    by=.(x,y,vc)]
+
+j1 %>% ggplot(data=., aes(maep, mandvi,color=vc))+
+  geom_point()+geom_smooth(se=F,method='loess')+
+  facet_wrap(~vc)
+
+
+
+tmp <- arrow::read_parquet("/home/sami/scratch/ARD_ndvi_aclim_anoms.parquet")
+sort(names(tmp))
+
+vi <- arrow::read_parquet("../data_general/MCD43/MCD64_AVHRR_NDVI_hybrid_2020-05-26.parquet") %>% 
+  as.data.table() %>% 
+  .[is.infinite(ndvi_mcd)==F]
+
+vi[,.(x,y,ndvi_c,date)][,j1,by=.(x,y)]
+
+
+j1 <- vi[date<=ymd("1999-12-31")][,.(max_ndvi_c = max(ndvi_c,na.rm=TRUE)),by=.(x,y)]
+j2 <- vi[date>ymd("1999-12-31")][,.(max_ndvi_mcd = max(ndvi_mcd,na.rm=TRUE)),by=.(x,y)]
+j1[j2,on=.(x,y)] %>% 
+  filter(max_ndvi_c > 0 & max_ndvi_mcd >0) %>% 
+  ggplot(data=., aes(max_ndvi_c, max_ndvi_mcd))+
+  ggpointdensity::geom_pointdensity()+
+  geom_smooth(method='lm')+
+  geom_abline(aes(intercept=0,slope=1),col='red')
+
+ 
+
+j1 <- vi[date>=ymd("1981-01-01")&date<=ymd("1989-12-31")][,.(ndvi_c = mean(ndvi_c,na.rm=TRUE)),by=.(x,y)]
+j2 <- vi[date>=ymd("1990-01-01")&date<=ymd("1999-12-31")][,.(ndvi_c = mean(ndvi_c,na.rm=TRUE)),by=.(x,y)]
+j3 <- vi[date>=ymd("2000-01-01")&date<=ymd("2009-12-31")][,.(ndvi_c = mean(ndvi_c,na.rm=TRUE)),by=.(x,y)]
+j4 <- vi[date>=ymd("2010-01-01")&date<=ymd("2017-12-31")][,.(ndvi_c = mean(ndvi_c,na.rm=TRUE)),by=.(x,y)]
+
+d1 <- tmp[date>=ymd("1981-01-01")&date<=ymd("1989-12-31")][,.(mape = mean(pe,na.rm=TRUE)),by=.(x,y)]
+d2 <- tmp[date>=ymd("1990-01-01")&date<=ymd("1999-12-31")][,.(mape = mean(pe,na.rm=TRUE)),by=.(x,y)]
+d3 <- tmp[date>=ymd("2000-01-01")&date<=ymd("2009-12-31")][,.(mape = mean(pe,na.rm=TRUE)),by=.(x,y)]
+d4 <- tmp[date>=ymd("2010-01-01")&date<=ymd("2017-12-31")][,.(mape = mean(pe,na.rm=TRUE)),by=.(x,y)]
+
+
+m1 <- nls(ndvi_c~SSlogis(mape,Asym, xmid,scal), 
+          start=list(Asym= 1, 
+                     xmid = 0.5, 
+                     scal = 0.2), 
+          data=j1[d1,on=.(x,y)])
+m2 <- nls(ndvi_c~SSlogis(mape,Asym, xmid,scal), 
+          start=list(Asym= 1, 
+                     xmid = 0.5, 
+                     scal = 0.2), 
+          data=j2[d2,on=.(x,y)])
+m3 <- nls(ndvi_c~SSlogis(mape,Asym, xmid,scal), 
+          start=list(Asym= 1, 
+                     xmid = 0.5, 
+                     scal = 0.2), 
+          data=j3[d3,on=.(x,y)])
+m4 <- nls(ndvi_c~SSlogis(mape,Asym, xmid,scal), 
+          start=list(Asym= 1, 
+                     xmid = 0.5, 
+                     scal = 0.2), 
+          data=j4[d4,on=.(x,y)])
+
+vec_cols <- viridis::inferno(5)
+curve(SSlogis(x, Asym = coef(m1)["Asym"], xmid = coef(m1)["xmid"],scal = coef(m1)["scal"]), 0.01,3,ylim=c(0,0.8),add=F,col=vec_cols[1])
+curve(SSlogis(x, Asym = coef(m2)["Asym"], xmid = coef(m2)["xmid"],scal = coef(m2)["scal"]), 0.01,3,add=T,col=vec_cols[2])
+curve(SSlogis(x, Asym = coef(m3)["Asym"], xmid = coef(m3)["xmid"],scal = coef(m3)["scal"]), 0.01,3,add=T,col=vec_cols[3])
+curve(SSlogis(x, Asym = coef(m4)["Asym"], xmid = coef(m4)["xmid"],scal = coef(m4)["scal"]), 0.01,3,add=T,col=vec_cols[4])
+
+
+library(nlraa)
+# Tmax
+d1 <- vi[date>=ymd("1981-01-01")&date<=ymd("1989-12-31")] %>% 
+  .[,.(ndvi_c,x,y,veg_class,date)] %>% 
+  .[tmp[date>=ymd("1981-01-01")&date<=ymd("1989-12-31")][,.(tmax,id,mape,matmax,map,x,y,veg_class,date)],on=.(x,y,veg_class,date)] %>% 
+  .[is.na(ndvi_c)==F] %>% 
+  .[veg_class == 3]
+d2 <- vi[date>=ymd("1990-01-01")&date<=ymd("1999-12-31")] %>% 
+  .[,.(ndvi_c,x,y,veg_class,date)] %>% 
+  .[tmp[date>=ymd("1990-01-01")&date<=ymd("1999-12-31")][,.(tmax,id,mape,matmax,map,x,y,veg_class,date)],on=.(x,y,veg_class,date)] %>% 
+  .[is.na(ndvi_c)==F] %>% 
+  .[veg_class == 3]
+d3 <- vi[date>=ymd("2000-01-01")&date<=ymd("2009-12-31")] %>% 
+  .[,.(ndvi_c,x,y,veg_class,date)] %>% 
+  .[tmp[date>=ymd("2000-01-01")&date<=ymd("2009-12-31")][,.(tmax,id,mape,matmax,map,x,y,veg_class,date)],on=.(x,y,veg_class,date)] %>% 
+  .[is.na(ndvi_c)==F] %>% 
+  .[veg_class == 3]
+d4 <- vi[date>=ymd("2010-01-01")&date<=ymd("2017-12-31")] %>% 
+  .[,.(ndvi_c,x,y,veg_class,date)] %>% 
+  .[tmp[date>=ymd("2010-01-01")&date<=ymd("2017-12-31")][,.(tmax,id,mape,matmax,map,x,y,veg_class,date)],on=.(x,y,veg_class,date)] %>% 
+  .[is.na(ndvi_c)==F] %>% 
+  .[veg_class == 3]
+
+d1 <- d1 %>% filter(veg_class %in% 3) %>% filter(ndvi_c > 0) %>% filter(matmax >= 25) 
+d1 %>% filter(veg_class %in% 2:3) %>%
+  filter(matmax >= 25) %>% 
+  sample_n(1000) %>% ggplot(data=., aes(tmax,ndvi_c))+geom_point()+geom_smooth()
+
+fit1 <- nls_multstart(
+  ndvi_c ~ kopt * ((Hd * (2.718282^((Ha*(Tk-Topt))/(Tk*0.008314*Topt)))) / 
+                       (Hd - (Ha*(1-(2.718282^((Hd*(Tk-Topt))/(Tk*0.008314*Topt))))))),
+  data = d1 %>% sample_n(10000) %>% mutate(Tk=tmax+273.15),
+  iter = 1000,
+  start_lower = c(kopt = 0.5, Hd = 1, Ha = 1, Topt = 273+25),
+  start_upper = c(kopt = 0.7, Hd = 500, Ha = 2.5, Topt = 320),
+  # supp_errors = 'Y',
+  na.action = na.omit,
+  #convergence_count = 500,
+  lower = c(kopt = 0.4, Hd = 200, Ha = 0.1, Topt = 285), 
+  upper = c(kopt = 0.9, Hd=200, Ha=100, Topt=310))
+fit2 <- nls_multstart(
+  ndvi_c ~ kopt * ((Hd * (2.718282^((Ha*(Tk-Topt))/(Tk*0.008314*Topt)))) / 
+                     (Hd - (Ha*(1-(2.718282^((Hd*(Tk-Topt))/(Tk*0.008314*Topt))))))),
+  data = d2 %>% sample_n(10000) %>% mutate(Tk=tmax+273.15),
+  iter = 1000,
+  start_lower = c(kopt = 0.5, Hd = 1, Ha = 1, Topt = 273+25),
+  start_upper = c(kopt = 0.7, Hd = 500, Ha = 2.5, Topt = 320),
+  # supp_errors = 'Y',
+  na.action = na.omit,
+  #convergence_count = 500,
+  lower = c(kopt = 0.4, Hd = 200, Ha = 0.1, Topt = 285), 
+  upper = c(kopt = 0.9, Hd=200, Ha=100, Topt=310))
+fit3 <- nls_multstart(
+  ndvi_c ~ kopt * ((Hd * (2.718282^((Ha*(Tk-Topt))/(Tk*0.008314*Topt)))) / 
+                     (Hd - (Ha*(1-(2.718282^((Hd*(Tk-Topt))/(Tk*0.008314*Topt))))))),
+  data = d3 %>% sample_n(10000) %>% mutate(Tk=tmax+273.15),
+  iter = 1000,
+  start_lower = c(kopt = 0.5, Hd = 1, Ha = 1, Topt = 273+25),
+  start_upper = c(kopt = 0.7, Hd = 500, Ha = 2.5, Topt = 320),
+  # supp_errors = 'Y',
+  na.action = na.omit,
+  #convergence_count = 500,
+  lower = c(kopt = 0.4, Hd = 200, Ha = 0.1, Topt = 285), 
+  upper = c(kopt = 0.9, Hd=200, Ha=100, Topt=310))
+fit4 <- nls_multstart(
+  ndvi_c ~ kopt * ((Hd * (2.718282^((Ha*(Tk-Topt))/(Tk*0.008314*Topt)))) / 
+                     (Hd - (Ha*(1-(2.718282^((Hd*(Tk-Topt))/(Tk*0.008314*Topt))))))),
+  data = d4 %>% sample_n(10000) %>% mutate(Tk=tmax+273.15),
+  iter = 1000,
+  start_lower = c(kopt = 0.5, Hd = 1, Ha = 1, Topt = 273+25),
+  start_upper = c(kopt = 0.7, Hd = 500, Ha = 2.5, Topt = 320),
+  # supp_errors = 'Y',
+  na.action = na.omit,
+  #convergence_count = 500,
+  lower = c(kopt = 0.4, Hd = 200, Ha = 0.1, Topt = 285), 
+  upper = c(kopt = 0.9, Hd=200, Ha=100, Topt=310))
+coef(fit1)
+coef(fit2)
+coef(fit3)
+coef(fit4)
+
+fn <- function(Tk,kopt,Topt,Hd=200,Ha){kopt * ((Hd * (2.718282^((Ha*(Tk-Topt))/(Tk*0.008314*Topt)))) / 
+          (Hd - (Ha*(1-(2.718282^((Hd*(Tk-Topt))/(Tk*0.008314*Topt)))))))}
+curve(fn(Tk=x+273.15,kopt=coef(fit1)["kopt"],Topt=coef(fit1)["Topt"], Hd=200,Ha=coef(fit1)["Ha"]),10,40, 
+      ylim=c(0.2,0.8),xlab=expression(paste(Tmax~(degree*C))),ylab="NDVI")
+curve(fn(Tk=x+273.15,kopt=coef(fit2)["kopt"],Topt=coef(fit2)["Topt"], Hd=200,Ha=coef(fit2)["Ha"]),10,40,add=T,col='blue')
+curve(fn(Tk=x+273.15,kopt=coef(fit3)["kopt"],Topt=coef(fit3)["Topt"], Hd=200,Ha=coef(fit3)["Ha"]),10,40,add=T,col='purple')
+curve(fn(Tk=x+273.15,kopt=coef(fit4)["kopt"],Topt=coef(fit4)["Topt"], Hd=200,Ha=coef(fit4)["Ha"]),10,40,add=T,col='red')
+abline(v=coef(fit1)["Topt"]-273.15,col='black');
+abline(v=coef(fit2)["Topt"]-273.15,col='blue');
+abline(v=coef(fit3)["Topt"]-273.15,col='purple');
+abline(v=coef(fit4)["Topt"]-273.15,col='red')
+points(ndvi_c~tmax, data=d1 %>% sample_n(100),cex=0.5,pch=20,col='black')
+points(ndvi_c~tmax, data=d1 %>% sample_n(100),cex=0.5,pch=20,col='blue')
+points(ndvi_c~tmax, data=d1 %>% sample_n(100),cex=0.5,pch=20,col='purple')
+points(ndvi_c~tmax, data=d1 %>% sample_n(100),cex=0.5,pch=20,col='red')
+
+
+d1 %>% sample_n(5000) %>% 
+  ggplot(data=., aes(tmax,ndvi_c,color=matmax))+
+  # ggpointdensity::geom_pointdensity()+scale_color_viridis_c()+
+  geom_point(alpha=0.5)+
+  geom_smooth(se=F)+
+  geom_vline(aes(xintercept=coef(fit)["Topt"]-273.15),col=vec_cols[3])+
+  geom_hline(aes(yintercept=coef(fit)["kopt"]),col=vec_cols[3])+
+  scale_color_viridis_c()
+
+
+
+
+
+
+
+
+
+curve(SSbgf(x,w.max = 1,t.e = 10,t.m = 100), 5,35)
+
+nls(ndvi_c~SSbgf(tmax, w.max, t.e, t.m), 
+    start=list(w.max= 1, 
+               t.e = 100, 
+               t.m = 0), 
+    data=d1)
+
+require(ggplot2)
+set.seed(1234)
+x <- 1:20
+y <- bell(x, 8, -0.0314, 0.000317, 13) + rnorm(length(x), 0, 0.5)
+dat <- data.frame(x = x, y = y)
+fit <- nls(y ~ SSbell(x, ymax, a, b, xc), data = dat)
+## plot
+ggplot(data = dat, aes(x = x, y = y)) +
+  geom_point() +
+  geom_line(aes(y = fitted(fit)))
+
+
+plot(mg)
+
+
+library(gratia)
+bb <- evaluate_smooth(mg, "te(pe,precip_anom_12mo,map)")
+plotSlice(sm(getViz(mg),1), fix=list("pe"))
+plot(getViz(mg))
+
+
+sdat <- tmp[date>= ymd("2004-01-01") & date <= "2004-03-01"][is.na(ndvi_mcd)==F] %>% 
+  .[ndvi_anom_sd > -3.5 & ndvi_anom_sd < 3.5]
+ms_4_3 <- nls(ndvi_mcd~Asym-Drop*exp(-exp(lrc)*pe^pwr)+
+      beta*(precip_anom_12mo/map)+
+      alpha*(tmax), 
+    start=list(Asym=1, 
+               Drop=1, 
+               lrc=1,
+               pwr=1, 
+               beta=-0.2,
+               alpha=0), 
+    lower=c(0,0,0,0,-1,-0.1),
+    upper=c(1.5,1,1,1,1,0.1),
+    algorithm = 'port',
+    data=sdat)
+summary(ms_4_3)
+cor(predict(ms_4_3),sdat$ndvi_mcd)**2
+curve(SSweibull(x, 
+                coef(ms_4_3)["Asym"], 
+                coef(ms_4_3)["Drop"], 
+                coef(ms_4_3)["lrc"], 
+                coef(ms_4_3)["pwr"]), 0.1, 3)
+
+msg <- bam(ndvi_mcd~s(pe)+s(I(precip_anom_12mo/map))+s(tmax), 
+          data=sdat, 
+          select=TRUE, method='fREML',discrete = T)
+summary(msg)
+plot(msg)
+
+
+ms_4_4 <- nls(ndvi_mcd~Asym-Drop*exp(-exp(lrc)*tmax^pwr), 
+              start=list(Asym=1, 
+                         Drop=1, 
+                         lrc=1,
+                         pwr=1), 
+              lower=c(0,0,0,0),
+              upper=c(1.5,1,1,1),
+              algorithm = 'port',
+              data=sdat)
+
+
+schoolfield_high <- function(lnc, E, Eh, Th, temp, Tc) {
+  Tc <- 273.15 + Tc
+  k <- 8.62e-5
+  boltzmann.term <- lnc + log(exp(E/k*(1/Tc - 1/temp)))
+  inactivation.term <- log(1/(1 + exp(Eh/k*(1/Th - 1/temp))))
+  return(boltzmann.term + inactivation.term)
+}
+curve(schoolfield_high(lnc = 0.86,E=0.1128,Eh = 1.0359,Th=307.558, temp=x+273,Tc = 20),10,43, ylim=c(0,1))
+points(ndvi_mcd~tmax, data=sdat %>% sample_n(1000))
+
+fit <- nls_multstart(ndvi_mcd ~ schoolfield_high(lnc, E, Eh, Th, temp = tmax+273.15, Tc = 25),
+                     data = sdat %>% sample_n(1000),
+                     iter = 50,
+                     start_lower = c(lnc = -1, E = 0.01, Eh = 0.2, Th = 285),
+                     start_upper = c(lnc = 2, E = 1, Eh = 3, Th = 320),
+                     # supp_errors = 'Y',
+                     na.action = na.omit,
+                     lower = c(lnc = -10, E = 0, Eh = 0, Th = 0))
+summary(fit)
+cor(predict(fit, newdata=sdat), sdat$ndvi_mcd)**2
+curve(schoolfield_high(lnc = coef(fit)["lnc"],E=coef(fit)["E"],
+                       Eh = coef(fit)["Eh"],Th=coef(fit)["Th"], 
+                       temp=x+273,Tc = 20),10,43, ylim=c(0,1))
+points(ndvi_mcd~tmax, data=sdat %>% sample_n(1000))
+
+sdat %>% sample_n(1000) %>% ggplot(data=., aes(tmax,ndvi_mcd))+geom_point()+geom_smooth()
+
+
+fit <- nls_multstart(ndvi_mcd ~ schoolfield_high(lnc, E, Eh, Th, temp = tmax+273.15, Tc = 25),
+                     data = sdat %>% sample_n(1000),
+                     iter = 50,
+                     start_lower = c(lnc = -1, E = 0.01, Eh = 0.2, Th = 285),
+                     start_upper = c(lnc = 2, E = 1, Eh = 3, Th = 320),
+                     # supp_errors = 'Y',
+                     na.action = na.omit,
+                     lower = c(lnc = -10, E = 0, Eh = 0, Th = 0))
+
+
+tmp[is.na(ndvi_mcd)==F][date==ymd("1994-01-01")]
+
+df_fit <- tibble(date=unique(tmp[is.na(ndvi_mcd)==F][date!=ymd("1994-01-01")]$date), 
+       lnc=NA_real_, 
+       E=NA_real_, 
+       Eh=NA_real_, 
+       Th=NA_real_, 
+       R2 = NA_real_)
+for(i in 1:dim(df_fit)[1]){
+  sdat <- tmp[date==df_fit$date[i]] %>% 
+    .[is.na(ndvi_mcd)==F] %>% 
+    .[ndvi_anom_sd>-3.5 & ndvi_anom_sd < 3.5] %>% 
+    .[sample(.N,3000)]
+  fit <- nls_multstart(ndvi_mcd ~ schoolfield_high(lnc, E, Eh, Th, temp = tmax+273.15, Tc = 25),
+                       data = sdat,
+                       iter = 10,
+                       start_lower = c(lnc = 0.5, E = 0.01, Eh = 0.2, Th = 285),
+                       start_upper = c(lnc = 5, E = 1, Eh = 3, Th = 310),
+                       supp_errors = 'Y',
+                       na.action = na.omit,
+                       lower = c(lnc = 0.5, E = 0, Eh = 0, Th = 273))
+  df_fit[i,2:5] <- t(coef(fit))
+  df_fit[i,6] <- cor(sdat$ndvi_mcd, predict(fit))**2
+  print(df_fit[i,])
+}
+
+sdat <- tmp[date==ymd('1994-05-01')] %>% 
+  .[is.na(ndvi_mcd)==F] %>% 
+  .[ndvi_anom_sd>-3.5 & ndvi_anom_sd < 3.5] %>% 
+  .[sample(.N,3000)]
+fit <- nls_multstart(ndvi_mcd ~ schoolfield_high(lnc, E, Eh, Th, temp = tmax+273.15, Tc = 25),
+                     data = sdat,
+                     iter = 100,
+                     start_lower = c(lnc = 0.5, E = 0.25, Eh = 0.2, Th = 273.15+15),
+                     start_upper = c(lnc = 5, E = 1, Eh = 3, Th = 310),
+                     supp_errors = 'Y',
+                     na.action = na.omit,
+                     lower = c(lnc = 0.5, E = 0.25, Eh = 0, Th = 283))
+summary(fit)
+curve(schoolfield_high(lnc = coef(fit)["lnc"],E=coef(fit)["E"],
+                       Eh = coef(fit)["Eh"],Th=coef(fit)["Th"], 
+                       temp=x+273,Tc = 20),10,43, ylim=c(0,1))
+points(ndvi_mcd~tmax, data=sdat %>% sample_n(1000))
+
+
+tmp[date==ymd('1994-07-01')] %>% 
+  .[is.na(ndvi_mcd)==F] %>% 
+  .[ndvi_anom_sd>-3.5 & ndvi_anom_sd < 3.5] %>% 
+  .[sample(.N,3000)] %>% 
+  ggplot(data=., aes(tmax, ndvi_mcd))+geom_point()
+
+df_fit %>% 
+  # filter(R2 > 0.4) %>% 
+  ggplot(data=.,aes(date,Th-273.15))+geom_point()+geom_smooth(method='loess')
+df_fit %>% 
+  filter(R2 > 0.4) %>% ggplot(data=.,aes(date,lnc))+geom_point()+geom_smooth(method='loess')
+df_fit %>% ggplot(data=.,aes(date,E))+geom_point()+geom_smooth(method='loess')
+df_fit %>% 
+  filter(R2 > 0.4) %>% ggplot(data=.,aes(date,Eh))+geom_point()+geom_smooth(method='loess')
+df_fit %>% ggplot(data=.,aes(date,R2))+geom_point()+geom_smooth(method='loess')
+
+df_fit %>% 
+  filter(month(date)==1) %>% 
+  ggplot(data=., aes(Eh,Th-273.15,color=R2))+
+  geom_point()+
+  scale_color_viridis_c()
+
+df_fit %>% filter(R2 == min(R2))
+
+
+df_fit[1,2:5] <- t(coef(fit))
+
+df_fit[1,2:5] <- t(c(0,0,0,0))
+
+sdat %>% lazy_dt() %>% sample_n(100) %>% show_query()
+tmp[date==df_fit$date[1]][sample(.N,1000)]
+tmp[is.na(ndvi_mcd)==F]$date %>% min
+df_fit$date[1]
+
+
+
+
+
+# Simple non-linear gaussian model
+x <- rnorm(100)
+y <- rnorm(100, mean = 2 - 1.5^x, sd = 1)
+data5 <- data.frame(x, y)
+bprior5 <- prior(normal(0, 2), nlpar = a1) +
+  prior(normal(0, 2), nlpar = a2)
+fn <- function(x,a1,a2) a1 - a2**x
+fit5 <- brm(bf(y ~ fn(x,a1,a2), a1 + a2 ~ 1, nl = TRUE),
+            data = data5, prior = bprior5)
+summary(fit5)
+plot(conditional_effects(fit5), ask = FALSE)
+
+
+
+
+schoolfield_high <- function(lnc, E, Eh, Th, temp, Tc) {
+  Tc <- 273.15 + Tc
+  k <- 8.62e-5
+  boltzmann.term <- lnc + log(exp(E/k*(1/Tc - 1/temp)))
+  inactivation.term <- log(1/(1 + exp(Eh/k*(1/Th - 1/temp))))
+  return(boltzmann.term)
+}
+schoolfield_high(1,1,1,300,30,25)
+
+fn2 <- function(lnc,E,Eh,Th,temp,Tc){
+  return(lnc + log(exp(E/8.62e-5*(1/(Tc+273.15) - 1/(temp)))) )}# +log(1/(1 + exp(Eh/8.62e-5*(1/Th - 1/(temp+273.15)))))}
+fn2(lnc=1,E=1,Eh=1,Th=300,temp=30,Tc=25)
+lnc <- 1; E <- 1; Eh <- 1; Tc <- 25; temp <- 30
+fn(2)
+
+
+
+

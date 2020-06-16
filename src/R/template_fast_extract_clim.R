@@ -23,7 +23,7 @@ setDTthreads(threads=8)
 # nvis <- inner_join(nvis, codes, by='veg_class')
 # nvis <- nvis %>% filter(veg_class <= 15) # !!! only forests and woodlands !!!
 # rm(base); #
-base <- arrow::read_parquet("../data_general/MCD43/MCD64_AVHRR_NDVI_hybrid_2020-05-18.parquet") %>% 
+base <- arrow::read_parquet("../data_general/MCD43/MCD64_AVHRR_NDVI_hybrid_2020-05-26.parquet") %>% 
   as.data.table() %>% lazy_dt()
 nvis <- base %>% 
   group_by(x,y) %>% 
@@ -196,6 +196,83 @@ atmax[time%in%c(ymd("1990-01-01",tz='UTC'),
                 ymd("2019-12-01",tz='UTC'))] %>%
   as_tibble() %>% 
   ggplot(data=., aes(x,y,fill=tmax))+
+  geom_tile()+
+  coord_equal()+
+  scale_fill_viridis_c(direction = -1)+
+  facet_grid(~as.factor(time))
+gc()
+#*******************************************************************************
+# END SECTION
+#*******************************************************************************
+
+#*******************************************************************************
+# Extract AWAP tmin grid cells for east Oz -------------------------------------
+#*******************************************************************************
+atmin <- stars::read_ncdf("../data_general/clim_grid/awap/AWAP/monthly/tmin/AWAP_monthly_tmin_1970_2019.nc")
+names(atmin) <- "tmin"
+st_crs(atmin) <- st_crs(4326)
+
+eoz_box <- st_bbox(c(xmin = min(nvis$x),
+                     ymin = min(nvis$y),
+                     xmax = max(nvis$x),
+                     ymax = max(nvis$y)), 
+                   crs = st_crs(4326))
+atmin <- st_crop(atmin, eoz_box)
+atmin <- atmin %>% as_tibble() %>% as.data.table()
+atmin <- atmin %>% units::drop_units()
+coords_awap <- atmin %>% select(longitude,latitude) %>% distinct()
+coords_awap <- coords_awap %>% rename(x=longitude, y=latitude)
+coords_awap_sf <- st_as_sf(coords_awap, coords = c('x','y'))
+
+coords_vi <- nvis %>% select(x,y) %>% distinct()
+coords_vi <- st_as_sf(coords_vi, coords = c("x","y"))
+st_crs(coords_vi) <- st_crs(4326)
+nn_coords <- RANN::nn2(
+  coords_awap_sf %>% st_coordinates(),
+  coords_vi %>% st_coordinates(), 
+  k=1
+)
+# df of all coords in awap with idx
+coords_keep_awap <- coords_awap %>% 
+  mutate(idx_awap = row_number())
+
+# subset df of awap coords to just those identified by nn_coords
+coords_keep_awap <- coords_keep_awap[nn_coords$nn.idx[,1],] %>% as.data.table()
+dim(coords_keep_awap)
+
+coords_dict <- tibble(x_vi=st_coordinates(coords_vi)[,"X"], 
+                      y_vi=st_coordinates(coords_vi)[,"Y"], 
+                      x_clim=coords_keep_awap$x, 
+                      y_clim=coords_keep_awap$y)
+coords_dict <- setDT(coords_dict)
+
+# test if awap coords object has equal number of rows as coords_vi
+assertthat::are_equal(dim(coords_keep_awap)[1], dim(coords_vi)[1])
+
+
+
+# vis check that vi and clim coords are close
+# coords_dict %>% ggplot(data=., aes(x_vi,x_clim))+geom_point()
+# coords_dict %>% ggplot(data=., aes(y_vi,y_clim))+geom_point()
+# coords_dict %>% head
+coords_dict <- coords_dict %>% rename(x=x_clim,y=y_clim) #!!!
+coords_dict
+
+atmin <- atmin %>% rename(x=longitude,y=latitude)
+
+# complicated way of doing full join
+atmin <- merge(atmin,coords_dict,by=c("x","y"),all=TRUE,allow.cartesian=TRUE)
+atmin <- atmin[is.na(x_vi)==F]
+atmin %>% head
+
+round(atmin$x[1:5])==round(atmin$x_vi[1:5])
+round(atmin$y[1:5])==round(atmin$y_vi[1:5])
+
+# visual check
+atmin[time%in%c(ymd("1990-01-01",tz='UTC'),
+                ymd("2019-12-01",tz='UTC'))] %>%
+  as_tibble() %>% 
+  ggplot(data=., aes(x,y,fill=tmin))+
   geom_tile()+
   coord_equal()+
   scale_fill_viridis_c(direction = -1)+
@@ -582,11 +659,13 @@ gc(reset = T, full = T)
 # atmax <- atmax[,.(x_vi,y_vi,time,tmax)][,`:=`(time=as.Date(time))]
 avp <- avp[,.(x_vi,y_vi,time,tmax,vp9,vp15,vpd15)][,`:=`(time=as.Date(time))]
 attmax <- attmax[,`:=`(time=as.Date(time))]
+atmin <- atmin[,`:=`(time=as.Date(time))]
 aprecip <- aprecip[,.(x_vi,y_vi,time,precip)][,`:=`(time=as.Date(time))]
 tmp_clim <- merge(avp,jpet,by=c("x_vi","y_vi","time"),all=TRUE,allow.cartesian=TRUE)
 tmp_clim <- tmp_clim[is.na(pet)==F][order(time,x_vi,y_vi)]
 tmp_clim <- merge(tmp_clim,aprecip,by=c("x_vi","y_vi","time"),all=TRUE,allow.cartesian=TRUE)
 tmp_clim <- merge(tmp_clim,attmax,by=c("x_vi","y_vi","time"),all=TRUE,allow.cartesian=TRUE)
+tmp_clim <- merge(tmp_clim,atmin,by=c("x_vi","y_vi","time"),all=TRUE,allow.cartesian=TRUE)
 
 gc(reset = T, full=T)
 #*******************************************************************************
