@@ -400,7 +400,7 @@ hyb %>% lazy_dt() %>%
   filter(is.na(ndvi_m)==F) %>% 
   as.data.table() %>% 
   arrow::write_parquet(sink = 
-          paste0("../data_general/MCD43/MCD64_AVHRR_NDVI_hybrid_",Sys.Date(),".parquet"))
+          paste0("../data_general/MCD43/MCD43_AVHRR_NDVI_hybrid_",Sys.Date(),".parquet"))
 
 # hyb[is.na(vc)==F] %>%
 #   lazy_dt() %>%
