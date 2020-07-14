@@ -8,10 +8,31 @@ options(mc.cores=parallel::detectCores()-3)
 
 # IMPORT ###################################################################
 source("src/R/extract_awap_rad.R")
+frac <- stars::read_ncdf("../data_general/Oz_misc_data/csiro_FC.v310.MCD43A4_0p5_2001_2019.nc")
+frac[,,,1] %>% as_tibble() %>% filter(is.na(soil)==F)
+eoz <- stars::read_stars("../data_general/Oz_misc_data/MOD44BPercent_Tree_Cover_5000m_East_Oz_noMask_2000_2019.tif",
+                         RasterIO = list(bands=1))
+frac <- stars::st_warp(src=frac, dest=eoz, use_gdal = F)
+frac <- frac %>% as.data.table() %>% lazy_dt() %>% 
+  rename(date=time) %>%
+  mutate(date=as.Date(date)) %>% 
+  filter(is.na(npv)==F) %>% 
+  as.data.table()
+
 vi <- arrow::read_parquet("../data_general/MCD43/MCD64_AVHRR_NDVI_hybrid_2020-05-26.parquet", 
                           col_select = c("x","y","date",
                                          "ndvi_c","ndvi_m","ndvi_hyb", 
-                                         "evi2_hyb","evi2_m"))
+                                         "evi2_hyb","evi2_m")) %>% 
+  as.data.table()
+vi <- frac[vi,on=.(x,y,date)]
+vi[is.na(npv)==F]
+vi[date==ymd("2001-03-01")&is.na(npv)==F] %>% ggplot(data=.,aes(x,y,fill=npv))+
+  geom_tile()+coord_equal()+scale_fill_viridis_c()
+vi <- merge(frac, 
+             vi,
+             by=c("x","y","date"), 
+             all=TRUE,allow.cartesian=TRUE)
+
 tmp <- arrow::read_parquet("/home/sami/scratch/ARD_ndvi_aclim_anoms.parquet",
                            col_select = c(
                              "date", "hydro_year", "id","season",
@@ -1237,18 +1258,24 @@ test_dat <- tmp[season=='SON'][mape<2][is.na(ndvi_3mo)==F & is.na(pe_12mo)==F][s
 
 fn5 <- function(x,x2,a,s,s2) exp(-exp(a*(x-s+s2*matmax)**2))
 curve(exp(-exp(-1.443*x)), 0,2)
+curve(exp(log(exp(x)-1)), -3,3)
+curve(-log(x-log(x)),0,10)
+curve((x**2),-5,5)
+
 
 n_fn5 <- nls_multstart(ndvi_3mo ~ #exp(-exp(a*(tmax_anom_3mo-s)**2)) + 
-                         exp(-exp(-s3*pe_anom_12mo - s2*mape)) - 0.3,
+                         # exp(-exp(-s3*pe_anom_12mo - s2*mape - s*cco2)) - 0.3,
+         exp(-exp(-s3*pe_anom_12mo - s2*mape - s*cco2)) - 
+           s4*co2_trend,
                                  data=train_dat,
                                  iter=10,
                                  supp_errors = 'Y',
                                  control=nls.control(maxiter=100),
                                  start_lower = c(#a=0, 
-                                                 #s=0,
+                                                 s=0,
                                                  s2=0 ,
-                                                 s3=0
-                                                 # a5=0, 
+                                                 s3=0,
+                                                 s4=0
                                                  # a6=0
                                                  # b0=0, 
                                                  # b1=0, 
@@ -1257,10 +1284,10 @@ n_fn5 <- nls_multstart(ndvi_3mo ~ #exp(-exp(a*(tmax_anom_3mo-s)**2)) +
                                  ),
                                  # d0=0,d1=0,d2=0), 
                                  start_upper = c(#a=1, 
-                                                 #s=1, 
+                                                 s=0.01,
                                                  s2=1,
-                                                 s3=1
-                                                 # a5=1,
+                                                 s3=1,
+                                                 s4=0.1
                                                  # a6=1
                                                  # # b0=1, 
                                                  # b1=1, 
@@ -1271,19 +1298,35 @@ summary(n_fn5)
 sqrt(mean((predict(n_fn5, newdata=test_dat)-test_dat$ndvi_3mo)**2))
 cor(predict(n_fn5, newdata=test_dat),test_dat$ndvi_3mo)**2
 
+train_dat %>% as_tibble() %>%  
+  sample_n(10000) %>% 
+  mutate(val = tmax_anom_3mo/mape) %>% ggplot(data=., aes(val,ndvi_3mo))+
+  geom_point()+
+  geom_smooth()+
+  geom_smooth(method='nls', se=F, 
+              formula = y~exp(-exp(a*x-1)), 
+              method.args=list(start=c("a"=0.1)), 
+              color='red')
+
 test_dat %>% as_tibble() %>% 
   sample_n(10000) %>% 
   mutate(pred=predict(n_fn5, newdata=.)) %>% 
-  ggplot(data=., aes(pred, ndvi_3mo))+
+  ggplot(data=., aes(pred, ndvi_3mo,color=tmax_anom_3mo))+
   geom_point()+
   geom_smooth()+
-  geom_abline(aes(intercept=0,slope=1),color='red')
+  geom_abline(aes(intercept=0,slope=1),color='red')+
+  scico::scale_colour_scico(limits=c(-2,2),oob=scales::squish, 
+                            palette = 'vik')+
+  theme_black()
 
-expand_grid(mape=seq(0.1,2,length.out=100), 
+expand_grid(mape=seq(0.1,2,length.out=100),
+            pe_anom_12mo = c(0),
+            cco2=c(-40,0,40),
             tmax_u_3mo=c(15,25,35), 
             tmax_anom_3mo=c(0)) %>% 
+  mutate(co2_trend = cco2+center_co2) %>% 
   mutate(pred = predict(n_fn5,newdata=.)) %>% 
-  ggplot(data=., aes(mape, pred,color=tmax_u_3mo,group=tmax_u_3mo))+
+  ggplot(data=., aes(mape, pred,color=cco2,group=cco2))+
   geom_line()+
   geom_point(data=train_dat[sample(.N,100)],aes(mape,ndvi_3mo))+
   scale_color_viridis_c(end=0.9)
@@ -1385,3 +1428,10 @@ train_dat %>%
 tmp[,`:=`(pe_anom_12mo = pe_12mo - mape)]
 train_dat <- tmp[season=='SON'][mape<2][is.na(ndvi_3mo)==F & is.na(pe_12mo)==F][sample(.N, 100000)]
 test_dat <- tmp[season=='SON'][mape<2][is.na(ndvi_3mo)==F & is.na(pe_12mo)==F][sample(.N, 100000)]
+
+tmp[sample(.N,10000)] %>% 
+  ggplot(data=., aes(date, npv))+
+  # geom_point()+
+  geom_smooth(method='lm')+
+  facet_wrap(~vc, scales = 'free')
+

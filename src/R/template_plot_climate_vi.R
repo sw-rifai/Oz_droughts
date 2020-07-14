@@ -19,11 +19,24 @@ oz_poly <- sf::read_sf("../data_general/GADM/gadm36_AUS.gpkg",
 oz_poly <- st_as_sf(oz_poly)
 oz_poly <- st_simplify(oz_poly, dTolerance = 0.05)
 
+frac <- stars::read_ncdf("../data_general/Oz_misc_data/csiro_FC.v310.MCD43A4_0p5_2001_2019.nc")
+frac[,,,1] %>% as_tibble() %>% filter(is.na(soil)==F)
+eoz <- stars::read_stars("../data_general/Oz_misc_data/MOD44BPercent_Tree_Cover_5000m_East_Oz_noMask_2000_2019.tif",
+                         RasterIO = list(bands=1))
+frac <- stars::st_warp(src=frac, dest=eoz, use_gdal = F)
+frac <- frac %>% as.data.table() %>% lazy_dt() %>% 
+  rename(date=time) %>%
+  mutate(date=as.Date(date)) %>% 
+  filter(is.na(npv)==F) %>% 
+  as.data.table()
+
 # vegetation index record
 vi <- arrow::read_parquet("../data_general/MCD43/MCD43_AVHRR_NDVI_hybrid_2020-07-01.parquet", 
                           col_select = c("x","y","date",
                                          "ndvi_c","ndvi_mcd","ndvi_hyb", 
-                                         "evi2_hyb","evi2_mcd","sz"))
+                                         "evi2_hyb","evi2_mcd","sz")) %>% 
+  as.data.table()
+vi <- frac[vi,on=.(x,y,date)]
 dat <- arrow::read_parquet("/home/sami/scratch/ARD_ndvi_aclim_anoms.parquet",
                            col_select = c(
                              "date", "hydro_year", "id","season",
@@ -110,7 +123,7 @@ mod <- vc[mod, on=.(x,y)]
 mod[,`:=`(year=year(date))]
 
 # mod <- svi[mod, on=.(x,y,year)]
-
+# END DATA IMPORT SECTION ------------------------------------------------------
 
 
 # Linear change in VCF  ---------------------------------------------------
@@ -1271,6 +1284,38 @@ ggsave(plot = p_l|p_r+plot_layout(guides='keep'),
        width = 25, height=30, units='cm', dpi=350, type='cairo')
 
 
+
+# NPV and changing non-tree veg fraction ---------------------------------------
+czones <- arrow::read_parquet("data/EOz_clim_kmeans6.parquet") %>% 
+  as.data.table()
+
+o1 <- ldat %>% group_by(x,y,hydro_year,season) %>% 
+  summarize(soil = mean(soil,na.rm=TRUE), 
+            gv = mean(gv,na.rm=TRUE), 
+            npv = mean(npv,na.rm=TRUE)) %>% 
+  ungroup() %>% 
+  as.data.table()
+o1 %>% ggplot(data=., aes(hydro_year, npv))+geom_smooth(method='lm')+
+  geom_smooth(aes(hydro_year,gv),method='lm',color='green')+
+  geom_smooth(aes(hydro_year,soil),method='lm',color='brown')
+
+o1 <- merge(mod %>% rename(hydro_year=year), 
+      o1, by = c('x','y','hydro_year'))
+o1 <- merge(o1, czones, by=c("x","y"))
+o1 %>% ggplot(data=., aes(hydro_year,nontree_cover))+
+  geom_smooth(method='lm')+
+  facet_wrap(~cz, scales = 'free')
+
+o1 %>% ggplot(data=., aes(hydro_year,gv,color=season))+
+  geom_smooth(method='lm')+
+  facet_wrap(~cz, scales = 'free')
+
+o1[cz==2] %>% sample_n(1000) %>% ggplot(data=., aes(npv,nontree_cover))+
+  geom_point()+geom_smooth()
+
+o1 %>% bam(nontree_cover~s(npv)+s(gv), data=.) %>% plot
+
+# End section ******************************************************************
 
 
 
