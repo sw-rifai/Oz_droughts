@@ -4,7 +4,7 @@
 library(arrow)
 library(tidyverse); 
 library(data.table); library(lubridate);
-setDTthreads(threads=8)
+setDTthreads(threads=parallel::detectCores()-3)
 
 #*******************************************************************************
 # Get data  ---------------------------------------------------------

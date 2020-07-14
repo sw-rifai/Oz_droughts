@@ -252,12 +252,91 @@ ggsave(p_vcf, filename = "figures/TimeSeries_VCF_by_VC.png",
 
 
 #****************************************************************************
-# ---- PART 2 
+# PART 2 ---------------
 #****************************************************************************
 
 library(stars); library(tidyverse); library(data.table); library(lubridate)
 library(dtplyr, warn.conflicts = FALSE);
 library(RcppArmadillo)
+
+
+# Calculate climate zones -------------------------------------------------
+dat <- arrow::read_parquet("/home/sami/scratch/ARD_ndvi_aclim_anoms.parquet",
+                           col_select = c(
+                             "date", "hydro_year", "id","season",
+                             "precip",  
+                             # "precip_anom", 
+                             # "precip_anom_3mo","precip_anom_36mo",
+                             # "precip_anom_12mo",
+                             # "map",
+                             "precip_12mo",
+                             # "precip_36mo",
+                             "tmax",
+                             # "tmax_anom","tmax_anom_sd", "matmax",
+                             # "tmin","tmin_anom",
+                             "vpd15",
+                             # "vpd15_anom","vpd15_anom_sd","mavpd15",
+                             # "vpd15_u",
+                             "pet",
+                             # "mapet","pet_anom","pet_anom_3mo","pet_u","pet_sd",
+                             # "pet_anom_sd", 
+                             "pet_12mo", #"pet_36mo",
+                             "pe",
+                             "mape",
+                             # "ndvi_u",
+                             # "ndvi_anom",
+                             # "ndvi_anom_12mo",
+                             # "ndvi_anom_sd",
+                             # "ndvi_mcd",
+                             'vc','veg_class',
+                             # 'month',
+                             "x", "y", "year")) %>% 
+  as.data.table() %>% 
+  .[is.infinite(mape)==F]
+dat <- dat[,`:=`(pe = precip/pet, 
+                 pe_12mo = precip_12mo/pet_12mo)]
+ldat <- dat %>% lazy_dt()
+jj <- ldat %>% 
+  group_by(x,y,season) %>% 
+  summarize(ppet_u = mean(pe, na.rm=TRUE),
+            ppet_sd = sd(pe,na.rm=TRUE), 
+            tmax_u = mean(tmax,na.rm=TRUE),
+            tmax_sd = sd(tmax,na.rm=TRUE), 
+            vpd15_u = mean(vpd15,na.rm=TRUE),
+            vpd15_sd = sd(vpd15, na.rm=TRUE),
+            precip_u = mean(precip,na.rm=TRUE), 
+            precip_sd = sd(precip,na.rm=TRUE)
+  ) %>% 
+  ungroup() %>% 
+  as_tibble() %>% 
+  na.omit()
+scale2 <- function(x, na.rm = FALSE) (x - mean(x, na.rm = na.rm)) / sd(x, na.rm)
+jj2 <- jj %>% 
+  # filter(season %in% c("DJF","JJA")) %>% 
+  group_by(season) %>% 
+  mutate_at(c("ppet_u","ppet_sd",
+              'tmax_u','tmax_sd',
+              'vpd15_u','vpd15_sd',
+              'precip_u','precip_sd'), scale2) %>% 
+  # mutate_at(c("tmax","precip"), scale2) %>% 
+  ungroup()
+jj2 <- jj2 %>% pivot_wider(names_from=season, 
+                           values_from=c(ppet_u,tmax_u,vpd15_u,precip_u, 
+                                         ppet_sd,tmax_sd,vpd15_sd,precip_sd))
+set.seed(999)
+jj3 <- kmeans(jj2 %>% select(-x,-y) %>% as.matrix(),centers=6,
+              iter.max = 100, 
+              nstart = 100)
+jj2$cluster <- jj3$cluster
+jj2 <- inner_join(jj2, 
+                  jj3$centers %>% as_tibble() %>% 
+                    mutate(cluster = 1:6) %>% 
+                    mutate(cz = rank(tmax_u_DJF+tmax_u_JJA+tmax_u_MAM+tmax_u_SON)) %>% 
+                    select(cluster, cz))
+
+
+
+
 # vegetation index record
 vi <- arrow::read_parquet("../data_general/MCD43/MCD64_AVHRR_NDVI_hybrid_2020-05-26.parquet", 
                           col_select = c("x","y","date",
@@ -358,15 +437,73 @@ lt_ndvi <- mod[,`:=`(year_c = year-2009.5)] %>%
     by=.(x,y)] %>% 
   .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2]), by=.(x,y)]  
 
+# NDVI linear change ***
+library(RcppArmadillo)
+system.time(
+  lt_ndvi_season <- dat[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>%
+    .[date>= ymd("1982-01-01") & date<= ymd("2019-12-31")] %>% 
+    .[,.(val = mean(ndvi_3mo, na.rm=TRUE)), by=.(x,y,season,hydro_year)] %>% 
+    .[is.na(val)==F] %>% 
+    .[,.(b1 = fastLm(X = cbind(1,hydro_year-2000.5), y=val, data=.SD)$coefficients[2]), 
+      by=.(x,y,season)]
+)
 
 o <- inner_join(lt_ndvi %>% rename(ndvi_u=b0, ndvi_b=b1) %>% select(-beta), 
                 lt_nontree %>% rename(grass_u=b0, grass_b=b1) %>% select(-beta))
+o <- inner_join(o, lt_nonveg %>% rename(nonveg_u=b0, nonveg_b=b1) %>% select(-beta))
 o <- lt_tree %>% lazy_dt() %>% 
   select(-beta) %>% 
   rename(tree_u=b0, 
          tree_b=b1) %>% 
   as.data.table() %>% 
   inner_join(., o)
+
+clusters6 <- jj2 %>% select(x,y,cz)
+
+khroma::scale_color_contrast()
+
+library(ggridges)
+o[is.na(tree_u)==F] %>% 
+  as_tibble() %>% 
+  inner_join(., clusters6, by=c("x","y")) %>% 
+  select(cz, nonveg_b, grass_b, tree_b) %>%
+  rename(`Non. Veg.`=nonveg_b, 
+         `Non. Tree Veg.`=grass_b, 
+         `Tree Veg.`=tree_b) %>% 
+  gather(-cz, key = 'measure', value='estimate') %>% 
+  rename(`Clim. Zone` = cz) %>% 
+  mutate(measure = as_factor(measure)) %>% 
+  filter(is.na(estimate)==F) %>% 
+  ggplot(data=., aes(x=estimate,
+                     y=measure,
+                     fill=measure,
+                     after_stat(scaled)))+
+  ggridges::stat_density_ridges(alpha=1,
+                                quantile_lines = TRUE, 
+                                rel_min_height=0.01, 
+                                alpha=0.9, 
+                                scale=1, 
+                                color='black')+
+  khroma::scale_fill_contrast(reverse=T)+
+  # geom_vline(aes(xintercept=0),color='white',lwd=0.6)+
+  geom_vline(aes(xintercept=0),color='red',lwd=0.75)+
+  scale_x_continuous(limits=c(-1.5,1.5))+
+  scale_y_discrete(expand=c(0,0), position='left')+
+  labs(x=expression(paste(Cover~Trend~('%'~yr**-1))), 
+       y=NULL)+
+  facet_wrap(~`Clim. Zone` , ncol = 6, labeller = label_both)+
+  theme_linedraw()+
+  theme(panel.grid = element_blank(), 
+        strip.text = element_text(face='bold'),
+        legend.position = 'none')
+  # geom_density(aes(grass_b), color='yellow')+
+  # geom_density(aes(tree_b), color='green')
+
+jj2 %>% ggplot(data=.,aes(x,y,fill=cz))+
+  geom_tile()+
+  coord_equal()+
+  scale_fill_viridis_c(option='B')
+
 
 
 mod[year==2000][,.(x,y,vc,veg_class)][o,on=.(x,y)] %>% 

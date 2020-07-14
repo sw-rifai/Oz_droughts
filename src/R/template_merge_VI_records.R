@@ -304,6 +304,7 @@ hyb <- o[dat,on=.(x,y,date)]
 
 # Fit calibration model ---------------------------------------------------
 library(mgcv)
+set.seed(333)
 train <- hyb %>% lazy_dt() %>% 
   filter(str_detect(vc,"Eucalypt")==T |
            str_detect(vc,"Rainforests")==T |
@@ -348,9 +349,9 @@ gc()
 #                select = TRUE, discrete=TRUE, method='fREML', nthreads = 8,
 #                data=train)
 m4_ndvi <- bam(ndvi_mcd~
-                 s(sz)+s(nir_c)+s(red_c)+s(ndvi_c,m = 1)+
+                 s(sz,k=5)+s(nir_c,k=5)+s(red_c,k=5)+s(ndvi_c,k=5,m = 1)+
                  s(x,y)+s(vc,bs='re'),
-               family=betar(link='logit'),
+               family=Gamma(link='log'),
                select = TRUE, discrete=TRUE, method='fREML', nthreads = 8,
                data=train)
 # bbmle::AICtab(m0_ndvi, m1_ndvi, m2_ndvi, m3_ndvi, m4_ndvi)
@@ -363,18 +364,31 @@ summary(m4_ndvi)
 # bbmle::AICtab(m0_ndvi,m1_ndvi)
 
 m4_evi2 <- bam(evi2_mcd~
-                 s(sz)+s(nir_c)+s(red_c)+s(ndvi_c,m = 1)+
+                 s(sz,k=5)+s(nir_c,k=5)+s(red_c,k=5)+s(ndvi_c,k=5,m = 1)+
                  s(x,y)+s(vc,bs='re'),
-               family=betar(link='logit'),
+               family=Gamma(link='log'),
                select = TRUE, discrete=TRUE, method='fREML', nthreads = 8,
                data=train)
 m4_nirv <- bam(nirv_mcd~
-                 s(sz)+s(red_c)+s(nir_c,ndvi_c,m = 1)+
+                 s(sz,k=5)+s(nir_c,k=5)+s(red_c,k=5)+s(ndvi_c,k=5,m = 1)+
                  s(x,y)+s(vc,bs='re'),
-               family=betar(link='logit'),
-               select = TRUE, 
-               discrete=TRUE, method='fREML', nthreads = 8,
+               family=Gamma(link='log'),
+               select = TRUE, discrete=TRUE, method='fREML', nthreads = 8,
                data=train)
+
+oos_eval <- test %>% 
+  mutate(pred_ndvi_mcd = predict(m4_ndvi, newdata=., type='response'), 
+         pred_evi2_mcd = predict(m4_evi2, newdata=., type='response'), 
+         pred_nirv_mcd = predict(m4_nirv, newdata=., type='response')) %>% 
+  summarize(r2_ndvi = cor(ndvi_mcd, pred_ndvi_mcd)**2, 
+            r2_evi2 = cor(evi2_mcd, pred_evi2_mcd)**2,
+            r2_nirv = cor(nirv_mcd, pred_nirv_mcd)**2, 
+            rmse_ndvi = sqrt(mean((pred_ndvi_mcd-ndvi_mcd)**2)), 
+            rmse_evi2 = sqrt(mean((pred_evi2_mcd - evi2_mcd)**2)), 
+            rmse_nirv = sqrt(mean((pred_nirv_mcd - nirv_mcd)**2)))
+oos_eval %>% 
+  mutate(eval_date = Sys.Date()) %>% 
+  write_csv(.,path = paste0("outputs/OutOfSample_VI_merge_",Sys.Date(),".csv"))
 
 
 hyb <- hyb %>% lazy_dt() %>% 
@@ -387,17 +401,17 @@ hyb <- hyb %>% lazy_dt() %>%
          nirv_hyb = predict(m4_nirv, newdata=., n.threads = 8,type='response')) %>% 
   as.data.table()
 
-hyb <- hyb %>% lazy_dt() %>% 
-  mutate(ndvi_m = coalesce(ndvi_mcd, ndvi_hyb), 
-         evi2_m = coalesce(evi2_mcd, evi2_hyb), 
-         nirv_m = coalesce(nirv_mcd, nirv_hyb)) %>% 
+out <- hyb %>% lazy_dt() %>% 
+  mutate(ndvi_hyb = coalesce(ndvi_mcd, ndvi_hyb), 
+         evi2_hyb = coalesce(evi2_mcd, evi2_hyb), 
+         nirv_hyb = coalesce(nirv_mcd, nirv_hyb)) %>% 
   as.data.table() %>% 
   group_by(x,y) %>% 
   mutate(id = cur_group_id()) %>% 
   ungroup()
 
-hyb %>% lazy_dt() %>% 
-  filter(is.na(ndvi_m)==F) %>% 
+out %>% lazy_dt() %>% 
+  filter(is.na(ndvi_hyb)==F) %>% 
   as.data.table() %>% 
   arrow::write_parquet(sink = 
           paste0("../data_general/MCD43/MCD43_AVHRR_NDVI_hybrid_",Sys.Date(),".parquet"))

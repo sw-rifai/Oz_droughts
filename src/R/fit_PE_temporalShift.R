@@ -13,16 +13,18 @@ vi <- arrow::read_parquet("../data_general/MCD43/MCD64_AVHRR_NDVI_hybrid_2020-05
 tmp <- arrow::read_parquet("/home/sami/scratch/ARD_ndvi_aclim_anoms.parquet",
                            col_select = c(
                              "date", "hydro_year", "id","season",
-                             "precip",  "precip_anom", 
-                             "precip_anom_3mo","precip_anom_36mo",
-                             "precip_anom_12mo","map", 
+                             "precip",  "precip_anom",
+                             # "precip_anom_3mo","precip_anom_36mo",
+                             "precip_anom_12mo",
+                             "map", 
                              "precip_12mo","precip_36mo",
-                             "tmax","tmax_anom","tmax_anom_sd", "matmax",
-                             "tmin",
+                             # "tmax","tmax_anom","tmax_anom_sd", "matmax",
+                             # "tmin",
                              "vpd15","vpd15_anom","vpd15_anom_sd","mavpd15",
-                             "vpd15_u",
+                             # "vpd15_u",
                              "pet","mapet","pet_anom","pet_anom_3mo","pet_u","pet_sd",
-                             "pet_anom_sd", "pet_12mo","pet_36mo",
+                             "pet_anom_sd", 
+                             "pet_12mo","pet_36mo",
                              "pe","mape",
                              # "ndvi_u",
                              # "ndvi_anom",
@@ -33,13 +35,15 @@ tmp <- arrow::read_parquet("/home/sami/scratch/ARD_ndvi_aclim_anoms.parquet",
                              'month',
                              "x", "y", "year")) %>% 
   as.data.table() %>% 
-  .[is.infinite(mape)==F]
+  .[is.infinite(mape)==F] %>% 
+  .[,`:=`(p_anom_12mo_frac = precip_anom_12mo/map)]
+
 # unique(tmp[,.(vc,veg_class)]) %>% View
-tmp <- tmp[order(x,y,date)][,tmean := (tmax+tmin)/2]
-tmp <- tmp[order(x,y,date)][, tmax_3mo := frollmean(tmax,n = 3,fill = NA,align='center'), by=.(x,y)]
-tmp <- tmp[order(x,y,date)][, tmean_3mo := frollmean(tmean,n = 3,fill = NA,align='center'), by=.(x,y)]
-tmp <- tmp[order(x,y,date)][, tmin_3mo := frollmean(tmin,n = 3,fill = NA,align='center'), by=.(x,y)]
-tmp <- tmp[order(x,y,date)][, tmax_12mo := frollmean(tmax,n = 12,fill = NA,align='right'), by=.(x,y)]
+# tmp <- tmp[order(x,y,date)][,tmean := (tmax+tmin)/2]
+# tmp <- tmp[order(x,y,date)][, tmax_3mo := frollmean(tmax,n = 3,fill = NA,align='center'), by=.(x,y)]
+# tmp <- tmp[order(x,y,date)][, tmean_3mo := frollmean(tmean,n = 3,fill = NA,align='center'), by=.(x,y)]
+# tmp <- tmp[order(x,y,date)][, tmin_3mo := frollmean(tmin,n = 3,fill = NA,align='center'), by=.(x,y)]
+# tmp <- tmp[order(x,y,date)][, tmax_12mo := frollmean(tmax,n = 12,fill = NA,align='right'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, pet_3mo := frollmean(pet,n = 3,fill = NA,align='right'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, precip_3mo := frollmean(precip,n = 3,fill = NA,align='right'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, vpd15_3mo := frollmean(vpd15,n = 3,fill = NA,align='right'), by=.(x,y)]
@@ -60,6 +64,7 @@ tmp <- merge(tmp,
       by=c("x","y","date"), 
       all=TRUE,allow.cartesian=TRUE)
 tmp <- tmp[order(x,y,date)][, ndvi_3mo := frollmean(ndvi_hyb,n = 3,fill = NA,align='center',na.rm=TRUE), by=.(x,y)]
+
 rm(vi); gc(full=TRUE)
 
 mlo <- read_table("../data_general/CO2_growth_rate/co2_mm_mlo_20200405.txt", 
@@ -71,7 +76,7 @@ mlo <- read_table("../data_general/CO2_growth_rate/co2_mm_mlo_20200405.txt",
   select(date,co2_int,co2_trend) %>% 
   as.data.table()
 tmp <- merge(mlo,tmp,by="date")
-
+gc()
 #*******************************************************************************
 # Determine optimal integration time of P:PET ---------------------------------
 old_dat <- tmp[hydro_year %in% c(1984:1990)] %>% 
@@ -138,6 +143,71 @@ plot(vec~c(3,12,24,36,48), ylim=c(0,0.15))
 # END
 # ******************************************************************************
 
+#*******************************************************************************
+# Fit Logistic model by season across  hydro_years ---------------------------------------
+fn_logistic1 <- function(dat){
+  fit <- nls_multstart(ndvi_3mo ~ SSlogis(pe_48mo,Asym,xmid,scal),
+                       data = dat[sample(.N, 2000)],
+                       iter = 100,
+                       start_lower = c(Asym=0.5, xmid=0, scal=0),
+                       start_upper = c(Asym=1, xmid=0.5, scal=1),
+                       supp_errors = 'Y',
+                       na.action = na.omit,
+                       lower= c(0.5,  0,   0),
+                       upper= c(1,    1, 1))
+  bfit <- broom::tidy(fit)
+  bfit$hydro_year <- unique(dat$hydro_year);
+  bfit$season <- unique(dat$season)
+  bfit$nobs <- dim(dat)[1]
+  return(bfit)
+}
+# vec_id <- tmp[!veg_class %in% c(6,10,12,13,30,31,32)] %>% 
+#   .[is.na(id)==F] %>% 
+#   .[mape <= 2] %>% 
+#   .[, sample(id, 10000)] 
+
+tmp <- tmp[p_anom_12mo_frac > -0.1 & p_anom_12mo_frac < 0.1] 
+
+tmp[,.(nobs = sum(is.na(ndvi_3mo)==F)), by=.(hydro_year,season)][['nobs']]
+
+
+tmp <- tmp[hydro_year %in% c(1982:2019)] %>% 
+  # .[id %in% vec_id] %>% 
+  # .[season=="DJF"] %>%
+  .[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>% 
+  .[ndvi_hyb>0] %>%
+  .[!veg_class %in% c(6,10,12,13,30,31,32)] %>%
+  .[is.na(veg_class)==F]
+gc()
+
+
+xdat <- tmp[hydro_year %in% c(1985:2019)] %>% 
+  .[,fn_logistic1(.SD),by=.(hydro_year,season)]
+gc()
+
+
+xdat %>%
+  inner_join(., {mlo %>% mutate(hydro_year=year(date)) %>% 
+      group_by(hydro_year) %>% 
+      summarize(co2 = mean(co2_trend,na.rm=TRUE))}) %>% 
+  inner_join(., {tmp %>% group_by(hydro_year) %>% 
+      summarize(pe_12mo = mean(pe_12mo,na.rm=TRUE)) %>% 
+      ungroup()},by='hydro_year') %>% 
+  as_tibble() %>%
+  # filter(p.value < 0.1) %>%
+  select(season,hydro_year,co2,pe_12mo,nobs, term,estimate) %>%
+  spread(key = term, value=estimate) %>% 
+  ggplot(data=., aes(co2, scal))+
+  geom_smooth(se=F,method='lm')+
+  geom_label(aes(label=hydro_year,fill=nobs),color='red')+
+  scale_fill_viridis_c(begin = 0.1)+
+  facet_wrap(~season)
+#*******************************************************************************
+# End Section ***
+#*******************************************************************************
+
+
+
 
 #*******************************************************************************
 # Fit Logistic model + precip & vpd anom across hydro_years ---------------------------------------
@@ -152,7 +222,7 @@ fn_xmid <- function(dat){
                 start_upper = c(Asym=1, xmid=0.5, scal=1, beta1=0.1 ,beta2=0.1),
                 supp_errors = 'Y',
                 na.action = na.omit,
-                lower= c(0.5,  0,   0, -0.1, -0.2),
+                lower= c(0.65,  0,   0, -0.1, -0.2),
                 upper= c(1,    0.5, 2,  0.1,  0.2))
   bfit <- broom::tidy(fit)
   bfit$hydro_year <- unique(dat$hydro_year);
@@ -163,33 +233,73 @@ fn_xmid <- function(dat){
 vec_id <- tmp[!veg_class %in% c(6,10,12,13,30,31,32)] %>% 
   .[is.na(id)==F] %>% 
   .[mape <= 2] %>% 
-  .[, sample(id, 1000)] 
+  .[, sample(id, 5000)] 
+
+fdat <- tmp[hydro_year %in% c(1982:2019)] %>% 
+  .[id %in% vec_id] %>% 
+  # .[season=="DJF"] %>%
+  .[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>% 
+  .[ndvi_hyb>0] %>%
+  .[!veg_class %in% c(6,10,12,13,30,31,32)] %>%
+  .[is.na(veg_class)==F] %>% 
+  .[,`:=`(p_anom_12mo_frac = precip_anom_12mo/map)] %>% 
+  .[p_anom_12mo_frac > -0.1 & p_anom_12mo_frac < 0.1] 
+gc()
+xdat <- fdat %>% 
+  # .[sample(.N,50000)] %>%
+  .[,fn_xmid(.SD),by=.(hydro_year,season)]
+gc()
+
+xdat %>% filter(hydro_year==2007)
+xdat %>%
+  inner_join(., {mlo %>% mutate(hydro_year=year(date)) %>% 
+      group_by(hydro_year) %>% 
+      summarize(co2 = mean(co2_trend,na.rm=TRUE))}) %>% 
+  inner_join(., {fdat %>% group_by(hydro_year) %>% 
+      summarize(pe_12mo = mean(pe_12mo,na.rm=TRUE)) %>% 
+      ungroup()},by='hydro_year') %>% 
+  as_tibble() %>%
+  # filter(p.value < 0.1) %>%
+  select(season,hydro_year,co2,pe_12mo, term,estimate) %>%
+  spread(key = term, value=estimate) %>% 
+  ggplot(data=., aes(co2, Asym))+
+  geom_smooth(se=F,method='lm')+
+  geom_label(aes(label=hydro_year,fill=pe_12mo),color='red')+
+  scale_fill_viridis_c(begin = 0.1)+
+  facet_wrap(~season)
 
 
-xdat <- tmp[hydro_year %in% c(1982:2019)] %>% 
+d_anoms <- tmp[hydro_year %in% c(1982:2019)] %>% 
   .[id %in% vec_id] %>%
   .[season=="DJF"] %>%
   .[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>% 
   .[ndvi_hyb>0] %>%
   .[!veg_class %in% c(6,10,12,13,30,31,32)] %>%
   .[is.na(veg_class)==F] %>% 
-  # .[sample(.N,.N*0.25)] %>%
-  .[,fn_xmid(.SD),by=.(hydro_year)]
+  .[,.(precip_anom_3mo = mean(precip_anom_3mo, na.rm=TRUE), 
+          vpd15_anom_3mo = mean(vpd15_anom_3mo, na.rm=TRUE)),
+    by=hydro_year]
 
-xdat %>% filter(hydro_year==2007)
-
-p_asym <- xdat %>%
+xdat %>%
   as_tibble() %>%
   # filter(p.value < 0.1) %>%
   select(season,hydro_year,term,estimate) %>%
-  spread(key = term, value=estimate) %>% #summary
+  spread(key = term, value=estimate) %>% summary
+  inner_join(., d_anoms, by='hydro_year') %>% 
+  # [(log((A - R)/(2.0*A - 1.0)) + 0.693147180559945)*exp(-L)]
   # mutate(p50 = (log((Asym - R0)/Asym) + 0.693147180559945)*exp(-lrc)) %>%
+  mutate(p20 = scal*log((-5.0*beta1*precip_anom_3mo - 5.0*beta2*vpd15_anom_3mo + 1.0)*exp(xmid/scal)/(5.0*Asym + 5.0*beta1*precip_anom_3mo + 5.0*beta2*vpd15_anom_3mo - 1.0))
+  ) %>% 
+  mutate(p40 = scal*log((-5.0*beta1*precip_anom_3mo - 5.0*beta2*vpd15_anom_3mo + 2.0)*exp(xmid/scal)/(5.0*Asym + 5.0*beta1*precip_anom_3mo + 5.0*beta2*vpd15_anom_3mo - 2.0))
+  ) %>%
+  mutate(p60 = scal*log((-5.0*beta1*precip_anom_3mo - 5.0*beta2*vpd15_anom_3mo + 3.0)*exp(xmid/scal)/(5.0*Asym + 5.0*beta1*precip_anom_3mo + 5.0*beta2*vpd15_anom_3mo - 3.0))
+  ) %>%
   # filter(!hydro_year %in% c(2012)) %>%
   # filter(hydro_year >= 2000) %>%
   ggplot(data=., aes(hydro_year, #Asym+Asym2+Asym3
-                     Asym, color=xmid))+
+                     scal))+
   geom_point()+
-  geom_smooth(method='lm',color='black',se=F)+
+  geom_smooth(method='lm',color='black',se=F)
   # geom_label(aes(label=hydro_year))+
   scale_color_viridis_c(option='C',end=0.8)+
   scale_x_continuous(expand=c(0.01,0.01))+
@@ -271,56 +381,64 @@ xdat %>%
 
 
 
-# Multiple Time Lag P:PET Logistic Model -------------------------------------------------
-# fn_xmid3 <- function(dat){
-#   fit <- nls_multstart(ndvi_3mo ~ 
-#                          Asym/(1+exp((xmid-pe_3mo)/scal))+
-#                          Asym2/(1+exp((xmid2-pe_12mo)/scal2))+
-#                          Asym3/(1+exp((xmid3-pe_48mo)/scal3)),
-#                        data = dat,
-#                        iter = 200,
-#                        start_lower = c(Asym=0,  xmid=0, scal=0, 
-#                                        Asym2=0, xmid2=0, scal2=0, 
-#                                        Asym3=0, xmid3=0, scal3=0),
-#                        start_upper = c(Asym=1,  xmid=1, scal=1, 
-#                                        Asym2=1, xmid2=1, scal2=1, 
-#                                        Asym3=1, xmid3=1, scal3=1),
-#                        supp_errors = 'Y',
-#                        na.action = na.omit, 
-#                        #      Asym     xmid    Scal
-#                        lower= c(0,     0.05,   -0.5, 
-#                                 0,     0.05,   -0.5, 
-#                                 0,     0.05,   -0.5), 
-#                        upper= c(2,    1,    0.5, 
-#                                 2,    1,    0.5, 
-#                                 2,    1,    0.5))  
-#   bfit <- broom::tidy(fit)
-#   bfit$hydro_year <- unique(dat$hydro_year); 
-#   bfit$season <- unique(dat$season)
-#   gof <- dat %>% 
-#     lazy_dt() %>% 
-#     mutate(pred = predict(fit3,newdata=.)) %>% 
-#     mutate(res = pred-ndvi_3mo) %>% 
-#     select(pred,res,ndvi_3mo) %>% 
-#     na.omit() %>% 
-#     summarize(rmse = sqrt(mean((pred-ndvi_3mo)**2)), 
-#               r2 = cor(pred,ndvi_3mo)**2) %>% 
-#     as.data.table()
-#   bfit$rmse <- gof$rmse
-#   bfit$r2 <- gof$r2
-#   
-#   return(bfit)  
-# }
+# Multiple Time Lag P:PET w 3 Logistic Functions -------------------------------------------------
+fn_logistic3 <- function(dat){
+  fit <- nls_multstart(ndvi_3mo ~
+                         Asym/(1+exp((xmid-pe_3mo)/scal))+
+                         Asym2/(1+exp((xmid2-pe_12mo)/scal2))+
+                         Asym3/(1+exp((xmid3-pe_36mo)/scal3)),
+                       data = dat,
+                       iter = 50,
+                       start_lower = c(Asym=0,  xmid=0, scal=0.1,
+                                       Asym2=0, xmid2=0, scal2=0.1,
+                                       Asym3=0, xmid3=0, scal3=0.1),
+                       start_upper = c(Asym=0.5,  xmid=0.5, scal=0.5,
+                                       Asym2=0.5, xmid2=0.5, scal2=0.5,
+                                       Asym3=0.5, xmid3=0.5, scal3=0.5),
+                       supp_errors = 'Y',
+                       na.action = na.omit,
+                       #      Asym     xmid    Scal
+                       lower= c(0,     0.01,   0.01, 
+                                0,     0.05,   0.01,
+                                0,     0.05,    0.01),
+                       upper= c(1,    0.6,    0.1,
+                                1,    1,    0.35,
+                                1,    0.6,    0.4))
+  bfit <- broom::tidy(fit)
+  bfit$hydro_year <- unique(dat$hydro_year);
+  bfit$season <- unique(dat$season)
+  gof <- dat %>%
+    lazy_dt() %>%
+    mutate(pred = predict(fit,newdata=.)) %>%
+    mutate(res = pred-ndvi_3mo) %>%
+    select(pred,res,ndvi_3mo) %>%
+    na.omit() %>%
+    summarize(rmse = sqrt(mean((pred-ndvi_3mo)**2)),
+              r2 = cor(pred,ndvi_3mo)**2) %>%
+    as.data.table()
+  bfit$rmse <- gof$rmse
+  bfit$r2 <- gof$r2
 
-xdat <- tmp[hydro_year %in% c(1985:2019)] %>% 
-  # .[season=="DJF"] %>%
+  return(bfit)
+}
+
+vec_id <- tmp[!veg_class %in% c(6,10,12,13,30,31,32)] %>% 
+  .[is.na(id)==F] %>% 
+  .[mape <= 2] %>% 
+  .[, sample(id, 2000)] 
+
+xdat <- tmp[hydro_year %in% c(1984:2019)] %>% 
+  .[id %in% vec_id] %>% 
   .[season=="DJF"] %>%
   .[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>% 
   .[ndvi_hyb>0] %>%
   .[!veg_class %in% c(6,10,12,13,30,31,32)] %>%
   .[is.na(veg_class)==F] %>% 
-  .[sample(.N,50000)] %>%
-  .[,fn_xmid3(.SD),by=.(hydro_year)]
+  .[,`:=`(p_anom_12mo_frac = precip_anom_12mo/map)] %>% 
+  .[p_anom_12mo_frac > -0.15 & p_anom_12mo_frac < 0.15] %>% 
+  # .[sample(.N,50000)] %>%
+  .[,fn_logistic3(.SD),by=.(hydro_year)]
+gc()
 
 xdat %>%
   as_tibble() %>%
@@ -330,8 +448,7 @@ xdat %>%
   # mutate(p50 = (log((Asym - R0)/Asym) + 0.693147180559945)*exp(-lrc)) %>%
   # filter(!hydro_year %in% c(2012)) %>%
   # filter(hydro_year >= 2000) %>%
-  ggplot(data=., aes(hydro_year, #Asym+Asym2+Asym3
-                     xmid3))+
+  ggplot(data=., aes(hydro_year, Asym+Asym2+Asym3))+
   geom_point()+
   geom_smooth(method='lm')+
   geom_label(aes(label=hydro_year))
@@ -386,12 +503,13 @@ expand_grid(wdat %>% select(-season),
   #                        scal = (scal+scal2+scal3)/3 )) %>% 
   ggplot(data=., aes(x,pred,color=(hydro_year), group=hydro_year))+
   geom_line(alpha=0.5)+
+  geom_hline(aes(yintercept=0.7),color='black',lwd=0.5)+
   # geom_vline(aes(xintercept=p50, color=hydro_year), 
   #            data=wdat %>% 
   #        mutate(p50 = (log((Asym - R0)/Asym) + 0.693147180559945)*exp(-lrc)))+
   scale_color_viridis_c("Year", option='B',end=0.9)+
   scale_x_continuous(limits=c(0,2), expand=c(0,0))+
-  scale_y_continuous(limits=c(0,1), expand=c(0,0))+
+  scale_y_continuous(limits=c(0.25,0.9), expand=c(0,0))+
   labs(x=expression(paste(paste(sum(Precip[t], "1 mo", "12 mo")," / ", sum(PET[t], "1 mo", "12 mo")))), 
        y=expression(paste(NDVI["3 mo"])))+
   theme_linedraw()+
