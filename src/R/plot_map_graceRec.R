@@ -1,3 +1,4 @@
+library(sf); library(stars)
 library(RcppArmadillo); library(tidyverse); library(data.table); library(lubridate)
 g <- stars::read_ncdf("../data_general/GRACE_reconstruction/GRACE_REC_v03_GSFC_ERA5_monthly_ensemble_mean.nc")
 oz_poly <- sf::read_sf("../data_general/GADM/gadm36_AUS.gpkg", 
