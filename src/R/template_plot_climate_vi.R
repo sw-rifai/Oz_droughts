@@ -1290,9 +1290,10 @@ czones <- arrow::read_parquet("data/EOz_clim_kmeans6.parquet") %>%
   as.data.table()
 
 o1 <- ldat %>% 
-  filter(is.na(npv)==F) %>% 
+  filter(is.na(ndvi_mcd)==FALSE) %>% 
   group_by(x,y,date) %>% 
-  summarize(soil = median(soil,na.rm=TRUE), 
+  summarize(ndvi = median(ndvi_mcd,na.rm=TRUE), 
+            soil = median(soil,na.rm=TRUE), 
             gv = median(gv,na.rm=TRUE), 
             npv = median(npv,na.rm=TRUE)) %>% 
   ungroup() %>% 
@@ -1309,7 +1310,8 @@ o1 <- merge(mod %>% select(-date),
 o1 %>% 
   lazy_dt() %>% 
   group_by(year,x,y) %>% 
-  summarize(npv = mean(npv,na.rm=TRUE), 
+  summarize(ndvi = mean(ndvi, na.rm=TRUE), 
+            npv = mean(npv,na.rm=TRUE), 
             gv = mean(gv,na.rm=TRUE), 
             soil = mean(soil, na.rm=TRUE),
             nontree=mean(nontree_cover,na.rm=TRUE), 
@@ -1335,11 +1337,13 @@ o1 %>%
   ungroup() %>% 
   as_tibble() %>% 
   filter(veg_class %in% c(2,3)) %>% 
-  filter(cz==2) %>% pull(date)
-  ggplot(data=., aes(date, gv,color=as_factor(cz),
+  filter(cz==2) %>% #pull(date)
+  ggplot(data=., aes(date, nonveg_cover,color=as_factor(cz),
                      group=as_factor(cz)))+
   geom_line()+
-  scale_color_viridis_d(option='B',end=0.9, direction = -1)
+  geom_smooth(method='lm')+
+  scale_color_viridis_d(option='B',end=0.9, direction = -1)+
+  facet_wrap(~veg_class)
   
 
 o1 %>% as_tibble() %>% 
