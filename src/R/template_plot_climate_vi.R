@@ -1289,32 +1289,92 @@ ggsave(plot = p_l|p_r+plot_layout(guides='keep'),
 czones <- arrow::read_parquet("data/EOz_clim_kmeans6.parquet") %>% 
   as.data.table()
 
-o1 <- ldat %>% group_by(x,y,hydro_year,season) %>% 
-  summarize(soil = mean(soil,na.rm=TRUE), 
-            gv = mean(gv,na.rm=TRUE), 
-            npv = mean(npv,na.rm=TRUE)) %>% 
+o1 <- ldat %>% 
+  filter(is.na(npv)==F) %>% 
+  group_by(x,y,date) %>% 
+  summarize(soil = median(soil,na.rm=TRUE), 
+            gv = median(gv,na.rm=TRUE), 
+            npv = median(npv,na.rm=TRUE)) %>% 
   ungroup() %>% 
   as.data.table()
-o1 %>% ggplot(data=., aes(hydro_year, npv))+geom_smooth(method='lm')+
+o1[,`:=`(tot= soil+gv+npv)]
+o1[,`:=`(soil=soil/tot, 
+         gv=gv/tot,
+         npv=npv/tot)]
+o1 <- merge(o1, czones, by=c("x","y"))
+o1 <- merge(mod %>% select(-date), 
+            o1 %>% mutate(year=year(date)), 
+            by = c('x','y','year'))
+
+o1 %>% 
+  lazy_dt() %>% 
+  group_by(year,x,y) %>% 
+  summarize(npv = mean(npv,na.rm=TRUE), 
+            gv = mean(gv,na.rm=TRUE), 
+            soil = mean(soil, na.rm=TRUE),
+            nontree=mean(nontree_cover,na.rm=TRUE), 
+            tree=mean(tree_cover,na.rm=TRUE), 
+            nonveg_cover=mean(nonveg_cover,na.rm=TRUE)) %>% 
+  ungroup() %>% 
+  as.data.table() %>%
+  na.omit() %>% 
+  cor() %>% 
+  corrplot::corrplot(method='number', type = 'full')
+
+unique(o1[,.(veg_class,vc)])  
+  
+o1 %>% 
+  lazy_dt() %>% 
+  group_by(date,cz,vc,veg_class) %>% 
+  summarize(npv = mean(npv,na.rm=TRUE), 
+            gv = mean(gv,na.rm=TRUE), 
+            soil = mean(soil, na.rm=TRUE),
+            nontree=mean(nontree_cover,na.rm=TRUE), 
+            tree=mean(tree_cover,na.rm=TRUE), 
+            nonveg_cover=mean(nonveg_cover,na.rm=TRUE)) %>% 
+  ungroup() %>% 
+  as_tibble() %>% 
+  filter(veg_class %in% c(2,3)) %>% 
+  filter(cz==2) %>% pull(date)
+  ggplot(data=., aes(date, gv,color=as_factor(cz),
+                     group=as_factor(cz)))+
+  geom_line()+
+  scale_color_viridis_d(option='B',end=0.9, direction = -1)
+  
+
+o1 %>% as_tibble() %>% 
+  filter(cz==2) %>% 
+  sample_n(10000) %>%
+  ggplot(data=., aes(date, npv*100))+
+  # geom_point()+
+  geom_smooth(color='red')+
+  geom_smooth(aes(date, nontree_cover), color='orange')
   geom_smooth(aes(hydro_year,gv),method='lm',color='green')+
   geom_smooth(aes(hydro_year,soil),method='lm',color='brown')
 
-o1 <- merge(mod %>% rename(hydro_year=year), 
-      o1, by = c('x','y','hydro_year'))
-o1 <- merge(o1, czones, by=c("x","y"))
+
+dat[is.na(npv) == F][, .SD[npv == max(npv, na.rm = TRUE)], 
+                        keyby = .(x, y)] %>% 
+  ggplot(data=., aes(x,y,fill=month))+
+  geom_tile()+
+  scico::scale_fill_scico(palette='romaO',direction = -1)+
+  coord_equal()
+
+
 o1 %>% ggplot(data=., aes(hydro_year,nontree_cover))+
   geom_smooth(method='lm')+
   facet_wrap(~cz, scales = 'free')
 
-o1 %>% ggplot(data=., aes(hydro_year,gv,color=season))+
-  geom_smooth(method='lm')+
+o1 %>% ggplot(data=., aes(hydro_year,soil,color=season))+
+  geom_smooth()+
   facet_wrap(~cz, scales = 'free')
 
 o1[cz==2] %>% sample_n(1000) %>% ggplot(data=., aes(npv,nontree_cover))+
   geom_point()+geom_smooth()
 
-o1 %>% bam(nontree_cover~s(npv)+s(gv), data=.) %>% plot
-
+b <- o1[cz==2] %>% bam(nontree_cover~ti(npv,by=season)+ti(gv,by=season), data=., 
+                  select=TRUE, discrete = TRUE)
+summary(b); plot(b)
 # End section ******************************************************************
 
 
