@@ -54,11 +54,11 @@ fn_mssa <- function(dat){
   dat$ndvi_F1 <- r$F1
   return(dat)
 }
+
+
 tmp <- vi[vid%in%vec_vids[1000:1003]]
 tmp <- tmp[,fn_mssa(.SD),by=vid]
 
-ssa(as.ts(tmp[vid==18088]$ndvi_hyb), 
-    L=37, kind='mssa', circular = TRUE)
 x <- ts(tmp[vid==18088]$ndvi_hyb, 
       start=c(1982,1), 
       end=c(2019,12),
@@ -69,17 +69,18 @@ plot(s)
 plot(s, type = "vectors", idx=1:9)
 plot(s, type = "series", groups = as.list(1:3))
 plot(s, type = "paired", groups = as.list(1:4))
-g <- gapfill(s, groups = list(c(1,2,3)))
+g <- gapfill(s, groups = list(c(1,2,3,4,5)))
 yardstick::rmse_vec(as.numeric(x),as.numeric(g))
 
 xx <- coalesce(x,g)
+
 plot(g); lines(x,col='red'); lines(xx,col='blue')
 s <- ssa(xx, L=37) # or 1d-ssa?
 s
 lines(x,col='red')
 r <- reconstruct(s,groups = list(c(1)))
 r2 <- reconstruct(s,groups = list(c(1),c(2)))
-r3 <- reconstruct(s,groups = list(c(1),c(2),c(3)))
+r3 <- reconstruct(s,groups = list(c(1,3:10)))
 
 r2$F1
 plot(x, ylim=c(0,1))
@@ -89,7 +90,7 @@ lines(ts(r$F1,start=c(1982,1),
 lines(ts(r2$F1+r2$F2,start=c(1982,1), 
          end=c(2019,12),
          frequency=12),col='blue')
-lines(ts(r3$F1+r3$F2+r3$F3,start=c(1982,1), 
+lines(ts(r3$F1,start=c(1982,1), 
          end=c(2019,12),
          frequency=12),col='purple')
 
