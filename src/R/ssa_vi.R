@@ -45,19 +45,68 @@ d_na %>% filter(n_na < 50)
 
 
 # function to apply SSA over VI data.table --------------------------------
-fn_mssa <- function(dat){
-  s <- ssa(as.ts(dat$ndvi_hyb, 
-                 start=c(1982,1), 
-                 end=c(2019,12),
-                 frequency=12), L=37, kind='1d-ssa') # or 1d-ssa?
-  r <- reconstruct(s,groups = list(1))
-  dat$ndvi_F1 <- r$F1
+dat <- tmp[vid==18088]
+fn_ssa <- function(dat){
+  # cast to ts
+  x <- ts(dat$ndvi_hyb, 
+     start=c(1982,1), 
+     end=c(2019,12),
+     frequency=12)
+  # short window SSA to gapfill ts
+  s <- ssa(x, L=3) # optimal L?
+  g <- gapfill(s, groups = list(c(1,2))) # gapfill with trend and 1st seasonal component
+  xx <- ts(coalesce(x,g), # apply g to holes in x
+           start=c(1982,1), 
+           end=c(2019,12),
+           frequency=12)
+  s <- ssa(xx, L=13) # optimal L to separate grass/tree? 
+  r <- reconstruct(s,groups = list(c(1),c(2),c(3),c(4)))
+  dat$ndvi_F1 <- as.numeric(r$F1)
+  dat$ndvi_F2 <- as.numeric(r$F2)
+  dat$ndvi_F3 <- as.numeric(r$F3)
+  dat$ndvi_F4 <- as.numeric(r$F4)
   return(dat)
 }
 
+# From Lu et al 2003 RSE 
+Y <- Yw + Yh # eq3, Y is a proxy for fraction projected cover
+Y <- a*X + b # eq4
+X <- c*Y + d # eq4, d is the baseline of the veg index 
+Yw <- (1+lambda*S)*ywB # eq5 
+Yh <- S*yhA # eq5 
+X <- c*ywB + d + c*S*(yhA + lambda*ywB) # eq6, forward model 
+# xT = sum(X)/length(Tslow)
+xT <- c*ywB + d + c*s*(yhA + lambda*ywB) # eq7
+xA <- c*(yhA + lambda*ywB) # eq7
+s <- mean(S) # ~0.5
+ywB <- a*(x - s*xa)+b # eq8
+yhA <- a*(1+lambda*s)*xA - lambda*(a*xT + b) # eq8
+Yw <- (1+lambda*S)*(a(x-s*xa)+b) # eq9 
+Yh <- S*(a*(1+lambda*s)*xA - lambda*(axT + b)) # eq9
+X <- Xw + Xh + d # eq 10
+# where Xw <- Xw + Xs
+
+Xw <- (1+lambda*S)(xT - s*xA - d) # eq11 
+Xws <- (1+lambda*S)*(xT - s*xA) - lambda*S*d # eq11
+Xh <- S*((1+lambda*s)*xA - lambda*xT) + lambda*S*d # eq11
+
+X <- xT + xC + xI # eq12
+
 
 tmp <- vi[vid%in%vec_vids[1000:1003]]
-tmp <- tmp[,fn_mssa(.SD),by=vid]
+tmp <- tmp[,fn_ssa(.SD),by=vid]
+dat <- tmp[vid==19578] %>% 
+  ggplot(data=.,aes(date,ndvi_hyb))+
+  geom_line()+
+  geom_line(aes(date, ndvi_F2),color='red')
+
+tmp %>% 
+  ggplot(data=.,aes(date,ndvi_hyb))+
+  geom_line()+
+  geom_line(aes(date, ndvi_F2),color='red')+
+  facet_wrap(~vid, scales = 'free')
+
+
 
 x <- ts(tmp[vid==18088]$ndvi_hyb, 
       start=c(1982,1), 

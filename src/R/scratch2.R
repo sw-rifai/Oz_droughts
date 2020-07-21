@@ -3455,3 +3455,92 @@ fn(2)
 
 
 
+x <- ts(dat$ndvi_hyb, 
+        start=c(1982,1), 
+        end=c(2019,12),
+        frequency=12)
+s <- ssa(x, L=13) # or 1d-ssa?
+g <- gapfill(s, groups = list(c(1,2,3)), method='simultaneous')
+plot(x,lwd=3,ylim=c(0,1));lines(g,col='red')
+xx <- ts(coalesce(x,g),
+         start=c(1982,1), 
+         end=c(2019,12),
+         frequency=12)
+s <- ssa(xx, L=37) # or 1d-ssa?
+r <- reconstruct(s,groups = list(c(1),c(2),c(3),c(4)))
+plot(r)
+
+plot(s, type = 'series')
+f1 <- ts(reconstruct(s, groups=list(c(1)))$F1, 
+           start=c(1982,1), 
+           end=c(2019,12),
+           frequency=12)
+f2 <- ts(reconstruct(s, groups=list(c(2)))$F1, 
+         start=c(1982,1), 
+         end=c(2019,12),
+         frequency=12)
+f3 <- ts(reconstruct(s, groups=list(c(3)))$F1, 
+         start=c(1982,1), 
+         end=c(2019,12),
+         frequency=12)
+f4 <- ts(reconstruct(s, groups=list(c(4)))$F1, 
+         start=c(1982,1), 
+         end=c(2019,12),
+         frequency=12)
+f5 <- ts(reconstruct(s, groups=list(c(5)))$F1, 
+         start=c(1982,1), 
+         end=c(2019,12),
+         frequency=12)
+
+f12 <- ts(reconstruct(s, groups=list(c(1:2)))$F1, 
+         start=c(1982,1), 
+         end=c(2019,12),
+         frequency=12)
+n_c <- ts(reconstruct(s, groups=list(c(2,3,4)))$F1, 
+          start=c(1982,1), 
+          end=c(2019,12),
+          frequency=12)
+f34 <- ts(reconstruct(s, groups=list(c(3,4)))$F1, 
+           start=c(1982,1), 
+           end=c(2019,12),
+           frequency=12)
+f1234 <- ts(reconstruct(s, groups=list(c(1,2,3,4)))$F1, 
+          start=c(1982,1), 
+          end=c(2019,12),
+          frequency=12)
+
+signal::filtfilt(n_c)
+
+cols <- hcl.colors('Viridis',n=3)
+plot(xx) # original
+lines(f1,ylim=c(0,0.8),col='darkgreen')
+lines(f1+f2,ylim=c(0,0.8),col='darkgreen')
+lines(f1+f3,ylim=c(0,0.8),col='darkgreen')
+lines(f1+f4,ylim=c(0,0.8),col='darkgreen')
+lines(f1+f5,ylim=c(0,0.8),col='darkgreen')
+lines(f1+f6,ylim=c(0,0.8),col='darkgreen')
+
+plot(xx,col='red')
+loess(xx~time(xx), span=5/38) %>% 
+  predict %>% 
+  ts(., start=c(1982,1), 
+        end=c(2019,12),
+        frequency=12) %>% 
+  lines(type='l')
+microbenchmark::microbenchmark(
+  roll::roll_min(xx,width=12,complete_obs = T, min_obs = 1),
+  RcppRoll::roll_minr(xx, n=12, fill=NA)
+)
+lines(xx*0+roll::roll_min(xx,width=12,complete_obs = T, min_obs = 1))
+
+lines(f1-f34,col='blue')
+lines(f34)
+plot(f1234,lwd=3,col='black')
+lines(f1234-f34,col=cols[2],lwd=2)
+lines(grass+mean(tree,na.rm = TRUE),col=cols[2],lwd=2)
+dat %>% select(x,y)
+
+plot(f1234-f34)
+
+
+
