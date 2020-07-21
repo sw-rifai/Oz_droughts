@@ -44,14 +44,51 @@ d_na$n_na %>% min
 d_na %>% filter(n_na < 50)
 
 
+
+# # Approach 1 using Equations From Lu et al 2003 RSE ---------------------------------------------
+# Y <- Yw + Yh # eq3, Y is a proxy for fraction projected cover
+# Y <- a*X + b # eq4
+# X <- c*Y + d # eq4, d is the baseline of the veg index 
+# Yw <- (1+lambda*S)*ywB # eq5 
+# Yh <- S*yhA # eq5 
+# X <- c*ywB + d + c*S*(yhA + lambda*ywB) # eq6, forward model 
+# # xT = sum(X)/length(Tslow)
+# xT <- c*ywB + d + c*s*(yhA + lambda*ywB) # eq7
+# xA <- c*(yhA + lambda*ywB) # eq7
+# s <- mean(S) # ~0.5
+# ywB <- a*(x - s*xa)+b # eq8
+# yhA <- a*(1+lambda*s)*xA - lambda*(a*xT + b) # eq8
+# Yw <- (1+lambda*S)*(a(x-s*xa)+b) # eq9 
+# Yh <- S*(a*(1+lambda*s)*xA - lambda*(axT + b)) # eq9
+# X <- Xw + Xh + d # eq 10
+# # where Xw <- Xw + Xs
+# Xw <- (1+lambda*S)(xT - s*xA - d) # eq11 
+# Xws <- (1+lambda*S)*(xT - s*xA) - lambda*S*d # eq11
+# Xh <- S*((1+lambda*s)*xA - lambda*xT) + lambda*S*d # eq11
+# X <- xT + xC + xI # eq12
+
+# Approach 2 from Ma et al 2020 RSE --------------------------------------------
+# Modified from Lu (2003), and adapted to use SSA
+# Y <- Ytree + Ygrass # eq2 # Y == EVI(t) in Ma
+# Ytree <- (1+lambda*S)*YtreeB # eq3 
+# Ygrass <- S*YgrassA # eq3
+# YtreeB <- Y - s*YA
+# YgrassA <- (1+lambda*s)*YA - lambda*Y 
+# Ytree <- (1+lambda*S)*(Y - s*YA - Ysoil) # eq5
+# Ygrass <- S*((1+lambda*s)*YA - lambda*Y) + lambda*S*Ysoil # eq5
+# YCmin <- min(c(YC, (p/(2-p) * YCmin*(t-dt)+(1-p)*YC/(2-p)))) # eq6
+# YCmin <- max(c(YC, (p/(2-p) * YCmax*(t-dt)+(1-p)*YC/(2-p)))) # eq6
+# S <- YC/YA + s # <- (YC - YCmin)/YA # eq7
+
+
 # function to apply SSA over VI data.table --------------------------------
 dat <- tmp[vid==18088]
 fn_ssa <- function(dat){
   # cast to ts
   x <- ts(dat$ndvi_hyb, 
-     start=c(1982,1), 
-     end=c(2019,12),
-     frequency=12)
+          start=c(1982,1), 
+          end=c(2019,12),
+          frequency=12)
   # short window SSA to gapfill ts
   s <- ssa(x, L=3) # optimal L?
   g <- gapfill(s, groups = list(c(1,2))) # gapfill with trend and 1st seasonal component
@@ -68,29 +105,6 @@ fn_ssa <- function(dat){
   return(dat)
 }
 
-# From Lu et al 2003 RSE 
-Y <- Yw + Yh # eq3, Y is a proxy for fraction projected cover
-Y <- a*X + b # eq4
-X <- c*Y + d # eq4, d is the baseline of the veg index 
-Yw <- (1+lambda*S)*ywB # eq5 
-Yh <- S*yhA # eq5 
-X <- c*ywB + d + c*S*(yhA + lambda*ywB) # eq6, forward model 
-# xT = sum(X)/length(Tslow)
-xT <- c*ywB + d + c*s*(yhA + lambda*ywB) # eq7
-xA <- c*(yhA + lambda*ywB) # eq7
-s <- mean(S) # ~0.5
-ywB <- a*(x - s*xa)+b # eq8
-yhA <- a*(1+lambda*s)*xA - lambda*(a*xT + b) # eq8
-Yw <- (1+lambda*S)*(a(x-s*xa)+b) # eq9 
-Yh <- S*(a*(1+lambda*s)*xA - lambda*(axT + b)) # eq9
-X <- Xw + Xh + d # eq 10
-# where Xw <- Xw + Xs
-
-Xw <- (1+lambda*S)(xT - s*xA - d) # eq11 
-Xws <- (1+lambda*S)*(xT - s*xA) - lambda*S*d # eq11
-Xh <- S*((1+lambda*s)*xA - lambda*xT) + lambda*S*d # eq11
-
-X <- xT + xC + xI # eq12
 
 
 tmp <- vi[vid%in%vec_vids[1000:1003]]

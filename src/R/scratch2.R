@@ -3508,6 +3508,10 @@ f1234 <- ts(reconstruct(s, groups=list(c(1,2,3,4)))$F1,
           start=c(1982,1), 
           end=c(2019,12),
           frequency=12)
+f_c <- ts(reconstruct(s, groups=list(c(2:14)))$F1, 
+            start=c(1982,1), 
+            end=c(2019,12),
+            frequency=12)
 
 signal::filtfilt(n_c)
 
