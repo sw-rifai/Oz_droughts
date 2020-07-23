@@ -43,7 +43,28 @@ d_na$n_na %>% hist
 d_na$n_na %>% min
 d_na %>% filter(n_na < 50)
 
+getOption('datatable.verbose')
+options(datatable.verbose = F)
+x = 1:10
+x[c(1:2, 5:6, 9:10)] = NA
+x
+nafill(nafill(x, "locf"),'nocb')
 
+dt = data.table(v1=x, v2=shift(x)/2, v3=shift(x, -1L)/2)
+nafill(dt, "nocb")
+
+setnafill(dt, "locf", cols=c("v2","v3"))
+dt
+
+# vi <- vi %>% 
+#   lazy_dt() %>% 
+#   group_by(vid) %>% 
+#   arrange(date) %>%
+#   mutate(ndvi_hyb = nafill(ndvi_hyb,'locf')) %>% 
+#   ungroup() %>% 
+#   as.data.table()
+
+vi$ndvi_hyb %>% is.na %>% table
 
 # # Approach 1 using Equations From Lu et al 2003 RSE ---------------------------------------------
 # Y <- Yw + Yh # eq3, Y is a proxy for fraction projected cover
@@ -93,29 +114,47 @@ fn_ssa <- function(dat){
           end=c(2019,12),
           frequency=12)
   # short window SSA to gapfill ts
-  s1 <- ssa(x, L=3) # optimal L?
-  g <- gapfill(s1, groups = list(c(1,2))) # gapfill with trend and 1st seasonal component
-  xx <- ts(coalesce(x,g), # apply g to holes in x
+  s1 <- ssa(x, L=13) # optimal L?
+  # g <- reconstruct(s1, groups=list(c(1,2,3)))
+  g <- gapfill(s1, groups = list(c(1,2,3))) # gapfill with trend and 1st seasonal component
+  
+  g1 <- raster::clamp(as.numeric(g), min(x,na.rm=TRUE), max(x,na.rm=TRUE))
+  g2 <- g*0+g1
+  
+  xx <- ts(coalesce(x,g2), # apply g to holes in x
            start=c(1982,1), 
            end=c(2019,12),
            frequency=12)
+  plot(x,ylim=c(0,1),lwd=3);lines(g,col='red');lines(xx,col='blue')
+  
   s1 <- ssa(xx, L=13) # optimal L to separate grass/tree? 
+  Y <- xx
   YT <- reconstruct(s1, groups=list(1))$F1 # Trend component
   YC <- reconstruct(s1,groups = list(c(2:13)))$F1
   YA <- RcppRoll::roll_meanr(YT, n=12, fill=mean(YT,na.rm=TRUE))
   S <- (YC/YA)+s
+  # S <- (YC - min(YC))/(YA) # other form of S which is actually different
+  YtreeB <- YT - s*YA
+  YgrassA <- (1+lambda*s)*YA - lambda*Y
+  Ytree <- (1+lambda*S)*(Y - s*YA - Ysoil)
+  Ygrass <- S*((1+lambda*s)*YA - lambda*Y) + lambda*S*Ysoil
   
-  
-  dat$ndvi_F1 <- as.numeric(r$F1)
-  dat$ndvi_F2 <- as.numeric(r$F2)
-  dat$ndvi_F3 <- as.numeric(r$F3)
-  dat$ndvi_F4 <- as.numeric(r$F4)
+  dat$ndvi_tree <- as.numeric(Ytree)
+  dat$ndvi_grass <- as.numeric(Ygrass)
   return(dat)
 }
 
 
+vi <- vi[,fn_ssa(.SD), by=vid]
+
 tmp <- vi[vid%in%vec_vids[1000:1003]]
 tmp <- tmp[,fn_ssa(.SD),by=vid]
+
+tmp %>% 
+  ggplot(data=., aes(date, ndvi_grass,color=as_factor(vid)))+
+  geom_line()+
+  geom_smooth(method='lm')
+
 dat <- tmp[vid==19578] %>% 
   ggplot(data=.,aes(date,ndvi_hyb))+
   geom_line()+
