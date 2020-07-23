@@ -72,39 +72,46 @@ d_na %>% filter(n_na < 50)
 # Y <- Ytree + Ygrass # eq2 # Y == EVI(t) in Ma
 # Ytree <- (1+lambda*S)*YtreeB # eq3 
 # Ygrass <- S*YgrassA # eq3
-# YtreeB <- Y - s*YA
-# YgrassA <- (1+lambda*s)*YA - lambda*Y 
+# YtreeB <- YT - s*YA # eq4, YT is the trend component of SSA
+# YgrassA <- (1+lambda*s)*YA - lambda*Y #
 # Ytree <- (1+lambda*S)*(Y - s*YA - Ysoil) # eq5
 # Ygrass <- S*((1+lambda*s)*YA - lambda*Y) + lambda*S*Ysoil # eq5
-# YCmin <- min(c(YC, (p/(2-p) * YCmin*(t-dt)+(1-p)*YC/(2-p)))) # eq6
+# YCmin <- min(c(YC, (p/(2-p) * YCmin*(t-dt)+(1-p)*YC/(2-p)))) # eq6, YC is cyclic component of SSA 
 # YCmin <- max(c(YC, (p/(2-p) * YCmax*(t-dt)+(1-p)*YC/(2-p)))) # eq6
 # S <- YC/YA + s # <- (YC - YCmin)/YA # eq7
 
 
 # function to apply SSA over VI data.table --------------------------------
-dat <- tmp[vid==18088]
+dat <- vi[vid==18088]
 fn_ssa <- function(dat){
+  lambda <- 0.6 # from Ma
+  Ysoil <- 0.137 # 0.5% percentile of NDVI 
+  s <- 0.5 # guess!
   # cast to ts
   x <- ts(dat$ndvi_hyb, 
           start=c(1982,1), 
           end=c(2019,12),
           frequency=12)
   # short window SSA to gapfill ts
-  s <- ssa(x, L=3) # optimal L?
-  g <- gapfill(s, groups = list(c(1,2))) # gapfill with trend and 1st seasonal component
+  s1 <- ssa(x, L=3) # optimal L?
+  g <- gapfill(s1, groups = list(c(1,2))) # gapfill with trend and 1st seasonal component
   xx <- ts(coalesce(x,g), # apply g to holes in x
            start=c(1982,1), 
            end=c(2019,12),
            frequency=12)
-  s <- ssa(xx, L=13) # optimal L to separate grass/tree? 
-  r <- reconstruct(s,groups = list(c(1),c(2),c(3),c(4)))
+  s1 <- ssa(xx, L=13) # optimal L to separate grass/tree? 
+  YT <- reconstruct(s1, groups=list(1))$F1 # Trend component
+  YC <- reconstruct(s1,groups = list(c(2:13)))$F1
+  YA <- RcppRoll::roll_meanr(YT, n=12, fill=mean(YT,na.rm=TRUE))
+  S <- (YC/YA)+s
+  
+  
   dat$ndvi_F1 <- as.numeric(r$F1)
   dat$ndvi_F2 <- as.numeric(r$F2)
   dat$ndvi_F3 <- as.numeric(r$F3)
   dat$ndvi_F4 <- as.numeric(r$F4)
   return(dat)
 }
-
 
 
 tmp <- vi[vid%in%vec_vids[1000:1003]]
