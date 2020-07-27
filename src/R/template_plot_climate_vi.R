@@ -538,7 +538,7 @@ ggsave(p_out,
 
 
 
-# Climate Zones & P:PET Trend & NDVI & VCF distributions --------------------------------------------------
+# K-means Climate Zones & P:PET Trend & NDVI & VCF distributions --------------------------------------------------
 jj <- ldat %>% 
   group_by(x,y,season) %>% 
   summarize(ppet_u = mean(pe, na.rm=TRUE),

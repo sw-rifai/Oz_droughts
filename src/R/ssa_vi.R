@@ -39,22 +39,11 @@ d_na <- vi %>% group_by(vid) %>%
   summarize(n_na = sum(is.na(ndvi_hyb))) %>% 
   ungroup()
   
-d_na$n_na %>% hist
-d_na$n_na %>% min
-d_na %>% filter(n_na < 50)
+# d_na$n_na %>% hist
+# d_na$n_na %>% min
+d_na <- d_na %>% filter(n_na < 50)
 
-getOption('datatable.verbose')
-options(datatable.verbose = F)
-x = 1:10
-x[c(1:2, 5:6, 9:10)] = NA
-x
-nafill(nafill(x, "locf"),'nocb')
-
-dt = data.table(v1=x, v2=shift(x)/2, v3=shift(x, -1L)/2)
-nafill(dt, "nocb")
-
-setnafill(dt, "locf", cols=c("v2","v3"))
-dt
+vi <- vi[vid%in%d_na$vid]
 
 # vi <- vi %>% 
 #   lazy_dt() %>% 
@@ -125,7 +114,7 @@ fn_ssa <- function(dat){
            start=c(1982,1), 
            end=c(2019,12),
            frequency=12)
-  plot(x,ylim=c(0,1),lwd=3);lines(g,col='red');lines(xx,col='blue')
+  # plot(x,ylim=c(0,1),lwd=3);lines(g,col='red');lines(xx,col='blue')
   
   s1 <- ssa(xx, L=13) # optimal L to separate grass/tree? 
   Y <- xx
@@ -144,10 +133,142 @@ fn_ssa <- function(dat){
   return(dat)
 }
 
-
+# apply SSA separation of tree & grass contribution to NDVI
 vi <- vi[,fn_ssa(.SD), by=vid]
 
-tmp <- vi[vid%in%vec_vids[1000:1003]]
+#*******************************************************************************
+#* Add season and hydro year -----
+#*******************************************************************************
+vec_dates <- data.table(date=sort(unique(vi$date))) %>% 
+  .[,quarter:=quarter(date)] %>% 
+  mutate(q = case_when(quarter==1~"DJF",
+                       quarter==2~"MAM",
+                       quarter==3~"JJA",
+                       quarter==4~"SON")) %>% 
+  mutate(season = factor(q,
+                         levels=c("SON","DJF","MAM","JJA"), 
+                         ordered=T)) %>% 
+  select(date,season) %>% 
+  mutate(hydro_year = year(date+months(1)))
+
+vi2 <- merge(x = vi, y = vec_dates, by = 'date')
+gc(verbose = T, reset = T, full = T)
+
+
+
+# Linear change in VCF  ---------------------------------------------------
+library(RcppArmadillo)
+system.time(
+  lt_ndviTree_season <- vi2[date>= ymd("1982-01-01") & date<= ymd("2019-12-31")] %>% 
+    .[,.(val = mean(ndvi_tree, na.rm=TRUE)), by=.(x,y,season,hydro_year)] %>% 
+    .[is.na(val)==F] %>% 
+    .[,.(b1 = fastLm(X = cbind(1,hydro_year-2000.5), y=val, data=.SD)$coefficients[2]), 
+      by=.(x,y,season)]
+)
+
+system.time(
+  lt_ndviGrass_season <- vi2[date>= ymd("1982-01-01") & date<= ymd("2019-12-31")] %>% 
+    .[,.(val = mean(ndvi_grass, na.rm=TRUE)), by=.(x,y,season,hydro_year)] %>% 
+    .[is.na(val)==F] %>% 
+    .[,.(b1 = fastLm(X = cbind(1,hydro_year-2000.5), y=val, data=.SD)$coefficients[2]), 
+      by=.(x,y,season)]
+)
+
+czones <- arrow::read_parquet("data/EOz_clim_kmeans6.parquet") %>% 
+  as.data.table()
+
+lt_ndviFrac <- merge(lt_ndviTree_season %>% rename(b1_tree=b1), 
+                     lt_ndviGrass_season %>% rename(b1_grass=b1), 
+                     by=c("x","y","season"))
+lt_ndviFrac <- merge(lt_ndviFrac, czones, by=c("x","y"))
+
+
+# load("data/gridCell_lm_ndvi_clim.Rdata") # grid cell linear regressions
+oz_poly <- sf::read_sf("../data_general/GADM/gadm36_AUS.gpkg", 
+                       layer="gadm36_AUS_1")
+oz_poly <- sf::st_as_sf(oz_poly)
+oz_poly <- sf::st_simplify(oz_poly, dTolerance = 0.05)
+
+p_tree <- lt_ndviFrac %>% 
+  ggplot(data=., aes(x,y,fill=b1_tree))+
+  geom_sf(inherit.aes = F, data=oz_poly,
+          fill='gray70',color='gray10')+
+  geom_tile()+
+  coord_sf(xlim = c(140,155),
+           ylim = c(-45,-10), 
+           expand = FALSE)+
+  scale_x_continuous(breaks=seq(140,155,by=5))+
+  guides(fill=guide_legend(expression(paste(Delta~NDVI[Tree])), 
+                           title.position = 'top'))+
+  scale_fill_gradient2(limits=c(-0.003,0.003),oob=scales::squish)+
+  # scale_fill_viridis_c(option='B',direction = -1,end=0.95)+
+  # scico::scale_fill_scico_d(end=0.9,direction = 1)+
+  labs(x=NULL,y=NULL)+
+  theme_linedraw()+
+  facet_wrap(~season,nrow = 1)+
+  guides(fill=guide_legend(expression(paste(Delta~NDVI[Tree])), 
+                           title.position = 'top'))+
+  theme(
+        #legend.position = c(0.64,0.925),
+        #legend.direction = 'horizontal',
+        panel.grid = element_blank());p_tree
+
+p_grass <- lt_ndviFrac %>% 
+  ggplot(data=., aes(x,y,fill=b1_grass))+
+  geom_sf(inherit.aes = F, data=oz_poly,
+          fill='gray70',color='gray10')+
+  geom_tile()+
+  coord_sf(xlim = c(140,155),
+           ylim = c(-45,-10), 
+           expand = FALSE)+
+  scale_x_continuous(breaks=seq(140,155,by=5))+
+  scale_fill_gradient2(limits=c(-0.002,0.002),oob=scales::squish)+
+  # scale_fill_viridis_c(option='B',direction = -1,end=0.95)+
+  # scico::scale_fill_scico_d(end=0.9,direction = 1)+
+  labs(x=NULL,y=NULL)+
+  theme_linedraw()+
+  facet_wrap(~season,nrow = 1)+
+  guides(fill=guide_legend(expression(paste(Delta~NDVI[Grass])), 
+                           title.position = 'top'))+
+  theme(
+    #legend.position = c(0.64,0.925),
+    #legend.direction = 'horizontal',
+    panel.grid = element_blank()); p_grass
+
+library(patchwork)
+p_tree+p_grass+plot_layout(nrow=2)
+ggsave("figures/prototype_NDVI_fracContrib_ltTrend.png",
+       width=16,height=16,units='cm',dpi=350,type='cairo')
+
+
+
+
+
+vi2[date<=ymd("2015-01-01")][ndvi_tree==max(ndvi_tree)]
+vi2[vid==34924] %>%
+  mutate(ndvi_test = ndvi_tree+ndvi_grass) %>% 
+  select(date,ndvi_hyb, ndvi_tree, ndvi_grass, ndvi_test) %>% 
+  gather(-date, key='measure',value='estimate') %>% 
+  ggplot(data=.,aes(date,estimate,color=measure))+
+  geom_line()+
+  geom_smooth(method='lm',se=F)
+
+
+
+
+lt_ndviFrac %>% 
+  sample_n(1000) %>% 
+  ggplot(data=.,aes(b1_tree,b1_grass,color=cz))+
+  geom_point()+
+  scale_color_viridis_c()+
+  geom_smooth(method='lm')+
+  geom_abline(aes(intercept=0,slope=1),col='red')
+
+vi$ndvi_tree %>% hist
+vi$ndvi_grass %>% hist
+
+
+tmp <- vi[vid%in%vec_vids[1]]
 tmp <- tmp[,fn_ssa(.SD),by=vid]
 
 tmp %>% 
@@ -335,11 +456,3 @@ plot(r$F1)
 r$F1
 r %>% attributes
 
-# Real example: Mars photo
-data(Mars)
-# Decompose only Mars image (without backgroud)
-s <- ssa(Mars, mask = Mars != 0, wmask = circle(50), kind = "2d-ssa")
-# Reconstruct and plot trend
-plot(reconstruct(s, 1), fill.uncovered = "original")
-# Reconstruct and plot texture pattern
-plot(reconstruct(s, groups = list(c(13, 14, 17, 18))))
