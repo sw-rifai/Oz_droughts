@@ -2,7 +2,7 @@ library(raster);
 library(stars); library(data.table); 
 library(tidyverse); library(sf); library(lubridate); library(dtplyr)
 library(gdalUtils)
-
+library(foreach); library(parallel)
 
 # figure out the date structure ---- 
 scratch_dir <- "/home/sami/scratch/"
@@ -11,87 +11,136 @@ fps <- list.files("/home/sami/scratch/LandsatFracCover/", recursive = T,
 file.remove(fps[str_detect(fps, "xml")]) # damn qgis creates xml
 vec_years <- as.character(1988:2019)
 vec_seasons <- c("03","06","09","12")
-vec_dates <- seq(ymd("1988-03-01"),length.out=length(vec_years)*4, by='3 months')
+vec_dates <- seq(ymd("1987-12-01"),length.out=length(fps)/4, by='3 months')
 ref_grid <- stars::read_stars('../data_general/AVHRR_CDRv5_VI/AVHRR_SR_median_EastOz_1982_2019.tif', 
                           RasterIO = list(bands=1))
 
-# extract the separate states by seasonal date -----------
+# Foreach approach: extract the separate states by seasonal date -----------
 dat <- list()
-for(i in 1:length(vec_years)){
-  for(j in 1:length(vec_seasons)){
-    print(c("the year is:",vec_years[i]))
-    pattern <- paste0("m",vec_years[i],vec_seasons[j])
-    print(pattern)
-    mlist <- (fps[str_detect(fps, pattern = pattern)])
-    s1 <- stars::read_stars(mlist[1]) %>% st_warp(., ref_grid)
-    names(s1) <- "coverFraction"
-    s1 <- stars::st_set_dimensions(s1, 3, values = c("soil","gv","npv","alpha"),names='coverFraction')
-    s1 <- as.data.frame(s1)
-    
-    s2 <- stars::read_stars(mlist[2]) %>% st_warp(., ref_grid)
-    names(s2) <- "coverFraction"
-    s2 <- stars::st_set_dimensions(s2, 3, values = c("soil","gv","npv","alpha"),names='coverFraction')
-    s2 <- as.data.frame(s2)
-    
-    s3 <- stars::read_stars(mlist[3]) %>% st_warp(., ref_grid)
-    names(s3) <- "coverFraction"
-    s3 <- stars::st_set_dimensions(s3, 3, values = c("soil","gv","npv","alpha"),names='coverFraction')
-    s3 <- as.data.frame(s3)
-    
-    s4 <- stars::read_stars(mlist[4]) %>% st_warp(., ref_grid)
-    names(s4) <- "coverFraction"
-    s4 <- stars::st_set_dimensions(s4, 3, values = c("soil","gv","npv","alpha"),names='coverFraction')
-    s4 <- as.data.frame(s4)
-    
-    out <- bind_rows(s1,s2,s3,s4)
-    out$yearSeason <- pattern
-    dat[[i+j]] <- out
-    # if(i==1 & j==1){
-    #   data <- out
-    # }else{
-    #   data <- bind_rows(data, out)
-    }
-  }
+library(foreach); library(doParallel)
+n_cores <- 20
+cl <- makeCluster(n_cores)
+registerDoParallel(cl)
+tmp <- foreach(i = 1:length(vec_dates), 
+               .packages = c("tidyverse","lubridate","stars","data.table")
+               # .combine=rbind
+               ) %dopar% {
+                 pattern <- paste0("m",
+                                   substr(vec_dates[i],1,4),
+                                   substr(vec_dates[i],6,7))
+                 print(pattern)
+                 mlist <- (fps[str_detect(fps, pattern = pattern)])
+                 
+                 s1 <- stars::read_stars(mlist[1]) %>% st_warp(., ref_grid)
+                 names(s1) <- "coverFraction"
+                 s1 <- stars::st_set_dimensions(s1, 3, values = c("soil","gv","npv","alpha"),names='coverFraction')
+                 s1 <- as.data.frame(s1) %>% filter(coverFraction.1>0)
+                 
+                 s2 <- stars::read_stars(mlist[2]) %>% st_warp(., ref_grid)
+                 names(s2) <- "coverFraction"
+                 s2 <- stars::st_set_dimensions(s2, 3, values = c("soil","gv","npv","alpha"),names='coverFraction')
+                 s2 <- as.data.frame(s2) %>% filter(coverFraction.1>0)
+                 
+                 s3 <- stars::read_stars(mlist[3]) %>% st_warp(., ref_grid)
+                 names(s3) <- "coverFraction"
+                 s3 <- stars::st_set_dimensions(s3, 3, values = c("soil","gv","npv","alpha"),names='coverFraction')
+                 s3 <- as.data.frame(s3) %>% filter(coverFraction.1>0)
+                 
+                 s4 <- stars::read_stars(mlist[4]) %>% st_warp(., ref_grid)
+                 names(s4) <- "coverFraction"
+                 s4 <- stars::st_set_dimensions(s4, 3, values = c("soil","gv","npv","alpha"),names='coverFraction')
+                 s4 <- as.data.frame(s4) %>% filter(coverFraction.1>0)
+                 
+                 out <- bind_rows(s1,s2,s3,s4) %>% filter(is.na(coverFraction.1)==F)
+                 tmp_date <- lubridate::ymd(paste(substr(pattern,2,5),substr(pattern,6,7),1))
+                 out$date <- tmp_date
+                 setDT(out)
+                 out <- out %>% 
+                   dcast(., x+y+date~coverFraction, 
+                         value.var='coverFraction.1', 
+                         fun.aggregate=mean, na.rm=TRUE) %>% 
+                   select(-alpha)
+                 out
+               }
+dat <- rbindlist(tmp)
+dat[, npv:=npv/255]
+dat[, gv:=gv/255]
+dat[, soil:=soil/255]
+arrow::write_parquet(dat, sink="../data_general/LandsatFracCover/parquet/SeasLandsatCoverFrac_0.05deg_1988_2019.parquet")
 
-data <- data.table::rbindlist(dat) %>% 
-  lazy_dt() %>% 
-  rename(estimate = coverFraction.1) %>% 
-  mutate(coverFraction = as.character(coverFraction)) %>%   
-  filter(coverFraction != 'alpha') %>% 
-  filter(is.na(estimate)==F) %>% 
-  filter(estimate > 0) %>% 
-  mutate(estimate = estimate/255) %>% 
-  mutate(date = lubridate::ymd(paste(substr(yearSeason,2,5),substr(yearSeason,6,7),1))) %>% 
-  select(-yearSeason) %>% 
-  as.data.table()
-data %>% 
-  filter(date==max(date)) %>% 
-  ggplot(data=.,aes(x,y,fill=estimate))+
-  geom_tile()+
-  coord_equal()+
-  scale_fill_viridis_c()+
-  facet_wrap(~coverFraction)
 
-dat2 <- data %>% 
-  # sample_n(5) %>% 
-  pivot_wider(., id_cols=c("x","y","date"), 
-              names_from='coverFraction', 
-              values_from='estimate', 
-              values_fn=first)
 
-dat2 %>% 
-  group_by(date) %>% 
-  summarize(val = mean(npv,na.rm=TRUE)) %>% 
-  ungroup() %>% 
-  ggplot(data=.,aes(date,val))+geom_line()
-dat2 %>% 
-  filter(date==max(date)) %>% 
-  ggplot(data=.,aes(x,y,fill=npv))+
-  geom_tile()+
-  coord_equal()+
-  scale_fill_viridis_c()
+# For-loop approach ------------------------------------------------------------
+# for(i in 1:length(vec_dates)){
+#     print(paste("the date is:",vec_dates[i]))
+#     pattern <- paste0("m",
+#                       substr(vec_dates[i],1,4),
+#                       substr(vec_dates[i],6,7))
+#     print(pattern)
+#     mlist <- (fps[str_detect(fps, pattern = pattern)])
+#     
+#     s1 <- stars::read_stars(mlist[1]) %>% st_warp(., ref_grid)
+#     names(s1) <- "coverFraction"
+#     s1 <- stars::st_set_dimensions(s1, 3, values = c("soil","gv","npv","alpha"),names='coverFraction')
+#     s1 <- as.data.frame(s1)
+#     
+#     s2 <- stars::read_stars(mlist[2]) %>% st_warp(., ref_grid)
+#     names(s2) <- "coverFraction"
+#     s2 <- stars::st_set_dimensions(s2, 3, values = c("soil","gv","npv","alpha"),names='coverFraction')
+#     s2 <- as.data.frame(s2)
+#     
+#     s3 <- stars::read_stars(mlist[3]) %>% st_warp(., ref_grid)
+#     names(s3) <- "coverFraction"
+#     s3 <- stars::st_set_dimensions(s3, 3, values = c("soil","gv","npv","alpha"),names='coverFraction')
+#     s3 <- as.data.frame(s3)
+#     
+#     s4 <- stars::read_stars(mlist[4]) %>% st_warp(., ref_grid)
+#     names(s4) <- "coverFraction"
+#     s4 <- stars::st_set_dimensions(s4, 3, values = c("soil","gv","npv","alpha"),names='coverFraction')
+#     s4 <- as.data.frame(s4)
+#     
+#     
+#     out <- bind_rows(s1,s2,s3,s4) %>% filter(is.na(coverFraction.1)==F)
+#     out$yearSeason <- pattern
+#     setDT(out)
+#     out <- out %>% 
+#       dcast(., x+y+yearSeason~coverFraction, 
+#             value.var='coverFraction.1', 
+#             fun.aggregate=first)
+# 
+#     dat[[i]] <- out
+#   }
 
-arrow::write_parquet(data, sink="../data_general/LandsatFracCover/parquet/SeasLandsatCoverFrac_0.05deg_1988_2019.parquet")
+# dat <- dat %>% 
+#   lazy_dt() %>% 
+#   select(-alpha) %>% 
+#   mutate(date = lubridate::ymd(paste(substr(yearSeason,2,5),substr(yearSeason,6,7),1))) %>% 
+#   select(-yearSeason) %>% 
+#   as.data.table()
+# 
+# 
+# dat %>% 
+#   group_by(date) %>% 
+#   summarize(val = mean(soil,na.rm=TRUE)) %>% 
+#   ungroup() %>% 
+#   ggplot(data=.,aes(date,val))+geom_line()
+# 
+# dat %>% 
+#   filter(date==ymd("2020-03-01")) %>% 
+#   ggplot(data=.,aes(x,y,fill=npv))+
+#   geom_tile()+
+#   coord_equal()+
+#   scale_fill_viridis_c()
+# 
+# 
+# s1 %>% head
+# s1 %>% filter(coverFraction=='npv') %>% 
+#   filter(coverFraction.1>0) %>% 
+#   ggplot(data=.,aes(x,y,fill=coverFraction.1))+
+#   geom_tile()+
+#   coord_equal()+
+#   scale_fill_viridis_c()
+
 
 
 # ref_raster <- raster('../data_general/AVHRR_CDRv5_VI/AVHRR_SR_median_EastOz_1982_2019.tif',band=1)
