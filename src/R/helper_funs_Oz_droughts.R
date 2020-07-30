@@ -47,3 +47,14 @@ jetlag2 <- function(data, variable, n=10){
   out$lag_n <- out_lag_n
   return(out)
 }
+
+
+
+# Convert stars object to raster ------------------------------------------
+# Doesn't work super well. 
+st_as_raster <- function(rstars){
+  rext <- st_bbox(rstars)
+  raster(t(rstars[[1]]), xmn = rext[1], xmx = rext[3],
+         ymn = rext[2], ymx=rext[4],
+         crs = st_crs(rstars)$proj4string)
+}
