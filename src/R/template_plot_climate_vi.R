@@ -73,8 +73,31 @@ dat <- merge(dat,
 dat <- dat[order(x,y,date)][, ndvi_3mo := frollmean(ndvi_hyb,n = 3,fill = NA,align='center',na.rm=TRUE), by=.(x,y)]
 rm(vi); gc(full=TRUE)
 ldat <- dat %>% lazy_dt()
-# END Load dat *****************************************************************
+# END Load awap clim dat *****************************************************************
 
+
+# Load simplified BOM Koppen climate zones --------------------------------
+ref_grid <- stars::read_stars('../data_general/AVHRR_CDRv5_VI/AVHRR_SR_median_EastOz_1982_2019.tif', 
+                              RasterIO = list(bands=1))
+bom <- stars::read_stars("../data_general/Koppen_climate/BOM/kpngrp.txt")
+bom <- st_warp(src=bom, dest=ref_grid[,,], use_gdal = F)
+bom <- set_names(bom, 'koppen') %>% as_tibble()
+bom <- left_join(ref_grid %>% as_tibble() %>% select(x,y), 
+                 bom)
+coords <- dat %>% select(x,y) %>% distinct()
+kop <- left_join(coords, bom, by=c("x","y")) %>% 
+  mutate(zone = case_when(between(koppen,0,11) ~ 'Temperate', 
+                          (y <= -40) ~ 'Tasmania',
+                          between(koppen, 12,21)~'Grassland & Desert', # Grassland
+                          between(koppen, 22,30)~'Grassland & Desert', # Desert
+                          between(koppen, 31,34)~'Subtropical',
+                          between(koppen, 35,40)~'Tropical', 
+                          koppen >= 41 ~ 'Equatorial')) %>% 
+  mutate(zone = ifelse(y < -40, 'Temperate Tas.', zone)) %>% #pull(zone) %>% table
+  mutate(zone = factor(zone, levels = c("Equatorial","Tropical",
+                                        "Subtropical","Grassland & Desert",
+                                        "Temperate","Temperate Tas."), ordered = T))
+#*** End Kop zone load ********************************************************
 
 # Vegetation continuous cover data ----------------------------------------
 mod_tree <- stars::read_stars("../data_general/Oz_misc_data/MOD44BPercent_Tree_Cover_5000m_East_Oz_noMask_2000_2019.tif") %>% 
@@ -123,7 +146,35 @@ mod <- vc[mod, on=.(x,y)]
 mod[,`:=`(year=year(date))]
 
 # mod <- svi[mod, on=.(x,y,year)]
-# END DATA IMPORT SECTION ------------------------------------------------------
+
+# Import Seasonal Landsat Cover Fraction ---------------------------------------
+lcf <- arrow::read_parquet("../data_general/LandsatFracCover/parquet/SeasLandsatCoverFrac_0.05deg_1988_2019.parquet") %>% 
+  as.data.table()
+lcf[,`:=`(year=year(date), 
+          month=month(date))]
+lcf[,`:=`(season = case_when(month==3~'MAM',
+                             month==6~'JJA',
+                             month==9~'SON',
+                             month==12~'DJF'))]
+lcf[,`:=`(season = factor(season, levels = c('SON','DJF','MAM','JJA'),ordered = TRUE))]
+lcf <- inner_join(vc,lcf,by=c('x','y'))
+center_year_lcf <- mean(lcf$year,na.rm=TRUE)
+lcf <- lcf[is.na(vc)==F]
+# end section ******************************************************************
+# END DATA IMPORT SECTION ******************************************************
+
+
+
+# Linear change in Landsat Cover Fraction --------------------------------------
+system.time(
+  lt_lcf_npv <- lcf[is.na(veg_class)==F][date <= ymd('2019-09-01')][,`:=`(year_c = year-center_year_lcf)] %>% 
+    .[,.(beta = list(unname(fastLm(X = cbind(1,year_c), 
+                                   y=npv, data=.SD)$coefficients))), 
+      by=.(x,y,season)] %>% 
+    .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2]), by=.(x,y,season)] %>% 
+    .[,.(x,y,season,b0,b1)]
+)
+# END **************************************************************************
 
 
 # Linear change in VCF  ---------------------------------------------------

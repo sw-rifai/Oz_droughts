@@ -3546,5 +3546,13 @@ dat %>% select(x,y)
 
 plot(f1234-f34)
 
+out[coverFraction=='npv']$coverFraction.1 %>% hist
 
+dcast(out[x>=143.5782 & x<=144], 
+      x+y+yearSeason~coverFraction, 
+      value.var = 'coverFraction.1',
+      fun.aggregate = first)$soil %>% summary
+
+out[x>=143.5782 & x<=144 & coverFraction=='soil']$coverFraction.1 %>% summary
+out$soil %>% hist
 
