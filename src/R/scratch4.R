@@ -1,15 +1,17 @@
+ref_grid <- stars::read_stars('../data_general/AVHRR_CDRv5_VI/AVHRR_SR_median_EastOz_1982_2019.tif', 
+                              RasterIO = list(bands=1))
 srtm <- stars::read_stars("../data_general/Oz_misc_data/SRTM_elevation_500m_EastOz_.tif")
 base <- stars::read_stars("../data_general/Oz_misc_data/MOD44BPercent_Tree_Cover_5000m_East_Oz_noMask_2000_2019.tif", 
                           RasterIO = list(bands=1))
-srtm <- st_warp(src=srtm, dest=base[,,], use_gdal = F)
+srtm <- st_warp(src=srtm, dest=ref_grid[,,], use_gdal = F)
 srtm <- srtm %>% as_tibble() %>% set_names('x','y','elev') %>% na.omit()
 
 bom <- stars::read_stars("../data_general/Koppen_climate/BOM/kpngrp.txt")
 st_crs(srtm)
-bom <- st_warp(src=bom, dest=base[,,], use_gdal = F)
+bom <- st_warp(src=bom, dest=ref_grid[,,], use_gdal = F)
 plot(bom)
 bom <- set_names(bom, 'koppen') %>% as_tibble()
-bom <- left_join(base %>% as_tibble() %>% select(x,y), 
+bom <- left_join(ref_grid %>% as_tibble() %>% select(x,y), 
                  bom)
 
 bom %>% ggplot(data=., aes(x,y,fill=as_factor(koppen)))+geom_tile()+coord_equal()+
@@ -102,7 +104,8 @@ left_join(jj2 %>% select(x,y), bom) %>%
   scale_x_continuous(breaks=seq(140,155,by=5))+
   scico::scale_fill_scico_d()
 
-left_join(jj2 %>% select(x,y), bom) %>% 
+coords <- dat %>% select(x,y) %>% distinct()
+left_join(coords, bom, by=c("x","y")) %>% 
   mutate(zone = case_when(between(koppen,0,11) ~ 'Temperate', 
                           (y <= -40) ~ 'Tasmania',
                           between(koppen, 12,21)~'Grassland & Desert', # Grassland
@@ -119,13 +122,17 @@ left_join(jj2 %>% select(x,y), bom) %>%
           fill='gray70',color='gray10')+
   geom_tile()+
   coord_sf(xlim = c(140,155),
-           ylim = c(-45,-10), 
+           # ylim=c(-23,-20),
+           ylim = c(-45,-10),
            expand = FALSE)+
   scale_x_continuous(breaks=seq(140,155,by=5))+
   scale_fill_viridis_d(option='B')
-  # scico::scale_fill_scico_d(direction = -1)
+ggsave(filename = 'delete_me.png')
 
-
+jj2 %>% ggplot(data=.,aes(x,y,fill=tmax_u))+geom_tile()+coord_equal()
+(jj2$x %in% bom$x) %>% table
+(jj2$y %in% bom$y) %>% table
+(bom$y %in% jj2$y) %>% table
 # 41 Equatorial
 # 
 # 35 Tropical # 35-40

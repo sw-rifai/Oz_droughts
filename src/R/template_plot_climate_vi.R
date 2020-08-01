@@ -5,12 +5,13 @@
 #*
 #*
 library(tidyverse); library(sf)
-library(data.table); setDTthreads(threads = 10)
+library(data.table); setDTthreads(threads = 0)
 library(lubridate); 
 library(mgcv); #library(mgcViz); 
 library(dtplyr); 
 library(RcppArmadillo); library(patchwork)
 library(stars)
+library(foreach); library(doParallel)
 # IMPORT DATA ###################################################################
 
 # load("data/gridCell_lm_ndvi_clim.Rdata") # grid cell linear regressions
@@ -97,6 +98,7 @@ kop <- left_join(coords, bom, by=c("x","y")) %>%
   mutate(zone = factor(zone, levels = c("Equatorial","Tropical",
                                         "Subtropical","Grassland & Desert",
                                         "Temperate","Temperate Tas."), ordered = T))
+kop <- kop %>% mutate(cz=zone)
 #*** End Kop zone load ********************************************************
 
 # Vegetation continuous cover data ----------------------------------------
@@ -164,7 +166,6 @@ lcf <- lcf[is.na(vc)==F]
 # END DATA IMPORT SECTION ******************************************************
 
 
-
 # Linear change in Landsat Cover Fraction --------------------------------------
 system.time(
   lt_lcf_npv <- lcf[is.na(veg_class)==F][date <= ymd('2019-09-01')][,`:=`(year_c = year-center_year_lcf)] %>% 
@@ -174,8 +175,36 @@ system.time(
     .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2]), by=.(x,y,season)] %>% 
     .[,.(x,y,season,b0,b1)]
 )
+system.time(
+  lt_lcf_gv <- lcf[is.na(veg_class)==F][date <= ymd('2019-09-01')][,`:=`(year_c = year-center_year_lcf)] %>% 
+    .[,.(beta = list(unname(fastLm(X = cbind(1,year_c), 
+                                   y=gv, data=.SD)$coefficients))), 
+      by=.(x,y,season)] %>% 
+    .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2]), by=.(x,y,season)] %>% 
+    .[,.(x,y,season,b0,b1)]
+)
+system.time(
+  lt_lcf_bare <- lcf[is.na(veg_class)==F][date <= ymd('2019-09-01')][,`:=`(year_c = year-center_year_lcf)] %>% 
+    .[,.(beta = list(unname(fastLm(X = cbind(1,year_c), 
+                                   y=soil, data=.SD)$coefficients))), 
+      by=.(x,y,season)] %>% 
+    .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2]), by=.(x,y,season)] %>% 
+    .[,.(x,y,season,b0,b1)]
+)
+
 # END **************************************************************************
 
+# NDVI linear change by season ***********************************************************
+library(RcppArmadillo)
+system.time(
+  lt_ndvi_season <- dat[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>%
+    .[date>= ymd("1982-01-01") & date<= ymd("2019-09-30")] %>% 
+    .[,.(val = mean(ndvi_3mo, na.rm=TRUE)), by=.(x,y,season,hydro_year)] %>% 
+    .[is.na(val)==F] %>% 
+    .[,.(b1 = fastLm(X = cbind(1,hydro_year-2000.5), y=val, data=.SD)$coefficients[2]), 
+      by=.(x,y,season)]
+)
+# END **************************************************************************
 
 # Linear change in VCF  ---------------------------------------------------
 system.time(
@@ -587,7 +616,131 @@ ggsave(p_out,
 
 
 
+# Koppen Climate Zones & P:PET Trend & NDVI & VCF distributions --------------------------------------------------
+p_left <- kop %>% 
+  ggplot(data=., aes(x,y,fill=as_factor(zone)))+
+  geom_sf(inherit.aes = F, data=oz_poly,
+          fill='gray70',color='gray10')+
+  geom_tile()+
+  coord_sf(xlim = c(140,155),
+           ylim = c(-45,-10), 
+           expand = FALSE)+
+  scale_x_continuous(breaks=seq(140,155,by=5))+
+  scale_fill_viridis_d(option='B',direction = 1,end=0.95)+
+  # scico::scale_fill_scico_d(end=0.9,direction = 1)+
+  labs(x=NULL,y=NULL)+
+  theme_linedraw()+
+  guides(fill=guide_legend(title='Climate Zone', 
+                           title.position = 'top'))+
+  theme(legend.position = c(0.75,0.85), 
+        legend.direction = 'vertical',
+        panel.grid = element_blank(), 
+        panel.background = element_rect(fill='lightblue')); p_left
 
+aa <- ldat %>% 
+  group_by(x,y,hydro_year) %>% 
+  summarize(
+    ppet = mean(pe_12mo, na.rm=TRUE)) %>% 
+  ungroup() %>% 
+  filter(is.na(ppet)==F) %>% 
+  as_tibble()
+aa <- aa %>% 
+  inner_join(., kop %>% rename(cz=zone) %>% select(x,y,cz), by=c("x","y"))
+p_right <- aa %>% 
+  sample_frac(0.5) %>% 
+  rename(`Climate Zone` = cz) %>% 
+  ggplot(data=., aes(hydro_year, ppet))+
+  # geom_point(alpha=0.05,color='gray')+
+  geom_smooth(method='lm',color='black')+
+  scale_x_continuous(expand=c(0,0), breaks = c(1983,1990,2000,2010,2019))+
+  scale_y_continuous(expand=c(0,0), labels = scales::format_format(3))+
+  facet_wrap(~`Climate Zone`,scales = 'free',labeller = label_value, 
+             ncol = 2)+
+  labs(x=NULL, y="P:PET")+
+  theme_linedraw()+
+  theme(strip.text = element_text(face='bold'), 
+        panel.grid = element_blank(), 
+        axis.text.x = element_text(size=7)); p_right
+
+p_left+p_right
+
+lut_kop <- c("Equatorial" = "Equat.",
+             "Tropical" = "Trop.", 
+             "Subtropical" = "Subtr.", 
+             "Grassland & Desert" = "Grass.", 
+             "Temperate" = "Temp.",
+             "Temperate Tas." = "Tasm.")
+p_bottom <- inner_join(kop,lt_ndvi_season,by=c("x","y")) %>% 
+  rename(`Zone` = cz) %>% 
+  filter(between(b1,-0.004,0.004)) %>% 
+  mutate(season = factor(season, levels=c("SON","DJF","MAM","JJA"),ordered = T)) %>% 
+  ggplot(data=., aes(b1,fill=as_factor(`Zone`)))+
+  geom_histogram(bins = 30)+
+  geom_vline(aes(xintercept=0),col='red')+
+  # scico::scale_fill_scico_d()+
+  scale_fill_viridis_d(option='B',direction = -1,end=0.9)+
+  scale_x_continuous(expand=c(0,0), breaks=c(-0.003,0,0.003))+
+  facet_grid(`Zone`~season, scales = 'free_y', 
+             # labeller = label_wrap_gen(width=10, multi_line = TRUE)
+             labeller = labeller(`Zone` = lut_kop)
+             )+
+  labs(x=expression(paste(Delta~NDVI~yr**-1)))+
+  theme_linedraw()+
+  theme(panel.grid = element_blank(), 
+        strip.text = element_text(face='bold'), 
+        legend.position = 'none', 
+        axis.text.x = element_text(size=6)); p_bottom
+
+library(ggridges)
+p_vcf <- vcf %>% 
+  as_tibble() %>% 
+  filter(is.na(tree_u)==F) %>% 
+  inner_join(., kop %>% select(x,y,cz), by=c("x","y")) %>% 
+  select(cz, nonveg_b, grass_b, tree_b) %>%
+  rename(`Non. Veg.`=nonveg_b, 
+         `Non. Tree Veg.`=grass_b, 
+         `Tree Veg.`=tree_b) %>% 
+  gather(-cz, key = 'measure', value='estimate') %>% 
+  mutate(measure = as_factor(measure)) %>% 
+  filter(is.na(estimate)==F) %>% 
+  ggplot(data=., aes(x=estimate,
+                     y=cz,
+                     fill=cz,
+                     after_stat(scaled)))+
+  ggridges::stat_density_ridges(
+    quantile_lines = TRUE, 
+    rel_min_height=0.01, 
+    alpha=0.5, 
+    scale=1, 
+    color='black')+
+  scale_fill_viridis_d(option='B',direction = 1,end=0.9)+
+  geom_vline(aes(xintercept=0),color='red',lwd=0.75)+
+  scale_x_continuous(limits=c(-1,1))+
+  scale_y_discrete(expand=c(0,0),
+     limits=rev(c("Equatorial","Tropical", 
+              "Subtropical", "Grassland & Desert", 
+              "Temperate","Temperate Tas.")), 
+     labels=str_wrap(rev(c("Equatorial","Tropical", 
+                  "Subtropical", "Grassland & Desert", 
+                  "Temperate","Temperate Tasmania")),width = 10))+
+  labs(x=expression(paste(Cover~Trend~('%'~yr**-1))), 
+       y=NULL)+
+  facet_wrap(~ measure, ncol = 6)+
+  theme_linedraw()+
+  theme(panel.grid = element_blank(), 
+        strip.text = element_text(face='bold'),
+        legend.position = 'none'); p_vcf
+
+(p_left|((p_right/p_bottom)))/(p_vcf)+    
+  plot_layout(heights=c(20,5,3,2),
+              nrow=3)
+
+ggsave(plot = (p_left|(p_right/p_bottom/p_vcf)+
+                 plot_annotation(tag_levels = 'A')),
+       filename = "figures/map_KoppenZones_PPET_change_VCF.png", 
+       width = 25, height=30, units='cm', dpi=350, type='cairo')
+
+# END SECTION ******************************************************************
 
 # K-means Climate Zones & P:PET Trend & NDVI & VCF distributions --------------------------------------------------
 jj <- ldat %>% 
