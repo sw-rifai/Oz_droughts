@@ -20,16 +20,24 @@ oz_poly <- sf::read_sf("../data_general/GADM/gadm36_AUS.gpkg",
 oz_poly <- st_as_sf(oz_poly)
 oz_poly <- st_simplify(oz_poly, dTolerance = 0.05)
 
-frac <- stars::read_ncdf("../data_general/Oz_misc_data/csiro_FC.v310.MCD43A4_0p5_2001_2019.nc")
-frac[,,,1] %>% as_tibble() %>% filter(is.na(soil)==F)
+mcf <- stars::read_ncdf("../data_general/Oz_misc_data/csiro_FC.v310.MCD43A4_0p5_2001_2019.nc")
+mcf[,,,1] %>% as_tibble() %>% filter(is.na(soil)==F)
 eoz <- stars::read_stars("../data_general/Oz_misc_data/MOD44BPercent_Tree_Cover_5000m_East_Oz_noMask_2000_2019.tif",
                          RasterIO = list(bands=1))
-frac <- stars::st_warp(src=frac, dest=eoz, use_gdal = F)
-frac <- frac %>% as.data.table() %>% lazy_dt() %>% 
+mcf <- stars::st_warp(src=mcf, dest=eoz, use_gdal = F)
+mcf <- mcf %>% as.data.table() %>% lazy_dt() %>% 
   rename(date=time) %>%
   mutate(date=as.Date(date)) %>% 
   filter(is.na(npv)==F) %>% 
   as.data.table()
+mcf[,`:=`(year=year(date),month=month(date))] %>% 
+  .[,`:=`(season = case_when(month%in%c(3:5)~'MAM',
+                             month%in%c(6:8)~'JJA',
+                             month%in%c(9:11)~'SON',
+                             month%in%c(12,1,2)~'DJF'))]
+mcf[,`:=`(season = factor(season, levels = c('SON','DJF','MAM','JJA'),ordered = TRUE))]
+
+
 
 # vegetation index record
 vi <- arrow::read_parquet("../data_general/MCD43/MCD43_AVHRR_NDVI_hybrid_2020-07-01.parquet", 
@@ -1635,3 +1643,25 @@ b <- bam(ndvi_3mo~s(mape,bs='cs',k=3)+
 summary(b)
 getViz(b) %>% plot(allTerms=TRUE) %>% print(pages=1)
 
+
+
+
+# MODIS Cover Fraction Zonal Plot by Koppen Zone --------------------------
+mcf %>% lazy_dt() %>%
+  group_by(month,year, cz) %>% 
+  summarize(gv = mean(gv,na.rm=TRUE), 
+            npv = mean(npv,na.rm=TRUE), 
+            soil = mean(soil,na.rm=TRUE)) %>% 
+  ungroup() %>% 
+  as_tibble() %>% 
+  gather(-cz,-month,-year, key = 'key', value = 'value') %>% 
+  filter(key!='soil') %>% 
+  ggplot(data=., aes(year, value,color=key,group=key))+
+  geom_smooth()+
+  geom_smooth(method='lm', lty=1, se=F, lwd=0.5)+
+  scale_color_viridis_d(end=0.8, direction = -1)+
+  labs(x=NULL,y="%")+
+  facet_grid(cz~month, scales = 'free')+
+  # brms::theme_black()+
+  theme(panel.grid = element_blank())
+ggsave(filename = 'figures/CSIRO_MODIS_LandCoverFraction_by_Koppen.png')

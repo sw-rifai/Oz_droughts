@@ -275,6 +275,19 @@ gratia::evaluate_smooth(fit4, smooth="te(mape,tmax_anom_3mo)",
 gratia::appraise(fit5)
 
 
+
+# Broken stick linear model -----------------------------------------------
+train_dat %>% 
+  lazy_dt() %>% 
+  filter(mape < 1.25) %>% 
+  mutate(mape_d = cut_interval(mape,6)) %>% 
+  as_tibble() %>% 
+  ggplot(data=., aes(ndvi_3mo,pe_12mo, color=mape_d))+
+  geom_smooth(method='lm')
+
+
+
+
 # Richards function wCO2 v1 ----------------------------------------------------
 n_ric_x2 <- nls_multstart(ndvi_3mo ~ 
       (Asym+Asym2*co2_trend) * (1+exp(((xmid+xmid2*co2_trend) - pe_12mo)/(scal)))^(-exp(-(lpow))),
