@@ -333,16 +333,52 @@ o <- tmp %>%
   as_tibble()
 
 library(RcppArmadillo)
-o <- tmp[is.na(veg_class)==F][date <= ymd('2019-09-01')] %>% 
+o <- tmp[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>%
+  .[date>= ymd("1982-01-01") & date<= ymd("2019-09-30")] %>% 
+  .[,.(val = mean(ndvi_3mo, na.rm=TRUE)), by=.(x,y,season,hydro_year)] %>% 
+  .[is.na(val)==F] %>% 
+  .[,.(b1 = fastLm(X = cbind(1,hydro_year-2000.5), y=val, data=.SD)$coefficients[2]), 
+    by=.(season,hydro_year)]
+
+o <- tmp[is.na(veg_class)==F][is.na(pe_12mo)==F][date <= ymd('2019-09-01')] %>% 
   .[,.(beta = list(unname(fastLm(X = cbind(1,hydro_year), 
                                  y=ndvi_3mo, data=.SD)$coefficients))), 
     by=.(season,hydro_year)] %>% 
   .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2]), by=.(season,hydro_year)] %>% 
   .[,.(season,hydro_year,b0,b1)]
-o %>% 
-  ggplot(data=.,aes(hydro_year, b1))+
-  geom_point()
+o <- tmp[sample(.N,10000)] %>% 
+         .[is.na(veg_class)==F] %>% .[is.na(pe_12mo)==F] %>% 
+        .[is.na(hydro_year)==F] %>% .[date <= ymd('2019-09-01')] %>% 
+  .[,.(beta = list(unname(lm(ndvi_3mo~pe_12mo,data=.SD)$coefficients))),
+    by=.(season, hydro_year)] %>% 
+  .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2]), by=.(season,hydro_year)] %>% 
+  .[,.(season,hydro_year,b0,b1)]
 
+tmp[sample(.N,10000)] %>% 
+  .[is.na(veg_class)==F] %>% .[is.na(pe_12mo)==F] %>% 
+  .[is.na(hydro_year)==F] %>% .[date <= ymd('2019-09-01')] %>% 
+  .[,.(beta = list(unname(fastLm(ndvi_3mo~pe_12mo,data=.SD)$coefficients))),
+    by=.(season, hydro_year)] %>% 
+  .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2]), by=.(season, hydro_year)] %>% 
+  .[,.(season, hydro_year,b0,b1)] %>% 
+  ggplot(data=.,aes(hydro_year,b0,color=season))+geom_point()+geom_line()+
+  geom_smooth(method='lm',se=F)
+
+o[,.(beta = list(unname(fastLm(X = cbind(1,hydro_year), 
+                                 y=ndvi_3mo, data=.SD)$coefficients))), 
+    by=hydro_year] 
+
+  .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2]), by=.(season,hydro_year)] %>% 
+  .[,.(season,hydro_year,b0,b1)]
+fastLm(X=cbind(1,o$hydro_year),y=o$ndvi_3mo,data=o)
+
+o <- tmp %>% 
+  sample_n(10000) %>% 
+  as_tibble() %>% 
+  group_by(hydro_year,season) %>% 
+  summarize(fit = coef(lm(ndvi_3mo~pe_12mo, data=.))[2]) %>% 
+  ungroup()
+o
 summary(lm(ndvi_3mo~pe_12mo, data=tmp[sample(.N, 10000)]))
 summary(lm(ndvi_3mo~log(pe_12mo), data=tmp[sample(.N, 10000)]))
 

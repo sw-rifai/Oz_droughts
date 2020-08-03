@@ -58,7 +58,7 @@ tibble(x=seq(0.01,1,length.out=100)) %>%
              ylim=c(0.36,0.55), 
              # zoom.data = T, split = F, 
              show.area = F,
-             horizontal = T, zoom.size = 0.5)+
+             horizontal = T, zoom.size = 1)+
   theme_linedraw()+
   theme(panel.grid = element_blank())
 ggsave("figures/diagram_PPET_CO2_response.png", 
