@@ -279,14 +279,72 @@ gratia::appraise(fit5)
 # Broken stick linear model -----------------------------------------------
 train_dat %>% 
   lazy_dt() %>% 
-  filter(mape < 1.25) %>% 
-  mutate(mape_d = cut_interval(mape,6)) %>% 
+  filter(mape < 2) %>% 
+  mutate(mape_d = cut_width(mape,width = 0.1)) %>%  
+  mutate(co2_d = cut_interval(co2_trend, 3)) %>% 
   as_tibble() %>% 
-  ggplot(data=., aes(ndvi_3mo,pe_12mo, color=mape_d))+
-  geom_smooth(method='lm')
+  filter(between(pe_anom_12mo,-0.05,0.05)) %>% 
+  ggplot(data=., aes(pe_12mo,ndvi_3mo, 
+                     color=co2_d))+
+  geom_smooth(method='lm',se=F)+
+  scale_color_viridis_d(option='B',end=0.9)+
+  facet_wrap(~mape_d,scales = 'free')
+
+tmp %>% 
+  lazy_dt() %>% 
+  filter(mape < 2) %>% 
+  mutate(mape_d = cut_width(mape,width = 0.1)) %>%  
+  mutate(co2_d = cut_interval(co2_trend, 4)) %>% 
+  filter(pe_anom_12mo>-0.05) %>% 
+  filter(pe_anom_12mo<0.05) %>% 
+  as.data.table() %>% 
+  ggplot(data=., aes(pe_12mo,ndvi_3mo, 
+                     color=co2_d))+
+  geom_smooth(method='lm',se=F)+
+  scale_color_viridis_d(option='B',end=0.9)+
+  facet_wrap(~mape_d,scales = 'free')+
+  theme_linedraw()
 
 
+tmp %>% 
+  lazy_dt() %>% 
+  filter(mape < 2) %>% 
+  mutate(mape_d = cut_width(mape,width = 0.1)) %>%  
+  mutate(co2_d = cut_interval(co2_trend, 4)) %>% 
+  filter(pe_anom_12mo>-0.05) %>% 
+  filter(pe_anom_12mo<0.05) %>% 
+  as.data.table() %>% 
+  ggplot(data=., aes(pe_12mo,ndvi_3mo, 
+                     color=co2_d))+
+  geom_smooth(se=F)+
+  scale_color_viridis_d(option='B',end=0.9)+
+  facet_wrap(~mape_d,scales = 'free')+
+  theme_linedraw()
 
+o <- tmp %>% 
+  lazy_dt() %>% 
+  sample_n(1000) %>% 
+  filter(is.na(pe_12mo)==F) %>% 
+  group_by(hydro_year) %>% 
+  summarize(fit = list(unname(
+           RcppArmadillo::fastLm(y=ndvi_3mo,X=cbind(1,pe_12mo),data=.SD)
+           ))) %>% 
+  ungroup() %>% 
+  as_tibble()
+
+library(RcppArmadillo)
+o <- tmp[is.na(veg_class)==F][date <= ymd('2019-09-01')] %>% 
+  .[,.(beta = list(unname(fastLm(X = cbind(1,hydro_year), 
+                                 y=ndvi_3mo, data=.SD)$coefficients))), 
+    by=.(season,hydro_year)] %>% 
+  .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2]), by=.(season,hydro_year)] %>% 
+  .[,.(season,hydro_year,b0,b1)]
+o %>% 
+  ggplot(data=.,aes(hydro_year, b1))+
+  geom_point()
+
+summary(lm(ndvi_3mo~pe_12mo, data=tmp[sample(.N, 10000)]))
+summary(lm(ndvi_3mo~log(pe_12mo), data=tmp[sample(.N, 10000)]))
 
 # Richards function wCO2 v1 ----------------------------------------------------
 n_ric_x2 <- nls_multstart(ndvi_3mo ~ 

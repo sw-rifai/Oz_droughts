@@ -1,5 +1,5 @@
 library(tidyverse); library(viridis)
-
+library(ggforce); 
 params_base <- c(list(input=0.5, Asym=0.65, xmid=0.35, scal=0.15))
 params_elev <- c(list(input=0.5, Asym=0.75, xmid=0.35-0.05, scal=0.175))
 do.call(SSlogis, params_base)

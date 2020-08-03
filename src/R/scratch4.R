@@ -145,28 +145,12 @@ jj2 %>% ggplot(data=.,aes(x,y,fill=tmax_u))+geom_tile()+coord_equal()
 # 
 # 3 Temperate # 1-11
 
+lt_ndvi_hy %>% 
+  ggplot(data=.,aes(hydro_year,b1))+
+  geom_point()
 
 
 
-
-mcf %>% lazy_dt() %>%
-  group_by(month,year, cz) %>% 
-  summarize(gv = mean(gv,na.rm=TRUE), 
-            npv = mean(npv,na.rm=TRUE), 
-            soil = mean(soil,na.rm=TRUE)) %>% 
-  ungroup() %>% 
-  as_tibble() %>% 
-  gather(-cz,-month,-year, key = 'key', value = 'value') %>% 
-  filter(key!='soil') %>% 
-  ggplot(data=., aes(year, value,color=key,group=key))+
-  geom_smooth()+
-  geom_smooth(method='lm', lty=1, se=F, lwd=0.5)+
-  scale_color_viridis_d(end=0.8, direction = -1)+
-  labs(x=NULL,y="%")+
-  facet_grid(cz~month, scales = 'free')+
-  # brms::theme_black()+
-  theme(panel.grid = element_blank())
-ggsave(filename = 'figures/CSIRO_MODIS_LandCoverFraction_by_Koppen.png')
-
+800000+227444+68401+2358+1723030
 
 

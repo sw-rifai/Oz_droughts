@@ -212,6 +212,14 @@ system.time(
     .[,.(b1 = fastLm(X = cbind(1,hydro_year-2000.5), y=val, data=.SD)$coefficients[2]), 
       by=.(x,y,season)]
 )
+system.time(
+  lt_ndvi_hy <- dat[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>%
+    .[date>= ymd("1982-01-01") & date<= ymd("2019-09-30")] %>% 
+    .[,.(val = mean(ndvi_3mo, na.rm=TRUE)), by=.(season,hydro_year)] %>% 
+    .[is.na(val)==F] %>% 
+    .[,.(b1 = fastLm(X = cbind(1,hydro_year-2000.5), y=val, data=.SD)$coefficients[2]), 
+      by=.(season,hydro_year)]
+)
 # END **************************************************************************
 
 # Linear change in VCF  ---------------------------------------------------
