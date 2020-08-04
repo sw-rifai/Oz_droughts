@@ -7,7 +7,7 @@ library(dtplyr);
 options(mc.cores=parallel::detectCores()-3) 
 
 # IMPORT ###################################################################
-source("src/R/extract_awap_rad.R")
+system.time(source("src/R/extract_awap_rad.R"))
 frac <- stars::read_ncdf("../data_general/Oz_misc_data/csiro_FC.v310.MCD43A4_0p5_2001_2019.nc")
 frac[,,,1] %>% as_tibble() %>% filter(is.na(soil)==F)
 eoz <- stars::read_stars("../data_general/Oz_misc_data/MOD44BPercent_Tree_Cover_5000m_East_Oz_noMask_2000_2019.tif",
@@ -133,9 +133,12 @@ tmp <- tmp[,`:=`(cco2=co2_int-center_co2)]
 gc()
 #*******************************************************************************
 
+#split test & train ------------------------------------------------------------
 tmp[,`:=`(pe_anom_12mo = pe_12mo - mape)]
 train_dat <- tmp[season=='SON'][mape<2][is.na(ndvi_3mo)==F & is.na(pe_12mo)==F][sample(.N, 100000)]
 test_dat <- tmp[season=='SON'][mape<2][is.na(ndvi_3mo)==F & is.na(pe_12mo)==F][sample(.N, 100000)]
+#*******************************************************************************
+
 
 tmp[hydro_year>2016][pe_12mo<2][sample(.N,10000)] %>% 
   ggplot(data=., aes(pe_12mo, ndvi_3mo,color=vpd15_anom))+
@@ -502,6 +505,64 @@ expand_grid(map = 1200,
 
 
 
+# Log functions in linear mod ------------------------------------------------------------
+l_log <- lm(ndvi_3mo~log(pe_12mo)+log(mape)+pe_12mo, data=train_dat)
+summary(l_log)
+yardstick::rsq_trad_vec(test_dat$ndvi_3mo, predict(l_log, newdata=test_dat))
+
+test_dat %>% as_tibble() %>% 
+  mutate(pred=predict(l_log,newdata=.)) %>% 
+  select(pred,ndvi_3mo) %>% 
+  ggplot(data=.,aes(pred,ndvi_3mo))+
+  geom_point()+
+  geom_smooth(method='lm')+
+  geom_abline(aes(intercept=0,slope=1),color='red')
+
+test_dat %>% as_tibble() %>% 
+  sample_n(10000) %>% 
+  mutate(pred=predict(l_log,newdata=.)) %>% 
+  select(pe_12mo, pred,ndvi_3mo) %>% 
+  ggplot(data=.,aes(pe_12mo,ndvi_3mo))+
+  geom_point()+
+  geom_point(aes(pe_12mo, pred), color='navy')
+
+# Log functions in linear mod w/CO2------------------------------------------------------------
+l_log2 <- lm(ndvi_3mo~log(pe_12mo)+
+               log(mape)+
+               pe_12mo*co2_trend+
+               co2_trend*mape, data=train_dat)
+summary(l_log2)
+yardstick::rsq_trad_vec(test_dat$ndvi_3mo, predict(l_log2, newdata=test_dat))
+
+test_dat %>% as_tibble() %>%
+  sample_n(10000) %>% 
+  mutate(pred=predict(l_log2,newdata=.)) %>% 
+  select(pred,ndvi_3mo) %>% 
+  ggplot(data=.,aes(pred,ndvi_3mo))+
+  geom_point()+
+  geom_smooth(method='lm')+
+  geom_abline(aes(intercept=0,slope=1),color='red')
+
+test_dat %>% as_tibble() %>% 
+  sample_n(10000) %>% 
+  mutate(pred=predict(l_log2,newdata=.)) %>% 
+  select(pe_12mo, pred,ndvi_3mo) %>% 
+  ggplot(data=.,aes(pe_12mo,ndvi_3mo))+
+  geom_point()+
+  geom_point(aes(pe_12mo, pred), color='navy')
+
+expand_grid(mape = seq(0.1,2.5,length.out = 100), 
+            co2_trend = seq(340,412,length.out = 10)) %>% 
+  mutate(pe_12mo = mape) %>% 
+  mutate(pred = predict(l_log2, newdata=.)) %>% 
+  ggplot(data=.,aes(pe_12mo, pred,color=co2_trend,group=co2_trend))+
+  geom_line()+
+  scale_color_viridis_c(option='B')
+
+train_dat[ndvi_3mo==max(ndvi_3mo)]$ndvi_3mo
+train_dat[ndvi_3mo==max(ndvi_3mo)]$pe_12mo
+train_dat[ndvi_3mo==max(ndvi_3mo)]$mape
+
 # Exponential Function ----------------------------------------------------
 n_exp <- nls.multstart::nls_multstart(ndvi_3mo ~ 
                   A/exp(B*pe_12mo) + C,
@@ -517,6 +578,14 @@ train_dat %>% as_tibble() %>%
   select(pred,ndvi_3mo) %>% 
   na.omit() %>% 
   cor()
+
+train_dat %>% as_tibble() %>% 
+  mutate(pred=predict(n_exp,newdata=.)) %>% 
+  select(pred,ndvi_3mo) %>% 
+  ggplot(data=.,aes(pred,ndvi_3mo))+
+  geom_point()+
+  geom_smooth(method='lm')+
+  geom_abline(aes(intercept=0,slope=1),color='red')
 
 
 # Exponential Function w/CO2 ----------------------------------------------------

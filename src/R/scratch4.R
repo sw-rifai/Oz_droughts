@@ -150,7 +150,17 @@ lt_ndvi_hy %>%
   geom_point()
 
 
+dat[sample(.N,1e6)] %>% lm(ndvi_3mo~precip_12mo, data=.) %>% summary
+dat[sample(.N,1e6)] %>% lm(ndvi_3mo~log(precip_12mo), data=.) %>% summary
+dat[sample(.N,1e6)] %>% lm(ndvi_3mo~pet_12mo, data=.) %>% summary
+dat[sample(.N,1e6)] %>% lm(ndvi_3mo~log(pet_12mo), data=.) %>% summary
+dat[sample(.N,1e6)] %>% lm(ndvi_3mo~pe_12mo, data=.) %>% summary
+dat[sample(.N,1e6)] %>% lm(ndvi_3mo~log(pe_12mo), data=.) %>% summary
+dat[sample(.N,1e6)] %>% lm(ndvi_3mo~log(pe_12mo)*co2_trend, data=.) %>% summary
 
-800000+227444+68401+2358+1723030
-
-
+a1 <- dat[sample(.N,1e6)] %>% lm(ndvi_3mo~log(precip_12mo), data=.) %>% summary
+a2 <- dat[sample(.N,1e6)] %>% lm(ndvi_3mo~log(pet_12mo), data=.) %>% summary
+a3 <- dat[sample(.N,1e6)] %>% lm(ndvi_3mo~log(pe_12mo), data=.) %>% summary
+a1$r.squared
+a2$r.squared
+a3$r.squared

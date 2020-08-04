@@ -652,6 +652,9 @@ p_left <- kop %>%
         legend.direction = 'vertical',
         panel.grid = element_blank(), 
         panel.background = element_rect(fill='lightblue')); p_left
+ggsave(plot = p_left,
+       filename = "figures/map_KoppenZones.png", 
+       width = 12, height=30, units='cm', dpi=350, type='cairo')
 
 aa <- ldat %>% 
   group_by(x,y,hydro_year) %>% 
@@ -930,11 +933,79 @@ ggsave(plot = (p_left|(p_right/p_bottom/p_vcf)+
 # 
 
 
+# NDVI GAM Precip density plot ---------------------------------------------
+library(viridisLite)
+library(mgcv)
+dat[pe_12mo <= 2][ndvi_mcd>0][sample(.N, 1e6)][precip_12mo<=3000] %>% 
+  ggplot(data=., aes(precip_12mo,ndvi_mcd))+
+  # ggpointdensity::geom_pointdensity(size=0.5)+
+  stat_density_2d(geom='raster',
+                  aes(fill=after_stat(density)),
+                  contour = F)+
+  # stat_density_2d_filled()+
+  geom_smooth(se=F,color='red', method='gam',
+              method.args=list(select=TRUE))+
+  # scale_color_viridis_c()+
+  scale_fill_gradientn(colors=c('black', viridis(99)),
+                       trans='identity')+
+  # khroma::scale_fill_land()+
+  scale_x_continuous(expand=c(0,0))+
+  scale_y_continuous(expand=c(0,0))+
+  labs(x=expression(paste(paste(sum(Precip[t], "1 mo", "12 mo")))), 
+       y=expression(paste(NDVI)))+
+  guides(fill=guide_colorbar(title.position = 'top', 
+                             title = 'density'))+
+  theme(legend.direction = 'horizontal',
+        legend.position = c(0.75,0.15), 
+        legend.background = element_rect(fill='black'), 
+        legend.text = element_text(color='gray90'), 
+        legend.title = element_text(color='gray90'), 
+        legend.key.width = unit(1,'cm'))
+ggsave(filename = 'figures/mcd43_ndvi_precip_2d_density.png',
+       width=16, height = 10, units='cm',type='cairo')
+
+dat[pe_12mo <= 2][ndvi_mcd>0][sample(.N, 1e6)][precip_12mo<=3000] %>% 
+  bam(ndvi_mcd~s(precip_12mo,bs='cs'), data=., select=TRUE) %>% summary
+
+# NDVI GAM PET density plot ---------------------------------------------
+library(viridisLite)
+library(mgcv)
+dat[pe_12mo <= 2][ndvi_mcd>0][sample(.N, 1e6)][precip_12mo<=3000] %>% 
+  ggplot(data=., aes(pet_12mo,ndvi_mcd))+
+  # ggpointdensity::geom_pointdensity(size=0.5)+
+  stat_density_2d(geom='raster',
+                  aes(fill=after_stat(density)),
+                  contour = F)+
+  # stat_density_2d_filled()+
+  geom_smooth(se=F,color='red', method='gam',
+              method.args=list(select=TRUE))+
+  # scale_color_viridis_c()+
+  scale_fill_gradientn(colors=c('black', viridis(99)),
+                       trans='identity')+
+  # khroma::scale_fill_land()+
+  scale_x_continuous(expand=c(0,0))+
+  scale_y_continuous(expand=c(0,0))+
+  labs(x=expression(paste(paste(sum(PET[t], "1 mo", "12 mo")))), 
+       y=expression(paste(NDVI)))+
+  guides(fill=guide_colorbar(title.position = 'top', 
+                             title = 'density'))+
+  theme(legend.direction = 'horizontal',
+        legend.position = c(0.25,0.15), 
+        legend.background = element_rect(fill='black'), 
+        legend.text = element_text(color='gray90'), 
+        legend.title = element_text(color='gray90'), 
+        legend.key.width = unit(1,'cm'))
+ggsave(filename = 'figures/mcd43_ndvi_PET_2d_density.png',
+       width=16, height = 10, units='cm',type='cairo')
+
+dat[pe_12mo <= 2][ndvi_mcd>0][sample(.N, 1e6)][precip_12mo<=3000] %>% 
+  bam(ndvi_mcd~s(pet_12mo,bs='cs'), data=., select=TRUE) %>% summary
+
 # NDVI GAM P:PET density plot ---------------------------------------------
 library(viridisLite)
 library(mgcv)
-dat[pe_12mo <= 2][ndvi_m>0][sample(.N, 1e6)] %>% 
-  ggplot(data=., aes(pe_12mo,ndvi_m))+
+dat[pe_12mo <= 2][ndvi_mcd>0][sample(.N, 1e6)] %>% 
+  ggplot(data=., aes(pe_12mo,ndvi_mcd))+
   # ggpointdensity::geom_pointdensity(size=0.5)+
   stat_density_2d(geom='raster',
                   aes(fill=after_stat(density)),
@@ -959,6 +1030,9 @@ dat[pe_12mo <= 2][ndvi_m>0][sample(.N, 1e6)] %>%
         legend.key.width = unit(1,'cm'))
 ggsave(filename = 'figures/mcd43_ndvi_ppet_2d_density.png',
        width=16, height = 10, units='cm',type='cairo')
+
+dat[pe_12mo <= 2][ndvi_mcd>0][sample(.N, 1e6)][precip_12mo<=3000] %>% 
+  bam(ndvi_mcd~s(pe_12mo,bs='cs'), data=., select=TRUE) %>% summary
 
 # NDVI GAM P:VPD density plot ---------------------------------------------
 library(viridisLite)
@@ -1059,10 +1133,9 @@ magick::image_write(p_out, path="figures/join_ndvi_ppet_vectorPlot_diagram.png")
 
 
 #*******************************************************************************
-# NDVI GAM time series by climate zone ------------------------------------
+# NDVI GAM time series by K-means climate zone ------------------------------------
 #*******************************************************************************
 library(mgcv)
-
 czones <- arrow::read_parquet("data/EOz_clim_kmeans6.parquet") %>% 
   as.data.table()
 czones %>% 
@@ -1118,6 +1191,66 @@ p_lm <- o %>%
 ggsave(p_lm, filename = "figures/ndvi_lin_trend_10yr_segs.png", 
        width=20, height=15, units='cm', dpi=350, type='cairo')
 
+#*******************************************************************************
+# NDVI GAM time series by Koppen climate zone ------------------------------------
+#*******************************************************************************
+library(mgcv)
+exists('kop')
+dat <- merge(kop, 
+             dat,
+             by=c("x","y"), 
+             all=TRUE,allow.cartesian=TRUE)
+
+vec_ids <- unique(dat[,.(id,cz)]) %>% .[is.na(id)==F & is.na(cz)==F]
+vec_ids <- vec_ids[,.SD[sample(.N, min(10000,.N))],by=cz]
+o <- dat[is.na(season)==F] %>%
+  .[id %in% vec_ids$id] %>% 
+  .[date >= ymd('1982-01-01')] %>% 
+  .[date <= ymd('2019-10-01')] %>% 
+  .[,.(x,y,date,season,cz,id,ndvi_hyb,ndvi_3mo,ndvi_mcd)]
+vec_cols <- viridis::viridis(10, begin = 0.1,end=0.9)
+factor(o$season[1], levels=c("SON","DJF","MAM","JJA"),ordered = T)
+lut_kop <- c("Equatorial" = "Equat.",
+             "Tropical" = "Trop.", 
+             "Subtropical" = "Subtr.", 
+             "Grassland & Desert" = "Grass.", 
+             "Temperate" = "Temp.",
+             "Temperate Tas." = "Tasm.")
+p_lm <- o %>%   
+  mutate(season=factor(o$season, levels=c("SON","DJF","MAM","JJA"),ordered = T)) %>% 
+  ggplot(data=., aes(date, ndvi_hyb))+
+  geom_smooth(method='lm', color='black',se=F)+
+  geom_smooth(method='lm',color=vec_cols[2],se=F, 
+              data=o[date %between% c("1981-01-01","1991-01-01")])+
+  geom_smooth(method='lm',color=vec_cols[3],se=F, 
+              data=o[date %between% c("1986-01-01","1996-01-01")])+
+  geom_smooth(method='lm',color=vec_cols[4],se=F, 
+              data=o[date %between% c("1991-01-01","2001-01-01")])+
+  geom_smooth(method='lm',color=vec_cols[5],se=F, 
+              data=o[date %between% c("1996-01-01","2006-01-01")])+
+  geom_smooth(method='lm',color=vec_cols[6],se=F, 
+              data=o[date %between% c("2001-01-01","2011-01-01")])+
+  geom_smooth(method='lm',color=vec_cols[7],se=F, 
+              data=o[date %between% c("2006-01-01","2016-01-01")])+
+  geom_smooth(method='lm',color=vec_cols[8],se=F, 
+              data=o[date %between% c("2011-01-01","2019-09-01")])+
+  geom_smooth(method='lm',color='red',se=F, 
+              data=o[date %between% c("2001-01-01","2019-09-01")], 
+              aes(date, ndvi_mcd))+
+  geom_smooth(method='lm',color=scales::muted('red'),se=F, 
+              data=o[date %between% c("1981-01-01","2000-12-01")], 
+              aes(date, ndvi_hyb))+
+  scale_x_date(expand=c(0,0))+
+  labs(x=NULL, y="NDVI")+
+  facet_grid(cz~season, scales = 'free_y', 
+             # labeller = label_wrap_gen(width=10, multi_line = TRUE)
+             labeller = labeller(cz = lut_kop)
+  )+
+  theme_linedraw()+
+  theme(panel.grid = element_blank(), 
+        strip.text = element_text(face='bold'))
+ggsave(p_lm, filename = "figures/ndvi_lin_trend_10yr_segs_by_Koppen.png", 
+       width=20, height=15, units='cm', dpi=350, type='cairo')
 
 
 
