@@ -22,6 +22,7 @@ frac <- frac %>% as.data.table() %>% lazy_dt() %>%
 vi <- arrow::read_parquet("../data_general/MCD43/MCD64_AVHRR_NDVI_hybrid_2020-05-26.parquet", 
                           col_select = c("x","y","date",
                                          "ndvi_c","ndvi_m","ndvi_hyb", 
+                                         "nirv_m","nirv_hyb",
                                          "evi2_hyb","evi2_m")) %>% 
   as.data.table()
 vi <- frac[vi,on=.(x,y,date)]
@@ -131,6 +132,10 @@ tmp <- tmp[is.na(ndvi_3mo)==F & is.na(co2_int)==F]
 center_co2 <- mean(tmp$co2_int)
 tmp <- tmp[,`:=`(cco2=co2_int-center_co2)]
 gc()
+tmp <- tmp[is.na(vc)==F]
+tmp <- tmp[str_detect(vc,"Forests") | 
+         str_detect(vc, "Eucalypt") |
+         str_detect(vc, "Rainforests")]
 #*******************************************************************************
 
 #split test & train ------------------------------------------------------------
@@ -527,14 +532,14 @@ test_dat %>% as_tibble() %>%
   geom_point(aes(pe_12mo, pred), color='navy')
 
 # Log functions in linear mod w/CO2------------------------------------------------------------
-l_log2 <- lm(ndvi_3mo~log(pe_12mo)+
-               log(mape)+
-               pe_12mo*co2_trend+
-               co2_trend*mape, data=train_dat)
+l_log2 <- lm(ndvi_3mo~co2_trend*mape_d+co2_trend*pe_12mo, 
+             data=train_dat %>% 
+               mutate(mape_d = cut_width(mape,0.05)))
 summary(l_log2)
 yardstick::rsq_trad_vec(test_dat$ndvi_3mo, predict(l_log2, newdata=test_dat))
 
 test_dat %>% as_tibble() %>%
+  mutate(mape_d = cut_width(mape,0.05)) %>% 
   sample_n(10000) %>% 
   mutate(pred=predict(l_log2,newdata=.)) %>% 
   select(pred,ndvi_3mo) %>% 
@@ -544,6 +549,7 @@ test_dat %>% as_tibble() %>%
   geom_abline(aes(intercept=0,slope=1),color='red')
 
 test_dat %>% as_tibble() %>% 
+  mutate(mape_d = cut_width(mape,0.05)) %>% 
   sample_n(10000) %>% 
   mutate(pred=predict(l_log2,newdata=.)) %>% 
   select(pe_12mo, pred,ndvi_3mo) %>% 
@@ -551,11 +557,14 @@ test_dat %>% as_tibble() %>%
   geom_point()+
   geom_point(aes(pe_12mo, pred), color='navy')
 
-expand_grid(mape = seq(0.1,2.5,length.out = 100), 
+expand_grid(mape = seq(0.0837,2,length.out = 100), 
             co2_trend = seq(340,412,length.out = 10)) %>% 
   mutate(pe_12mo = mape) %>% 
+  mutate(mape_d = cut_width(mape,0.05)) %>% 
   mutate(pred = predict(l_log2, newdata=.)) %>% 
   ggplot(data=.,aes(pe_12mo, pred,color=co2_trend,group=co2_trend))+
+  geom_point(data=test_dat[sample(.N,10000)], 
+             aes(pe_12mo,ndvi_3mo,color=co2_trend),size=0.5,alpha=0.05)+
   geom_line()+
   scale_color_viridis_c(option='B')
 
@@ -950,7 +959,7 @@ expand_grid(map = 1200,
 n_fpl <- nls.multstart::nls_multstart(ndvi_3mo ~ 
                   SSfpl(pe_12mo, A, B, xmid, scal),
                   data=train_dat, 
-                  iter = 100,
+                  iter = 3,
                   supp_errors = 'Y',
                   control=nls.control(maxiter=100),
                   start_lower = c(A=0,    B=0.5, xmid=0.1, scal=0), 

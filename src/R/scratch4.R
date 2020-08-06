@@ -164,3 +164,390 @@ a3 <- dat[sample(.N,1e6)] %>% lm(ndvi_3mo~log(pe_12mo), data=.) %>% summary
 a1$r.squared
 a2$r.squared
 a3$r.squared
+
+
+
+
+
+
+#split test & train ------------------------------------------------------------
+tmp[,`:=`(pe_anom_12mo = pe_12mo - mape)]
+train_dat <- tmp[season=='DJF'][mape<2][is.na(ndvi_3mo)==F & is.na(pe_12mo)==F][sample(.N, 100000)]
+test_dat <- tmp[season=='DJF'][mape<2][is.na(ndvi_3mo)==F & is.na(pe_12mo)==F][sample(.N, 100000)]
+#*******************************************************************************
+l_log_dry <- lm(ndvi_3mo~co2_trend*pe_12mo + mape, 
+             data=tmp[season=="SON"][mape<0.5][pe_anom_12mo < -0.1][sample(.N, 0.5e6)])
+l_log_norm <- lm(ndvi_3mo~co2_trend*pe_12mo + mape, 
+                data=tmp[season=="SON"][mape<0.5][pe_anom_12mo > -0.1&pe_anom_12mo < 0.1][sample(.N, 0.5e6)])
+l_log_wet <- lm(ndvi_3mo~co2_trend*pe_12mo + mape, 
+                data=tmp[season=="SON"][mape<0.5][pe_anom_12mo > 0.1][sample(.N, 0.75e6)])
+summary(l_log_dry)
+summary(l_log_norm)
+summary(l_log_wet)
+
+# DRY
+expand_grid(mape = seq(0.0837,1,length.out = 100), 
+            co2_trend = seq(340,412,length.out = 10)) %>% 
+  mutate(pe_12mo = mape) %>% 
+  mutate(mape_d = cut_width(mape,0.05)) %>% 
+  mutate(pred = predict(l_log_dry, newdata=.)) %>% 
+  ggplot(data=.,aes(pe_12mo, pred,color=co2_trend,group=co2_trend))+
+  # geom_point(data=test_dat[sample(.N,10000)], 
+  #            aes(pe_12mo,ndvi_3mo,color=co2_trend),size=0.5,alpha=0.05)+
+  geom_line()+
+  scale_color_viridis_c(option='B')
+
+# Normal 
+expand_grid(mape = seq(0.0837,1,length.out = 100), 
+            co2_trend = seq(340,412,length.out = 10)) %>% 
+  mutate(pe_12mo = mape) %>% 
+  mutate(mape_d = cut_width(mape,0.05)) %>% 
+  mutate(pred = predict(l_log_norm, newdata=.)) %>% 
+  ggplot(data=.,aes(pe_12mo, pred,color=co2_trend,group=co2_trend))+
+  # geom_point(data=test_dat[sample(.N,10000)], 
+  #            aes(pe_12mo,ndvi_3mo,color=co2_trend),size=0.5,alpha=0.05)+
+  geom_line()+
+  scale_color_viridis_c(option='B')
+
+# WET
+expand_grid(mape = seq(0.0837,1,length.out = 100), 
+            co2_trend = seq(340,412,length.out = 10)) %>% 
+  mutate(pe_12mo = mape) %>% 
+  mutate(mape_d = cut_width(mape,0.05)) %>% 
+  mutate(pred = predict(l_log_wet, newdata=.)) %>% 
+  ggplot(data=.,aes(pe_12mo, pred,color=co2_trend,group=co2_trend))+
+  # geom_point(data=test_dat[sample(.N,10000)], 
+  #            aes(pe_12mo,ndvi_3mo,color=co2_trend),size=0.5,alpha=0.05)+
+  geom_line()+
+  scale_color_viridis_c(option='B')
+
+
+l_log_anom <- lm(ndvi_3mo~co2_trend*pe_anom_12mo + mape, 
+                data=tmp[season=="SON"][mape<0.5][sample(.N, 1e6)])
+expand_grid(mape = seq(0.0837,1,length.out = 100), 
+            co2_trend = seq(340,412,length.out = 10), 
+            pe_anom_12mo = c(-0.5,0,0.5)) %>% 
+  mutate(pred = predict(l_log_anom, newdata=.)) %>% 
+  mutate(pe_12mo = mape+pe_anom_12mo) %>% 
+  filter(pe_12mo > 0) %>% 
+  ggplot(data=.,aes(pe_12mo, pred,color=co2_trend,group=co2_trend))+
+  # geom_point(data=test_dat[sample(.N,10000)], 
+  #            aes(pe_12mo,ndvi_3mo,color=co2_trend),size=0.5,alpha=0.05)+
+  geom_line()+
+  scale_color_viridis_c(option='B')+
+  facet_wrap(~pe_anom_12mo)
+
+tmp[sample(.N,1e6)] %>% 
+  filter(mape < 2) %>% 
+  filter(is.na(season)==F) %>% 
+  ggplot(data=., aes(pe_anom))+
+  geom_histogram()+
+  geom_vline(aes(xintercept=0),col='red')+
+  facet_wrap(~season,ncol = 1)
+
+
+
+tmp[season=="SON"][mape<=2][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5]
+g_anom <- bam(ndvi_3mo~te(pe_anom_12mo, co2_trend,k=4,bs='cs')+s(mape,k=4,bs='cs'),
+                 data=tmp[season=="SON"][mape<=2][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5][sample(.N, 0.5e6)], 
+              select=TRUE)
+summary(g_anom)
+plot(g_anom, scale=0, scheme=2)
+expand_grid(mape = seq(0.0837,1,length.out = 100), 
+            co2_trend = seq(340,412,length.out = 10), 
+            xred = c(-0.5,0,0.5)) %>% 
+  mutate(pe_anom_12mo = mape+mape*xred) %>% 
+  mutate(pe_12mo = mape+pe_anom_12mo) %>% 
+  filter(pe_12mo > 0) %>% 
+  mutate(pred = predict(g_anom, newdata=.)) %>% 
+  ggplot(data=.,aes(pe_12mo, pred,color=co2_trend,group=co2_trend))+
+  # geom_point(data=test_dat[sample(.N,10000)], 
+  #            aes(pe_12mo,ndvi_3mo,color=co2_trend),size=0.5,alpha=0.05)+
+  geom_line()+
+  scale_color_viridis_c(option='B')+
+  facet_wrap(~xred)
+
+# Log functions in linear mod w/CO2------------------------------------------------------------
+l_log2 <- lm(ndvi_3mo~co2_trend*mape_d+co2_trend*pe_12mo, 
+             data=train_dat %>% 
+               mutate(mape_d = cut_width(mape,0.05)))
+summary(l_log2)
+yardstick::rsq_trad_vec(test_dat$ndvi_3mo, predict(l_log2, newdata=test_dat))
+
+test_dat %>% as_tibble() %>%
+  mutate(mape_d = cut_width(mape,0.05)) %>% 
+  sample_n(10000) %>% 
+  mutate(pred=predict(l_log2,newdata=.)) %>% 
+  select(pred,ndvi_3mo) %>% 
+  ggplot(data=.,aes(pred,ndvi_3mo))+
+  geom_point()+
+  geom_smooth(method='lm')+
+  geom_abline(aes(intercept=0,slope=1),color='red')
+
+test_dat %>% as_tibble() %>% 
+  mutate(mape_d = cut_width(mape,0.05)) %>% 
+  sample_n(10000) %>% 
+  mutate(pred=predict(l_log2,newdata=.)) %>% 
+  select(pe_12mo, pred,ndvi_3mo) %>% 
+  ggplot(data=.,aes(pe_12mo,ndvi_3mo))+
+  geom_point()+
+  geom_point(aes(pe_12mo, pred), color='navy')
+
+expand_grid(mape = seq(0.0837,2,length.out = 100), 
+            co2_trend = seq(340,412,length.out = 10)) %>% 
+  mutate(pe_12mo = mape) %>% 
+  mutate(mape_d = cut_width(mape,0.05)) %>% 
+  mutate(pred = predict(l_log2, newdata=.)) %>% 
+  ggplot(data=.,aes(pe_12mo, pred,color=co2_trend,group=co2_trend))+
+  geom_point(data=test_dat[sample(.N,10000)], 
+             aes(pe_12mo,ndvi_3mo,color=co2_trend),size=0.5,alpha=0.05)+
+  geom_line()+
+  scale_color_viridis_c(option='B')
+
+train_dat[ndvi_3mo==max(ndvi_3mo)]$ndvi_3mo
+train_dat[ndvi_3mo==max(ndvi_3mo)]$pe_12mo
+train_dat[ndvi_3mo==max(ndvi_3mo)]$mape
+
+
+
+
+
+
+
+
+
+
+
+
+# Four Param Logistic Function --------------------------------------------
+n_fpl <- nls.multstart::nls_multstart(ndvi_3mo ~ 
+                                        SSfpl(pe_12mo, A, B, xmid, scal),
+                                      data=train_dat[mape<1], 
+                                      iter = 3,
+                                      supp_errors = 'Y',
+                                      control=nls.control(maxiter=100),
+                                      start_lower = c(A=0,    B=0.5, xmid=0.1, scal=0), 
+                                      start_upper = c(A=0.25, B=1, xmid=1, scal=1)) 
+summary(n_fpl)
+
+
+fn <- function(input,cco2,pe_anom_12mo,A,B,xmid,scal){
+  A+(B-A)/(1+exp((xmid-input)/scal) + cco2*pe_anom_12mo)
+  }
+
+n_fpl2 <- nls.multstart::nls_multstart(ndvi_3mo ~ 
+         A+(B-A)/(1+exp((xmid-mape)/scal)) + C*cco2+D*(pe_anom_12mo/mape)+E*cco2*(pe_anom_12mo/mape),
+         data=train_dat, 
+        iter = 3,
+        supp_errors = 'Y',
+        control=nls.control(maxiter=100),
+        start_lower = c(A=0,    B=0.5, xmid=0.1, scal=0, C=0, D=0,E=0), 
+        start_upper = c(A=0.25, B=1, xmid=1, scal=1, C=0.01, D=0.01, E=0.01)) 
+summary(n_fpl2)
+
+yardstick::rsq_trad_vec(truth=train_dat$ndvi_3mo, predict(n_fpl, newdata=train_dat))
+yardstick::rsq_trad_vec(truth=train_dat$ndvi_3mo, predict(n_fpl2, newdata=train_dat))
+yardstick::rmse_vec(truth=train_dat$ndvi_3mo, predict(n_fpl, newdata=train_dat))
+yardstick::rmse_vec(truth=train_dat$ndvi_3mo, predict(n_fpl2, newdata=train_dat))
+
+expand_grid(mape = seq(0.0837,1,length.out = 100), 
+            co2_trend = seq(340,412,length.out = 10), 
+            xred = c(-0.25,0,0.25)) %>% 
+  mutate(cco2 = co2_trend - center_co2) %>% 
+  mutate(pe_anom_12mo = mape+mape*xred) %>% 
+  mutate(pe_12mo = mape+pe_anom_12mo) %>% 
+  filter(pe_12mo > 0) %>% 
+  mutate(pred = predict(n_fpl2, newdata=.)) %>% 
+  ggplot(data=.,aes(pe_12mo, pred,color=co2_trend,group=co2_trend))+
+  # geom_point(data=test_dat[sample(.N,10000)], 
+  #            aes(pe_12mo,ndvi_3mo,color=co2_trend),size=0.5,alpha=0.05)+
+  geom_line()+
+  scale_color_viridis_c(option='B')+
+  facet_wrap(~xred)
+
+expand_grid(mape = seq(0.0837,1,length.out = 100), 
+            co2_trend = seq(340,412,length.out = 10), 
+            xred = c(-0.5,0,0.5)) %>% 
+  mutate(cco2 = co2_trend - center_co2) %>% 
+  mutate(pe_anom_12mo = mape+mape*xred) %>% 
+  mutate(pe_12mo = mape+pe_anom_12mo) %>% 
+  filter(pe_12mo > 0) %>% 
+  mutate(pred = predict(n_fpl2, newdata=.)) %>% 
+  ggplot(data=.,aes(mape, pred,color=co2_trend,group=co2_trend))+
+  geom_line()+
+  scale_color_viridis_c(option='B')+
+  facet_wrap(~xred)
+
+test_dat %>% as_tibble() %>% 
+  mutate(pred=predict(n_fpl2,newdata=.)) %>% 
+  select(pred,ndvi_3mo) %>% 
+  ggplot(data=.,aes(pred,ndvi_3mo))+
+  geom_point()+
+  geom_smooth(method='lm')+
+  geom_abline(aes(intercept=0,slope=1),color='red')
+
+test_dat %>% as_tibble() %>% 
+  sample_n(10000) %>% 
+  mutate(pred=predict(n_fpl2,newdata=.)) %>% 
+  select(pe_12mo, pred,ndvi_3mo) %>% 
+  ggplot(data=.,aes(pe_12mo,ndvi_3mo))+
+  geom_point()+
+  geom_point(aes(pe_12mo, pred), color='navy')
+
+bind_rows((coef(n_fpl2)), coef(n_fpl2))
+
+with(bind_rows(coef(n_fpl2)),C*50+D*(-0.25/0.5)+E*50*(-0.25/0.5))
+
+with(coef(n_fpl2), C)
+C*cco2+D*(pe_anom_12mo/mape)+E*cco2*(pe_anom_12mo/mape)
+
+
+l_log_anom <- lm(evi2_hyb~cco2*I(pe_anom_12mo/mape) + mape, 
+                 data=train_dat[season=="SON"][mape<1])
+summary(l_log_anom)
+l_log_anom <- lm(ndvi_hyb~log(co2_trend)*I(pe_anom_12mo/mape) + mape, 
+                 data=train_dat[season=="SON"][mape<1])
+expand_grid(mape = seq(0.0837,1,length.out = 100), 
+            co2_trend = seq(340,412,length.out = 10), 
+            pe_anom_12mo = c(-0.15,0,0.15)) %>% 
+  mutate(cco2 = co2_trend - center_co2) %>% 
+  mutate(pred = predict(l_log_anom, newdata=.)) %>% 
+  mutate(pe_12mo = mape+pe_anom_12mo) %>% 
+  filter(pe_12mo > 0) %>%
+  ggplot(data=.,aes(pe_12mo, pred,color=co2_trend,group=co2_trend))+
+  # geom_point(data=test_dat[sample(.N,10000)], 
+  #            aes(pe_12mo,ndvi_3mo,color=co2_trend),size=0.5,alpha=0.05)+
+  geom_line()+
+  scale_color_viridis_c(option='B')+
+  facet_wrap(~pe_anom_12mo,scales='free')
+
+expand_grid(mape = seq(0.0837,1,length.out = 100), 
+            co2_trend = seq(340,412,length.out = 10), 
+            # pe_anom_12mo = c(-0.15,0,0.15)
+            xred = c(-0.5,0,0.5)
+            ) %>% 
+  mutate(cco2 = co2_trend - center_co2) %>% 
+  mutate(pe_anom_12mo = xred*mape) %>% 
+  mutate(pe_12mo = mape+pe_anom_12mo) %>% 
+  filter(pe_12mo > 0) %>%
+  mutate(pred = predict(l_log_anom, newdata=.)) %>% 
+  ggplot(data=.,aes(mape, pred,color=co2_trend,group=co2_trend))+
+  geom_line()+
+  scale_color_viridis_c(option='B')+
+  facet_wrap(~xred)
+
+curve(predict(l_log_anom, newdata=data.frame(mape=0.3,pe_anom_12mo=-0.15,co2_trend=x)), 
+      -50,50)
+curve(predict(l_log_anom, newdata=data.frame(mape=0.3,pe_anom_12mo=x,co2_trend=0)), 
+      -0.15,0.15)
+curve(predict(l_log_anom, newdata=data.frame(mape=0.3,pe_anom_12mo=x,co2_trend=-50)), 
+      -0.15,0.15,add=T,col='blue')
+curve(predict(l_log_anom, newdata=data.frame(mape=0.3,pe_anom_12mo=x,co2_trend=50)), 
+      -0.15,0.15,add=T,col='red')
+
+train_dat %>% 
+  filter(precip_anom_12mo < 0) %>% 
+  filter(between(mape,0.2,0.3)) %>% 
+  group_by(hydro_year) %>% 
+  summarize(val = mean(ndvi_anom_sd,na.rm=TRUE)) %>% 
+  ungroup() %>% 
+  ggplot(data=.,aes(hydro_year,val))+
+  geom_point()+
+  geom_smooth(method='lm')
+
+vec_ids <- unique(tmp$id)
+
+tmp[id %in% sample(vec_ids,10000)] %>% 
+  .[mape<1] %>% 
+  .[season=='SON'] %>% 
+  as_tibble() %>% 
+  filter(precip_anom_12mo > -100 & precip_anom_12mo < 100) %>%
+  # filter(p_anom_12mo_frac < -0.3) %>% 
+  lme4::lmer(ndvi_3mo~co2_trend+(1|id), data=.) %>% summary
+
+
+
+
+
+
+  
+fit <- tmp[id %in% sample(vec_ids,1000)] %>%
+     .[str_detect(vc,"Forests") | 
+         str_detect(vc, "Eucalypt") |
+          str_detect(vc, "Rainforests")] %>%
+     .[mape<1] %>%
+     .[date <= ymd("2019-09-01")] %>% 
+     .[season=='SON'] %>% 
+     as_tibble() %>% 
+  mutate(id=as_factor(id)) %>% 
+  bam(ndvi_3mo~
+        s(pe_anom_12mo,by=co2_trend, k=3,bs='cs')+
+        # s(pe_12mo,k=3,bs='cs')+
+        s(mape,k=3,bs='cs')+
+        s(vc,bs='re'),
+        # ti(cco2,pe_anom_12mo,mape,k=c(3,3,3),bs='cs'),
+        # s(cco2,k=3,bs='cs')+
+        # s(pe_12mo,k=3,bs='cs')+
+        # s(mape,k=3,bs='cs')+
+        # s(vc,bs='re'), 
+      data=.,
+      discrete = F, 
+      select=TRUE)
+    # filter(precip_anom_12mo > -100 & precip_anom_12mo < 100) %>% 
+    # filter(p_anom_12mo_frac < -0.3) %>% 
+    # lme4::lmer(ndvi_3mo~cco2 + pe_12mo + 
+    #              (1|id), data=.)
+summary(fit)  
+plot(fit,scale=0)
+# predict(fit)
+# predict(fit, exclude = 's(vc)')
+expand_grid(mape = seq(0.0837,1,length.out = 100), 
+            co2_trend = seq(340,412,length.out = 100),
+            vc = tmp$vc[100000],
+            # cco2 = seq(-35,41,length.out = 10),
+            xred = c(-0.5,0,0.5)) %>% 
+  mutate(cco2 = co2_trend - center_co2) %>%
+  mutate(pe_anom_12mo = mape+mape*xred) %>% 
+  mutate(pe_12mo = mape+pe_anom_12mo) %>% 
+  filter(pe_12mo > 0) %>% 
+  mutate(pred = predict(fit, newdata=.,  
+                        exclude = "s(vc)",
+                        type='response')) %>% 
+  ggplot(data=.,aes(mape, pred,color=co2_trend,group=co2_trend))+
+  geom_line()+
+  scale_color_viridis_c(option='B')+
+  facet_wrap(~xred)
+yardstick::rsq_trad_vec(truth=train_dat$ndvi_3mo, predict(fit, newdata=train_dat,re.form=NA))
+yardstick::rmse_vec(truth=train_dat$ndvi_3mo, predict(fit, newdata=train_dat, re.form=NA))
+
+
+
+tmp[id %in% sample(vec_ids,10000)] %>%
+  .[mape<1] %>%
+  .[date <= ymd("2019-09-01")] %>% 
+  .[season=='SON'] %>% 
+  sample_n(10000) %>% 
+  ggplot(data=.,aes(mape,ndvi_3mo))+
+  geom_smooth()+
+  geom_smooth(method='lm')
+
+
+
+
+
+
+
+
+
+
+
+lm(ndvi_hyb~scale(log(co2_trend))+I(pe_anom_12mo/mape) + scale(mape) +vc, 
+   data=train_dat[season=="SON"][mape<1][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5] %>% 
+     .[(pe_anom_12mo/mape) <= -0.4] %>% .[date<=ymd("2000-01-01")]) %>% 
+  summary
+
+
+lm(ndvi_hyb~scale(log(co2_trend))+I(pe_anom_12mo/mape) + scale(mape) + vc, 
+   data=train_dat[season=="SON"][mape<1][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5] %>% 
+     .[(pe_anom_12mo/mape) >= 0.4] %>% .[date<=ymd("2000-01-01")]) %>% 
+  summary
