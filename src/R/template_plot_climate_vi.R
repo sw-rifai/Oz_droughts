@@ -279,7 +279,28 @@ system.time(
       by=.(x,y,season)]
 )
 
+# NDVI linear change by satellite epoch -----------------------------------------------------------
+system.time(
+  lt_ndvi_season_p1 <- dat[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>%
+    .[date>= ymd("1982-01-01") & date<= ymd("2000-12-31")] %>% 
+    .[,.(val = mean(ndvi_c, na.rm=TRUE)), by=.(x,y,season,hydro_year)] %>% 
+    .[is.na(val)==F] %>% 
+    .[,.(b1 = fastLm(X = cbind(1,hydro_year-2000.5), y=val, data=.SD)$coefficients[2]), 
+      by=.(x,y,season)]
+)
+system.time(
+  lt_ndvi_season_p2 <- dat[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>%
+    .[date>= ymd("2001-01-01") & date<= ymd("2019-09-30")] %>% 
+    .[,.(val = mean(ndvi_mcd, na.rm=TRUE)), by=.(x,y,season,hydro_year)] %>% 
+    .[is.na(val)==F] %>% 
+    .[,.(b1 = fastLm(X = cbind(1,hydro_year-2000.5), y=val, data=.SD)$coefficients[2]), 
+      by=.(x,y,season)]
+)
+lt_ndvi_season_p1$epoch <- "AVHRR NDVI 1981-2000"
+lt_ndvi_season_p2$epoch <- "MODIS NDVI 2001-2019"
 
+
+# Map ndvi longterm by season -------------------------------
 vec_col <- RColorBrewer::brewer.pal(n=7, name='BrBG')
 lt_ndvi_season %>% 
   ggplot(data=., aes(x,y,fill=b1))+
@@ -449,25 +470,6 @@ ggsave(p_PPET,
        width=8, height=13, units='cm')
 
 # NDVI linear change by epoch --------------------------------------------------
-system.time(
-  lt_ndvi_season_p1 <- dat[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>%
-    .[date>= ymd("1981-01-01") & date<= ymd("2000-12-31")] %>% 
-    .[,.(val = mean(ndvi_c, na.rm=TRUE)), by=.(x,y,season,hydro_year)] %>% 
-    .[is.na(val)==F] %>% 
-    .[,.(b1 = fastLm(X = cbind(1,hydro_year-2000.5), y=val, data=.SD)$coefficients[2]), 
-      by=.(x,y,season)]
-)
-system.time(
-  lt_ndvi_season_p2 <- dat[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>%
-    .[date>= ymd("2001-01-01") & date<= ymd("2019-09-30")] %>% 
-    .[,.(val = mean(ndvi_mcd, na.rm=TRUE)), by=.(x,y,season,hydro_year)] %>% 
-    .[is.na(val)==F] %>% 
-    .[,.(b1 = fastLm(X = cbind(1,hydro_year-2000.5), y=val, data=.SD)$coefficients[2]), 
-      by=.(x,y,season)]
-)
-lt_ndvi_season_p1$epoch <- "AVHRR NDVI 1981-2000"
-lt_ndvi_season_p2$epoch <- "MODIS NDVI 2001-2019"
-
 
 vec_col <- RColorBrewer::brewer.pal(n=7, name='BrBG')
 bind_rows(lt_ndvi_season_p1, lt_ndvi_season_p2) %>% 
@@ -648,7 +650,7 @@ ggsave(p_out,
 p_left <- kop %>% 
   ggplot(data=., aes(x,y,fill=as_factor(zone)))+
   geom_sf(inherit.aes = F, data=oz_poly,
-          fill='gray70',color='gray10')+
+          fill='gray40',color='gray10')+
   geom_tile()+
   coord_sf(xlim = c(140,155),
            ylim = c(-45,-10), 
@@ -660,12 +662,16 @@ p_left <- kop %>%
   theme_linedraw()+
   guides(fill=guide_legend(title='Climate Zone', 
                            title.position = 'top'))+
-  theme(legend.position = c(0.75,0.85), 
+  theme(#legend.position = c(0.75,0.85),
+        legend.position = c(1,1), 
+        legend.justification = c(1.01,1.01),
+        legend.text = element_text(size=17),
+        legend.title = element_text(size=18),
         legend.direction = 'vertical',
         panel.grid = element_blank(), 
         panel.background = element_rect(fill='lightblue')); p_left
 ggsave(plot = p_left,
-       filename = "figures/map_KoppenZones.png", 
+       filename = "figures/map_7KoppenZones.png", 
        width = 12, height=30, units='cm', dpi=350, type='cairo')
 
 aa <- ldat %>% 
@@ -676,41 +682,61 @@ aa <- ldat %>%
   filter(is.na(ppet)==F) %>% 
   as_tibble()
 aa <- aa %>% 
-  inner_join(., kop %>% rename(cz=zone) %>% select(x,y,cz), by=c("x","y"))
+  inner_join(., kop %>% select(x,y,cz), by=c("x","y"))
+aa_mappet <- aa %>% filter(hydro_year %in% c(1982:2010)) %>% 
+  group_by(x,y) %>% 
+  summarize(mappet = mean(ppet,na.rm=TRUE)) %>% 
+  ungroup()
 p_right <- aa %>% 
+  inner_join(aa_mappet,by=c("x","y")) %>% 
+  mutate(ppet_pct = 100*ppet/mappet - 100) %>% 
   sample_frac(0.5) %>% 
   rename(`Climate Zone` = cz) %>% 
-  ggplot(data=., aes(hydro_year, ppet))+
+  ggplot(data=., aes(hydro_year, ppet_pct,color=`Climate Zone`,group=`Climate Zone`))+
   # geom_point(alpha=0.05,color='gray')+
-  geom_smooth(method='lm',color='black')+
-  scale_x_continuous(expand=c(0,0), breaks = c(1983,1990,2000,2010,2019))+
+  geom_smooth(method='lm')+
+  scale_x_continuous(expand=c(0,0), breaks = c(1982,1990,2000,2010,2019))+
   scale_y_continuous(expand=c(0,0), labels = scales::format_format(3))+
-  facet_wrap(~`Climate Zone`,scales = 'free',labeller = label_value, 
-             ncol = 2)+
-  labs(x=NULL, y="P:PET")+
+  scale_color_viridis_d(option='B')+
+  # facet_wrap(~`Climate Zone`,scales = 'free',labeller = label_value, 
+  #            ncol = 2)+
+  labs(x=NULL, y="% Change of Annual P:PET")+
   theme_linedraw()+
   theme(strip.text = element_text(face='bold'), 
         panel.grid = element_blank(), 
-        axis.text.x = element_text(size=7)); p_right
+        axis.text.x = element_text(size=7), 
+        legend.position = 'none'); p_right
 
 p_left+p_right
 
 lut_kop <- c("Equatorial" = "Equat.",
              "Tropical" = "Trop.", 
              "Subtropical" = "Subtr.", 
-             "Grassland & Desert" = "Grass.", 
+             "Grassland" = "Grass.", 
+             "Desert" = "Des.",
              "Temperate" = "Temp.",
              "Temperate Tas." = "Tasm.")
-p_bottom <- inner_join(kop,lt_ndvi_season,by=c("x","y")) %>% 
+lt_ndvi_season_p1$epoch <- "AVHRR NDVI 1981-2000"
+lt_ndvi_season_p2$epoch <- "MODIS NDVI 2001-2019"
+j <- bind_rows(lt_ndvi_season_p1, lt_ndvi_season_p2)
+p_bottom <- inner_join(kop,j,by=c("x","y")) %>% 
   rename(`Zone` = cz) %>% 
   filter(between(b1,-0.004,0.004)) %>% 
   mutate(season = factor(season, levels=c("SON","DJF","MAM","JJA"),ordered = T)) %>% 
-  ggplot(data=., aes(b1,fill=as_factor(`Zone`)))+
-  geom_histogram(bins = 30)+
-  geom_vline(aes(xintercept=0),col='red')+
+  ggplot(data=., aes(b1,after_stat(density),
+                     fill=as_factor(`Zone`),
+                     color=as_factor(`Zone`),alpha=epoch))+
+  # geom_histogram(bins = 30, position = 'identity')+
+  geom_density(position='identity')+
+  # geom_freqpoly()+
+  geom_vline(aes(xintercept=0),col='#cf0000',lwd=1)+
+  geom_vline(aes(xintercept=0),col='red',lwd=0.5)+
   # scico::scale_fill_scico_d()+
-  scale_fill_viridis_d(option='B',direction = -1,end=0.9)+
+  scale_alpha_discrete(range=c(0.4,0.8))+
+  scale_fill_viridis_d(option='B',direction = 1,end=0.925)+
+  scale_color_viridis_d(option='B',direction = 1,end=0.925)+
   scale_x_continuous(expand=c(0,0), breaks=c(-0.003,0,0.003))+
+  scale_y_continuous(expand=c(0,0),position = 'left')+
   facet_grid(`Zone`~season, scales = 'free_y', 
              # labeller = label_wrap_gen(width=10, multi_line = TRUE)
              labeller = labeller(`Zone` = lut_kop)
@@ -720,7 +746,7 @@ p_bottom <- inner_join(kop,lt_ndvi_season,by=c("x","y")) %>%
   theme(panel.grid = element_blank(), 
         strip.text = element_text(face='bold'), 
         legend.position = 'none', 
-        axis.text.x = element_text(size=6)); p_bottom
+        axis.text = element_text(size=6)); p_bottom
 
 library(ggridges)
 p_vcf <- vcf %>% 
@@ -749,14 +775,15 @@ p_vcf <- vcf %>%
   scale_x_continuous(limits=c(-1,1))+
   scale_y_discrete(expand=c(0,0),
      limits=rev(c("Equatorial","Tropical", 
-              "Subtropical", "Grassland & Desert", 
+              "Subtropical", "Grassland","Desert", 
               "Temperate","Temperate Tas.")), 
      labels=str_wrap(rev(c("Equatorial","Tropical", 
-                  "Subtropical", "Grassland & Desert", 
-                  "Temperate","Temperate Tasmania")),width = 10))+
+                  "Subtropical", "Grassland", "Desert", 
+                  "Temperate","Temperate Tasmania")),width = 10), 
+     position = 'left')+
   labs(x=expression(paste(Cover~Trend~('%'~yr**-1))), 
        y=NULL)+
-  facet_wrap(~ measure, ncol = 6)+
+  facet_wrap(~ measure)+
   theme_linedraw()+
   theme(panel.grid = element_blank(), 
         strip.text = element_text(face='bold'),
@@ -766,9 +793,13 @@ p_vcf <- vcf %>%
   plot_layout(heights=c(20,5,3,2),
               nrow=3)
 
-ggsave(plot = (p_left|(p_right/p_bottom/p_vcf)+
-                 plot_annotation(tag_levels = 'A')),
-       filename = "figures/map_KoppenZones_PPET_change_VCF.png", 
+p_left|((p_right/p_bottom/p_vcf)+plot_layout(ncol=1,nrow=3,heights=c(2,3,3)))
+
+library(cowplot)
+cp_r <- cowplot::plot_grid(p_right,p_bottom,p_vcf,nrow = 3,rel_heights = c(2,3,3))
+cowplot::plot_grid(p_left,cp_r)
+ggsave(plot=cowplot::plot_grid(p_left,cp_r),
+       filename = "figures/map_7KoppenZones_PPET_change_VCF.png", 
        width = 25, height=30, units='cm', dpi=350, type='cairo')
 
 # END SECTION ******************************************************************
