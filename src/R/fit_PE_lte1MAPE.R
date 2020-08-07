@@ -4,6 +4,7 @@ library(tidyverse)
 library(data.table); setDTthreads(threads = 8)
 library(lubridate); 
 library(dtplyr);
+library(broom)
 options(mc.cores=parallel::detectCores()-3) 
 set.seed(333)
 # IMPORT ###################################################################
@@ -284,15 +285,6 @@ train_dat %>%
   summarize(fit = lm(ndvi_3mo ~ scale(log(co2_trend))*I(pe_anom_12mo/mape) + scale(mape) + vc)) %>% 
   ungroup()
 
-
-Orange %>%
-  nest(data = -Tree) %>% 
-  mutate(
-    fit = map(data, ~ lm(age ~ circumference, data = .x)),
-    tidied = map(fit, tidy)
-  ) %>% 
-  unnest(tidied)
-
 tmp[is.na(season)==FALSE][mape<1.5][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5] %>% 
   as_tibble() %>% 
   mutate(mape_d = cut_width(mape, 0.15)) %>% 
@@ -318,12 +310,13 @@ tmp[is.na(season)==FALSE][mape<1.5][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5] %>%
   scale_x_discrete(guide = guide_axis(n.dodge = 3))+
   facet_grid(season~term, scales='free')
 
-tmp[is.na(season)==FALSE][mape<2][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5] %>% 
+tmp[is.na(season)==FALSE][mape<1.5][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5] %>% 
   as_tibble() %>% 
   mutate(mape_d = cut_width(mape, 0.15)) %>% 
+  mutate(season = factor(season, levels=c("SON","DJF","MAM","JJA"),ordered = T)) %>% 
   nest(data = c(-mape_d,-season)) %>% 
   mutate(fit = map(data, 
-       ~lm(evi2_hyb~scale(co2_trend)+scale(pe_anom_12mo)+scale(precip_anom_36mo)+vc, 
+       ~lm(ndvi_3mo~scale(co2_trend)+scale(I(pe_anom_12mo/mape))+vc, 
            # ~lm(ndvi_3mo~scale(co2_trend)+scale(I(pe_anom_12mo/mape)), 
            data=.x)), 
          tidied = map(fit, tidy)) %>% 
@@ -336,15 +329,20 @@ tmp[is.na(season)==FALSE][mape<2][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5] %>%
   ggplot(data=., aes(mape_d, estimate))+
   geom_col()+
   geom_errorbar(aes(ymin=estimate-2*std.error, 
-                    ymax=estimate+2*std.error,
-                    color=p.value),
+                    ymax=estimate+2*std.error),
                 width=0.2)+
-  scale_color_viridis_c(option='B',direction=1,begin = 0.1,end=0.9, 
-                        limits=c(0,0.1),oob=scales::squish)+
+  # scale_fill_viridis_c(option='B',direction=1,begin = 0.1,end=0.9, 
+  #                       limits=c(0,0.05),oob=scales::squish)+
+  # scale_color_viridis_c(option='B',direction=1,begin = 0.1,end=0.9, 
+  #                       limits=c(0,0.05),oob=scales::squish)+
   scale_x_discrete(guide = guide_axis(n.dodge = 1,angle = 90))+
-  facet_grid(season~term, scales = 'free_y')
-
-names(arrow::read_parquet("../data_general/MCD43/MCD64_AVHRR_NDVI_hybrid_2020-05-26.parquet")) 
+  labs(x='Mean Annual P:PET Range', 
+       title='NDVI Linear Model Effects', 
+       subtitle = 'approx. 19 million obs')+
+  facet_grid(season~term, scales = 'free_y')+
+  theme_linedraw()
+ggsave(filename = 'figures/big_linearModel_by_MAPPET_range.png', 
+       height=14, width=16, units='cm')
 
 
 # Asym-Drop*exp(-exp(lrc)*x^pwr)

@@ -160,15 +160,39 @@ n4 <- train_dat %>%
          Asym-Drop*exp(-exp(lrc)*mape^pwr) + 
          B1*(pe_anom_12mo/mape) + B2*(cco2) + B3*(cco2*pe_anom_12mo/mape),
        data = .,
-       iter = 1,
+       iter = 5,
        start_lower = c(Asym=0.0, Drop=0.6,lrc=0,pwr=0,B1=-0.5,B2=0,B3=0),
        start_upper = c(Asym=1, Drop=1,lrc=1,pwr=2,B1=0.5,B2=0.001,B3=0.001),
        # supp_errors = 'Y',
        na.action = na.omit)
 summary(n4)
 
+n4_evi2 <- train_dat %>% 
+  nls.multstart::nls_multstart(evi2_3mo ~ 
+                                 Asym-Drop*exp(-exp(lrc)*mape^pwr) + 
+                                 B1*(pe_anom_12mo/mape) + B2*(cco2) + B3*(cco2*pe_anom_12mo/mape),
+                               data = .,
+                               iter = 5,
+                               start_lower = c(Asym=0.0, Drop=0.6,lrc=0,pwr=0,B1=-0.5,B2=0,B3=0),
+                               start_upper = c(Asym=1, Drop=1,lrc=1,pwr=2,B1=0.5,B2=0.001,B3=0.001),
+                               # supp_errors = 'Y',
+                               na.action = na.omit)
+summary(n4)
+
+n4_nirv <- train_dat %>% 
+  nls.multstart::nls_multstart(nirv_3mo ~ 
+                                 Asym-Drop*exp(-exp(lrc)*mape^pwr) + 
+                                 B1*(pe_anom_12mo/mape) + B2*(cco2) + B3*(cco2*pe_anom_12mo/mape),
+                               data = .,
+                               iter = 5,
+                               start_lower = c(Asym=0.0, Drop=0.6,lrc=0,pwr=0,B1=-0.5,B2=0,B3=0),
+                               start_upper = c(Asym=1, Drop=1,lrc=1,pwr=2,B1=0.5,B2=0.001,B3=0.001),
+                               # supp_errors = 'Y',
+                               na.action = na.omit)
+summary(n4)
+
 n5 <- train_dat %>% 
-  nls_multstart(ndvi_3mo ~ 
+  nls_multstart(evi2_3mo ~ 
                   Asym-Drop*exp(-exp(lrc)*mape^pwr) + 
                   B1*(vpd15_anom_3mo) + B2*(cco2) + B3*(vpd15_anom_3mo*cco2),
                 data = .,
@@ -180,7 +204,7 @@ n5 <- train_dat %>%
 summary(n5)
 
 n6 <- train_dat %>% 
-   nls_multstart(ndvi_3mo ~ 
+   nls_multstart(evi2_3mo ~ 
      Asym-Drop*exp(-exp(lrc)*mape^pwr) + 
      B1*(tmax_anom_12mo) + B2*(cco2) + B3*(tmax_anom_12mo*cco2),
    data = .,
@@ -191,23 +215,45 @@ n6 <- train_dat %>%
    na.action = na.omit)
 summary(n6)
 
-n7 <- train_dat[sample(.N,5e5)] %>% 
-  nls_multstart(ndvi_3mo ~ 
+
+n7 <- train_dat %>% 
+  nls_multstart(evi2_3mo ~ 
                   Asym-Drop*exp(-exp(lrc)*mape^pwr) + 
-                  B1*(tmax_anom_12mo) + B2*(cco2) + B3*(tmax_anom_12mo*cco2),
+                  B1*(vpd15_anom_3mo) + B2*(cco2) + B3*(vpd15_anom_3mo*cco2) + 
+                  B4*(cco2*pe_anom_12mo/mape),
                 data = .,
                 iter = 3,
-                start_lower = c(Asym=0.0, Drop=0.6,lrc=0,pwr=0,B1=-0.5,B2=0,B3=0),
-                start_upper = c(Asym=1, Drop=1,lrc=1,pwr=2,B1=0.5,B2=0.001,B3=0.001),
+                start_lower = c(Asym=0.0, Drop=0.6,lrc=0,pwr=0,B1=-0.5,B2=0,B3=0,B4=0),
+                start_upper = c(Asym=1, Drop=1,lrc=1,pwr=2,B1=0.5,B2=0.001,B3=0.001,B4=0.001),
                 # supp_errors = 'Y',
                 na.action = na.omit)
-summary(n6)
+summary(n7)
 
-yardstick::rsq_trad_vec(test_dat$ndvi_3mo,estimate=predict(n4,newdata=test_dat))
-yardstick::rsq_trad_vec(test_dat$ndvi_3mo,estimate=predict(n5,newdata=test_dat))
+n8 <- train_dat %>% 
+  nls_multstart(evi2_3mo ~ 
+                  Asym-Drop*exp(-exp(lrc)*mape^pwr) + 
+                  B1*(vpd15_anom_3mo) + B2*(cco2) + B3*(vpd15_anom_3mo*cco2) + 
+                  B4*(cco2*(precip_anom_12mo/map)),
+                data = .,
+                iter = 1,
+                start_lower = c(Asym=0.0, Drop=0.6,lrc=0,pwr=0,B1=-0.5,B2=0,B3=0,B4=0),
+                start_upper = c(Asym=1, Drop=1,lrc=1,pwr=2,B1=0.5,B2=0.001,B3=0.001,B4=0.001),
+                # supp_errors = 'Y',
+                na.action = na.omit)
+summary(n8)
 
-yardstick::rmse_vec(test_dat$ndvi_3mo,estimate=predict(n4,newdata=test_dat))
-yardstick::rmse_vec(test_dat$ndvi_3mo,estimate=predict(n5,newdata=test_dat))
+
+yardstick::rsq_trad_vec(test_dat$evi2_3mo,estimate=predict(n4,newdata=test_dat))
+yardstick::rsq_trad_vec(test_dat$evi2_3mo,estimate=predict(n5,newdata=test_dat))
+yardstick::rsq_trad_vec(test_dat$evi2_3mo,estimate=predict(n7,newdata=test_dat))
+yardstick::rsq_trad_vec(test_dat$evi2_3mo,estimate=predict(n8,newdata=test_dat))
+
+yardstick::rmse_vec(test_dat$evi2_3mo,estimate=predict(n4,newdata=test_dat))
+yardstick::rmse_vec(test_dat$evi2_3mo,estimate=predict(n5,newdata=test_dat))
+yardstick::rmse_vec(test_dat$evi2_3mo,estimate=predict(n7,newdata=test_dat))
+yardstick::rmse_vec(test_dat$evi2_3mo,estimate=predict(n8,newdata=test_dat))
+
+bbmle::AICtab(n4,n5,n6,n7,n8)
 
 
 o_preds <- expand_grid(season=unique(train_dat$season),
@@ -249,6 +295,139 @@ o_preds %>%
     legend.key.width = unit(0.65,'cm'),
     legend.direction = 'horizontal', 
     legend.background = element_rect(fill=NA))
+
+# n4_preds NDVI ----------------------------------------------------------------
+n4_preds <- expand_grid(season=unique(train_dat$season),
+                        co2 = seq(min(tmp$co2_int),max(tmp$co2_int),length.out=50),
+                        mape = seq(0.05,1.5,length.out = 200), 
+                        pct_anom = c(-50,0,50)) %>% 
+  mutate(pe_anom_12mo = 0.01*pct_anom*mape) %>%
+  # mutate(pe_12mo = pe_anom_12mo+mape) %>% 
+  mutate(cco2 = co2-center_co2) %>% 
+  mutate(pred = predict(n4, newdata=.))
+
+
+vec_labels <- c("-50"="-50% P:PET Anom.",
+                "0"='0% P:PET Anom.',
+                "50"="50% P:PET Anom.")
+n4_preds %>% 
+  ggplot(data=., aes(mape,pred,color=(co2), group=co2))+
+  geom_line(alpha=1)+
+  scale_color_viridis_c(expression(paste(CO[2]~ppm)), option='B',end=0.85)+
+  scale_x_continuous(limits=c(0.08,1.5),
+                     breaks=c(0,0.5,1,1.5),
+                     labels = c(0,0.5,1,1.5),
+                     expand=c(0,0),
+                     guide = guide_axis(n.dodge=1, angle=0,check.overlap = TRUE)
+  )+
+  scale_y_continuous(#limits=c(0,0.9), 
+    expand=c(0,0))+
+  labs(x=expression(paste("Mean Annual P:PET")),
+       y=expression(paste(NDVI["3 mo"])))+
+  facet_grid(~pct_anom, labeller = labeller(pct_anom=vec_labels))+
+  theme_linedraw()+
+  guides(color=guide_colorbar(title.position = 'top'))+
+  theme(#panel.grid = element_blank(),
+    # panel.spacing.x = unit(6, "mm"),
+    axis.text = element_text(size=10),
+    # axis.text.x = element_text(angle=45, vjust=-0.5),
+    legend.position = c(0.525,0.175), 
+    legend.key.width = unit(0.65,'cm'),
+    legend.direction = 'horizontal', 
+    legend.background = element_rect(fill=NA))
+ggsave(filename = 'figures/n4_weibull_ppet_x_co2.png',
+       width = 16, height = 8, units='cm', dpi=350, type='cairo')
+
+# n4_preds EVI2 ----------------------------------------------------------------
+n4_preds_evi2 <- expand_grid(season=unique(train_dat$season),
+                        co2 = seq(min(tmp$co2_int),max(tmp$co2_int),length.out=50),
+                        mape = seq(0.05,1.5,length.out = 200), 
+                        pct_anom = c(-50,0,50)) %>% 
+  mutate(pe_anom_12mo = 0.01*pct_anom*mape) %>%
+  # mutate(pe_12mo = pe_anom_12mo+mape) %>% 
+  mutate(cco2 = co2-center_co2) %>% 
+  mutate(pred = predict(n4_evi2, newdata=.))
+
+
+vec_labels <- c("-50"="-50% P:PET Anom.",
+                "0"='0% P:PET Anom.',
+                "50"="50% P:PET Anom.")
+n4_preds_evi2 %>% 
+  ggplot(data=., aes(mape,pred,color=(co2), group=co2))+
+  geom_line(alpha=1)+
+  scale_color_viridis_c(expression(paste(CO[2]~ppm)), option='B',end=0.85)+
+  scale_x_continuous(limits=c(0.08,1.5),
+                     breaks=c(0,0.5,1,1.5),
+                     labels = c(0,0.5,1,1.5),
+                     expand=c(0,0),
+                     guide = guide_axis(n.dodge=1, angle=0,check.overlap = TRUE)
+  )+
+  scale_y_continuous(#limits=c(0,0.9), 
+    expand=c(0,0))+
+  labs(x=expression(paste("Mean Annual P:PET")),
+       y=expression(paste(EVI2["3 mo"])))+
+  facet_grid(~pct_anom, labeller = labeller(pct_anom=vec_labels))+
+  theme_linedraw()+
+  guides(color=guide_colorbar(title.position = 'top'))+
+  theme(#panel.grid = element_blank(),
+    # panel.spacing.x = unit(6, "mm"),
+    axis.text = element_text(size=10),
+    # axis.text.x = element_text(angle=45, vjust=-0.5),
+    legend.position = c(0.525,0.175), 
+    legend.key.width = unit(0.65,'cm'),
+    legend.direction = 'horizontal', 
+    legend.background = element_rect(fill=NA))
+ggsave(filename = 'figures/n4_evi2_weibull_ppet_x_co2.png',
+       width = 16, height = 8, units='cm', dpi=350, type='cairo')
+
+# n4_preds NIRV ----------------------------------------------------------------
+n4_preds_nirv <- expand_grid(season=unique(train_dat$season),
+                        co2 = seq(min(tmp$co2_int),max(tmp$co2_int),length.out=50),
+                        mape = seq(0.05,1.5,length.out = 200), 
+                        pct_anom = c(-50,0,50)) %>% 
+  mutate(pe_anom_12mo = 0.01*pct_anom*mape) %>%
+  # mutate(pe_12mo = pe_anom_12mo+mape) %>% 
+  mutate(cco2 = co2-center_co2) %>% 
+  mutate(pred = predict(n4_nirv, newdata=.))
+
+
+vec_labels <- c("-50"="-50% P:PET Anom.",
+                "0"='0% P:PET Anom.',
+                "50"="50% P:PET Anom.")
+n4_preds_nirv %>% 
+  ggplot(data=., aes(mape,pred,color=(co2), group=co2))+
+  geom_line(alpha=1)+
+  scale_color_viridis_c(expression(paste(CO[2]~ppm)), option='B',end=0.85)+
+  scale_x_continuous(limits=c(0.08,1.5),
+                     breaks=c(0,0.5,1,1.5),
+                     labels = c(0,0.5,1,1.5),
+                     expand=c(0,0),
+                     guide = guide_axis(n.dodge=1, angle=0,check.overlap = TRUE)
+  )+
+  scale_y_continuous(#limits=c(0,0.9), 
+    expand=c(0,0))+
+  labs(x=expression(paste("Mean Annual P:PET")),
+       y=expression(paste(NIR["V 3 mo"])))+
+  facet_grid(~pct_anom, labeller = labeller(pct_anom=vec_labels))+
+  theme_linedraw()+
+  guides(color=guide_colorbar(title.position = 'top'))+
+  theme(#panel.grid = element_blank(),
+    # panel.spacing.x = unit(6, "mm"),
+    axis.text = element_text(size=10),
+    # axis.text.x = element_text(angle=45, vjust=-0.5),
+    legend.position = c(0.535,0.16), 
+    legend.key.width = unit(0.65,'cm'),
+    legend.direction = 'horizontal', 
+    legend.background = element_rect(fill=NA))
+ggsave(filename = 'figures/n4_nirv_weibull_ppet_x_co2.png',
+       width = 16, height = 8, units='cm', dpi=350, type='cairo')
+
+
+# Stack n4 VI preds -------------------------------------------------------
+i1 <- magick::image_read("figures/n4_weibull_ppet_x_co2.png")
+i2 <- magick::image_read("figures/n4_evi2_weibull_ppet_x_co2.png")
+i3 <- magick::image_read("figures/n4_nirv_weibull_ppet_x_co2.png")
+magick::image_append(c(i1,i2,i3),stack=T)
 
 
 # n5_preds ----------------------------------------------------------------
@@ -337,16 +516,49 @@ n6_preds %>%
 
 
 
-curve(SSweibull(x,Asym = 0.74,Drop = 0.613,lrc=0.57,pwr=1.45),0,2,col='black',lwd=2,ylim=c(0.1,0.9))
-train_dat[sample(.N,1000)] %>% points(ndvi_3mo~mape,data=.,pch=20,col='gray')
-curve(SSweibull(x,Asym = 0.74,Drop = 0.613,lrc=0.57,pwr=1.45),0,2,col='black',lwd=2,add=T)
-curve(SSweibull(x,Asym = 0.74,Drop = 0.613,lrc=0.57,pwr=1.15),0,2,add=T,col='red')
-curve(SSweibull(x,Asym = 0.74,Drop = 0.613,lrc=0.57,pwr=1.45),0,2,add=T,col='blue')
-curve(SSweibull(x,Asym = 0.74,Drop = 0.613,lrc=0.57,pwr=1.45),0,2,add=T,col='purple',lwd=2)
+# n7_preds ----------------------------------------------------------------
+n7_preds <- expand_grid(season=unique(train_dat$season),
+                        co2 = seq(min(tmp$co2_int),max(tmp$co2_int),length.out=50),
+                        mape = seq(0.05,1.5,length.out = 200), 
+                        pct_anom = c(-50,0,50),
+                        vpd15_anom_3mo = c(-0.5,0,0.5)) %>% 
+  mutate(pe_anom_12mo = 0.01*pct_anom*mape) %>%
+  mutate(pe_12mo = pe_anom_12mo+mape) %>%
+  mutate(cco2 = co2-center_co2) %>% 
+  mutate(pred = predict(n7, newdata=.)) 
 
-test_dat %>% 
-  sample_n(10000) %>% 
-  ggplot(data=., aes(mape,evi2_hyb))+
-  geom_smooth()+
-  geom_smooth(method='lm',color='red')
+n7_preds %>% 
+  filter(!(vpd15_anom_3mo==-0.5 & pct_anom==-50))
 
+
+n7_preds %>% 
+  filter(!(vpd15_anom_3mo==-0.5 & pct_anom==-50)) %>% 
+  filter(!(vpd15_anom_3mo==0.5 & pct_anom==50)) %>% 
+  ggplot(data=., aes(mape,pred,color=(co2), group=co2))+
+  geom_line(alpha=1)+
+  # geom_vline(aes(xintercept=p50, color=hydro_year), 
+  #            data=wdat %>% 
+  #        mutate(p50 = (log((Asym - R0)/Asym) + 0.693147180559945)*exp(-lrc)))+
+  scale_color_viridis_c(expression(paste(CO[2]~ppm)), option='B',end=0.85)+
+  scale_x_continuous(limits=c(0,1.5),
+                     breaks=c(0,0.5,1,1.5),
+                     labels = c(0,0.5,1,1.5),
+                     expand=c(0,0)
+                     # guide = guide_axis(n.dodge=1, angle=0,check.overlap = TRUE)
+  )+
+  scale_y_continuous(#limits=c(0,0.9), 
+    expand=c(0,0))+
+  labs(x=expression(paste("Mean Annual P:PET")),
+       #x=expression(paste(paste(sum(Precip[t], "1 mo", "12 mo")," / ", sum(PET[t], "1 mo", "12 mo")))), 
+       y=expression(paste(NDVI["3 mo"])))+
+  facet_grid(pct_anom~vpd15_anom_3mo, labeller = label_both)+
+  theme_linedraw()+
+  guides(color=guide_colorbar(title.position = 'top'))+
+  theme(#panel.grid = element_blank(),
+    # panel.spacing.x = unit(6, "mm"),
+    axis.text = element_text(size=10),
+    # axis.text.x = element_text(angle=45, vjust=-0.5),
+    legend.position = c(0.85,0.1), 
+    legend.key.width = unit(0.65,'cm'),
+    legend.direction = 'horizontal', 
+    legend.background = element_rect(fill=NA))
