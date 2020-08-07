@@ -551,3 +551,82 @@ lm(ndvi_hyb~scale(log(co2_trend))+I(pe_anom_12mo/mape) + scale(mape) + vc,
    data=train_dat[season=="SON"][mape<1][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5] %>% 
      .[(pe_anom_12mo/mape) >= 0.4] %>% .[date<=ymd("2000-01-01")]) %>% 
   summary
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Load simplified BOM Koppen climate zones --------------------------------
+ref_grid <- stars::read_stars('../data_general/AVHRR_CDRv5_VI/AVHRR_SR_median_EastOz_1982_2019.tif', 
+                              RasterIO = list(bands=1))
+bom <- stars::read_stars("../data_general/Koppen_climate/BOM/kpngrp.txt")
+bom <- st_warp(src=bom, dest=ref_grid[,,], use_gdal = F)
+bom <- set_names(bom, 'koppen') %>% as_tibble()
+bom <- left_join(ref_grid %>% as_tibble() %>% select(x,y), 
+                 bom)
+coords <- dat %>% select(x,y) %>% distinct()
+
+g_map <- ldat %>% 
+  filter(date>=ymd("1982-01-01")&date<=ymd("2010-12-31")) %>% 
+  group_by(x,y) %>% 
+  summarize(map = mean(precip,na.rm=TRUE)*12) %>% 
+  ungroup() %>% 
+  as_tibble()
+
+kop <- left_join(coords, bom, by=c("x","y")) %>% 
+  inner_join(., g_map, by=c("x","y")) %>% 
+  as_tibble() %>% 
+  mutate(zone = case_when(between(koppen,0,11) ~ 'Temperate', 
+                          (y <= -40) ~ 'Tasmania',
+                          between(koppen, 12,21)~'GD_temp', # Grassland
+                          between(koppen, 22,30)~'GD_temp', # Desert
+                          between(koppen, 31,34)~'Subtropical',
+                          between(koppen, 35,40)~'Tropical', 
+                          koppen >= 41 ~ 'Equatorial')) %>% 
+  mutate(zone = ifelse(y < -40, 'Temperate Tas.', zone)) %>% #pull(zone) %>% table
+  mutate(zone = ifelse(zone == "GD_temp" & map < 500, 'Desert',zone)) %>%   
+  mutate(zone = ifelse(zone == "GD_temp" & map >= 500, 'Grassland',zone)) %>%   
+  mutate(zone = factor(zone, levels = c("Equatorial","Tropical",
+                                        "Subtropical","Grassland","Desert",
+                                        "Temperate","Temperate Tas."), ordered = T))
+kop <- kop %>% mutate(cz=zone)
+#*** End Kop zone load ********************************************************
+
+
+
+
+# Koppen Climate Zones & P:PET Trend & NDVI & VCF distributions --------------------------------------------------
+p_left <- kop %>% 
+  filter(is.nan(map)==F) %>% 
+  ggplot(data=., aes(x,y,fill=as_factor(zone)))+
+  geom_sf(inherit.aes = F, data=oz_poly,
+          fill='gray70',color='gray10')+
+  geom_tile()+
+  coord_sf(xlim = c(140,155),
+           ylim = c(-45,-10), 
+           expand = FALSE)+
+  scale_x_continuous(breaks=seq(140,155,by=5))+
+  scale_fill_viridis_d(option='B',direction = 1,end=0.95)+
+  # scico::scale_fill_scico_d(end=0.9,direction = 1)+
+  labs(x=NULL,y=NULL)+
+  theme_linedraw()+
+  guides(fill=guide_legend(title='Climate Zone', 
+                           title.position = 'top'))+
+  theme(legend.position = c(0.75,0.85), 
+        legend.direction = 'vertical',
+        panel.grid = element_blank(), 
+        panel.background = element_rect(fill='lightblue')); p_left

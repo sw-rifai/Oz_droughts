@@ -39,7 +39,7 @@ vi <- norms_vi[vi,on=.(x,y,month)] %>%
   .[,`:=`(ndvi_anom = ndvi_hyb - ndvi_u)] %>% 
   .[,`:=`(ndvi_anom_sd = ndvi_anom/ndvi_sd)]
 
-tmp <- arrow::read_parquet("/home/sami/scratch/ARD_ndvi_aclim_anoms.parquet",
+dat <- arrow::read_parquet("/home/sami/scratch/ARD_ndvi_aclim_anoms.parquet",
                            col_select = c(
                              "date", "hydro_year", "id","season",
                              "precip",  
@@ -75,39 +75,39 @@ tmp <- arrow::read_parquet("/home/sami/scratch/ARD_ndvi_aclim_anoms.parquet",
   .[,`:=`(p_anom_12mo_frac = precip_anom_12mo/map)]
 
 
-# unique(tmp[,.(vc,veg_class)]) %>% View
-# tmp <- tmp[order(x,y,date)][,tmean := (tmax+tmin)/2]
-tmp <- tmp[order(x,y,date)][, tmax_3mo := frollmean(tmax,n = 3,fill = NA,align='center'), by=.(x,y)]
-tmp <- tmp[order(x,y,date)][, tmax_u_3mo := frollmean(tmax_u,n = 3,fill = NA,align='center'), by=.(x,y)]
-tmp <- tmp[order(x,y,date)][, tmax_anom_3mo := frollmean(tmax_anom,n = 3,fill = NA,align='center'), by=.(x,y)]
+# unique(dat[,.(vc,veg_class)]) %>% View
+# dat <- dat[order(x,y,date)][,tmean := (tmax+tmin)/2]
+dat <- dat[order(x,y,date)][, tmax_3mo := frollmean(tmax,n = 3,fill = NA,align='center'), by=.(x,y)]
+dat <- dat[order(x,y,date)][, tmax_u_3mo := frollmean(tmax_u,n = 3,fill = NA,align='center'), by=.(x,y)]
+dat <- dat[order(x,y,date)][, tmax_anom_3mo := frollmean(tmax_anom,n = 3,fill = NA,align='center'), by=.(x,y)]
 
-# tmp <- tmp[order(x,y,date)][, tmean_3mo := frollmean(tmean,n = 3,fill = NA,align='center'), by=.(x,y)]
-# tmp <- tmp[order(x,y,date)][, tmin_3mo := frollmean(tmin,n = 3,fill = NA,align='center'), by=.(x,y)]
-# tmp <- tmp[order(x,y,date)][, tmax_12mo := frollmean(tmax,n = 12,fill = NA,align='right'), by=.(x,y)]
-# tmp <- tmp[order(x,y,date)][, pet_3mo := frollmean(pet,n = 3,fill = NA,align='right'), by=.(x,y)]
-tmp <- tmp[order(x,y,date)][, precip_3mo := frollmean(precip,n = 3,fill = NA,align='right'), by=.(x,y)]
-tmp <- tmp[order(x,y,date)][, vpd15_3mo := frollmean(vpd15,n = 3,fill = NA,align='right'), by=.(x,y)]
-# tmp <- tmp[order(x,y,date)][, vpd15_anom_3mo := frollmean(vpd15_anom,n = 3,fill = NA,align='right'), by=.(x,y)]
-# tmp <- tmp[order(x,y,date)][, pet_24mo := frollmean(pet,n = 24,fill = NA,align='right'), by=.(x,y)]
-# tmp <- tmp[order(x,y,date)][, precip_24mo := frollmean(precip,n = 24,fill = NA,align='right'), by=.(x,y)]
-# tmp <- tmp[order(x,y,date)][, pet_48mo := frollmean(pet,n = 48,fill = NA,align='right'), by=.(x,y)]
-# tmp <- tmp[order(x,y,date)][, precip_48mo := frollmean(precip,n = 48,fill = NA,align='right'), by=.(x,y)]
-tmp <- tmp[order(x,y,date)][, tmax_anom_12mo := frollmean(tmax_anom,n = 12,fill = NA,align='right'), by=.(x,y)]
+# dat <- dat[order(x,y,date)][, tmean_3mo := frollmean(tmean,n = 3,fill = NA,align='center'), by=.(x,y)]
+# dat <- dat[order(x,y,date)][, tmin_3mo := frollmean(tmin,n = 3,fill = NA,align='center'), by=.(x,y)]
+# dat <- dat[order(x,y,date)][, tmax_12mo := frollmean(tmax,n = 12,fill = NA,align='right'), by=.(x,y)]
+# dat <- dat[order(x,y,date)][, pet_3mo := frollmean(pet,n = 3,fill = NA,align='right'), by=.(x,y)]
+dat <- dat[order(x,y,date)][, precip_3mo := frollmean(precip,n = 3,fill = NA,align='right'), by=.(x,y)]
+dat <- dat[order(x,y,date)][, vpd15_3mo := frollmean(vpd15,n = 3,fill = NA,align='right'), by=.(x,y)]
+# dat <- dat[order(x,y,date)][, vpd15_anom_3mo := frollmean(vpd15_anom,n = 3,fill = NA,align='right'), by=.(x,y)]
+# dat <- dat[order(x,y,date)][, pet_24mo := frollmean(pet,n = 24,fill = NA,align='right'), by=.(x,y)]
+# dat <- dat[order(x,y,date)][, precip_24mo := frollmean(precip,n = 24,fill = NA,align='right'), by=.(x,y)]
+# dat <- dat[order(x,y,date)][, pet_48mo := frollmean(pet,n = 48,fill = NA,align='right'), by=.(x,y)]
+# dat <- dat[order(x,y,date)][, precip_48mo := frollmean(precip,n = 48,fill = NA,align='right'), by=.(x,y)]
+dat <- dat[order(x,y,date)][, tmax_anom_12mo := frollmean(tmax_anom,n = 12,fill = NA,align='right'), by=.(x,y)]
 
-tmp <- tmp[,`:=`(#pe_3mo = precip_3mo/pet_3mo, 
+dat <- dat[,`:=`(#pe_3mo = precip_3mo/pet_3mo, 
   pe_12mo = precip_12mo/pet_12mo 
   # pe_24mo = precip_24mo/pet_24mo, 
   # pe_36mo = precip_36mo/pet_36mo, 
   # pe_48mo = precip_48mo/pet_48mo
 )]
-dim(tmp)
-tmp <- merge(tmp, 
+dim(dat)
+dat <- merge(dat, 
              vi,
              by=c("x","y","date"), 
              all=TRUE,allow.cartesian=TRUE)
-tmp <- tmp[order(x,y,date)][, ndvi_3mo := frollmean(ndvi_hyb,n = 3,fill = NA,align='center',na.rm=TRUE), by=.(x,y)]
-tmp <- tmp[order(x,y,date)][, evi2_3mo := frollmean(evi2_hyb,n = 3,fill = NA,align='center',na.rm=TRUE), by=.(x,y)]
-tmp <- tmp[order(x,y,date)][, nirv_3mo := frollmean(nirv_hyb,n = 3,fill = NA,align='center',na.rm=TRUE), by=.(x,y)]
+dat <- dat[order(x,y,date)][, ndvi_3mo := frollmean(ndvi_hyb,n = 3,fill = NA,align='center',na.rm=TRUE), by=.(x,y)]
+dat <- dat[order(x,y,date)][, evi2_3mo := frollmean(evi2_hyb,n = 3,fill = NA,align='center',na.rm=TRUE), by=.(x,y)]
+dat <- dat[order(x,y,date)][, nirv_3mo := frollmean(nirv_hyb,n = 3,fill = NA,align='center',na.rm=TRUE), by=.(x,y)]
 
 rm(vi); gc(full=TRUE)
 
@@ -119,22 +119,22 @@ mlo <- readr::read_table("../data_general/CO2_growth_rate/co2_mm_mlo_20200405.tx
   mutate(date = ymd(paste(year,month,1))) %>% 
   select(date,co2_int,co2_trend) %>% 
   as.data.table()
-tmp <- merge(mlo,tmp,by="date")
-tmp <- tmp[is.na(ndvi_3mo)==F & is.na(co2_int)==F]
-center_co2 <- mean(tmp$co2_int)
-tmp <- tmp[,`:=`(cco2=co2_int-center_co2)]
+dat <- merge(mlo,dat,by="date")
+dat <- dat[is.na(ndvi_3mo)==F & is.na(co2_int)==F]
+center_co2 <- mean(dat$co2_int)
+dat <- dat[,`:=`(cco2=co2_int-center_co2)]
 gc()
-tmp <- tmp[is.na(vc)==F]
-tmp <- tmp[str_detect(vc,"Forests") | 
+dat <- dat[is.na(vc)==F]
+dat <- dat[str_detect(vc,"Forests") | 
              str_detect(vc, "Eucalypt") |
              str_detect(vc, "Rainforests")]
-tmp <- tmp[ndvi_m>0][ndvi_anom_sd > -3.5 & ndvi_anom_sd < 3.5]
+dat <- dat[ndvi_m>0][ndvi_anom_sd > -3.5 & ndvi_anom_sd < 3.5]
 #*******************************************************************************
 
 #split test & train ------------------------------------------------------------
-tmp[,`:=`(pe_anom_12mo = pe_12mo - mape)]
-train_dat <- tmp[season=='SON'][mape<1.5][is.na(ndvi_3mo)==F & is.na(pe_12mo)==F][sample(.N, 1e6)]
-test_dat <- tmp[season=='SON'][mape<1.5][is.na(ndvi_3mo)==F & is.na(pe_12mo)==F][sample(.N, 1e6)]
+dat[,`:=`(pe_anom_12mo = pe_12mo - mape)]
+train_dat <- dat[season=='SON'][mape<1.5][is.na(ndvi_3mo)==F & is.na(pe_12mo)==F][sample(.N, 1e6)]
+test_dat <- dat[season=='SON'][mape<1.5][is.na(ndvi_3mo)==F & is.na(pe_12mo)==F][sample(.N, 1e6)]
 gc(reset = T, full = T)
 #*******************************************************************************
 
@@ -257,7 +257,7 @@ bbmle::AICtab(n4,n5,n6,n7,n8)
 
 
 o_preds <- expand_grid(season=unique(train_dat$season),
-                       co2 = seq(min(tmp$co2_int),max(tmp$co2_int),length.out=50),
+                       co2 = seq(min(dat$co2_int),max(dat$co2_int),length.out=50),
                        mape = seq(0.05,1.5,length.out = 200), 
                        pct_anom = c(-50,0,50)) %>% 
   mutate(pe_anom_12mo = 0.01*pct_anom*mape) %>% 
@@ -298,7 +298,7 @@ o_preds %>%
 
 # n4_preds NDVI ----------------------------------------------------------------
 n4_preds <- expand_grid(season=unique(train_dat$season),
-                        co2 = seq(min(tmp$co2_int),max(tmp$co2_int),length.out=50),
+                        co2 = seq(min(dat$co2_int),max(dat$co2_int),length.out=50),
                         mape = seq(0.05,1.5,length.out = 200), 
                         pct_anom = c(-50,0,50)) %>% 
   mutate(pe_anom_12mo = 0.01*pct_anom*mape) %>%
@@ -310,7 +310,7 @@ n4_preds <- expand_grid(season=unique(train_dat$season),
 vec_labels <- c("-50"="-50% P:PET Anom.",
                 "0"='0% P:PET Anom.',
                 "50"="50% P:PET Anom.")
-n4_preds %>% 
+p4_ndvi <- n4_preds %>% 
   ggplot(data=., aes(mape,pred,color=(co2), group=co2))+
   geom_line(alpha=1)+
   scale_color_viridis_c(expression(paste(CO[2]~ppm)), option='B',end=0.85)+
@@ -334,13 +334,13 @@ n4_preds %>%
     legend.position = c(0.525,0.175), 
     legend.key.width = unit(0.65,'cm'),
     legend.direction = 'horizontal', 
-    legend.background = element_rect(fill=NA))
+    legend.background = element_rect(fill=NA)); p4_ndvi
 ggsave(filename = 'figures/n4_weibull_ppet_x_co2.png',
        width = 16, height = 8, units='cm', dpi=350, type='cairo')
 
 # n4_preds EVI2 ----------------------------------------------------------------
 n4_preds_evi2 <- expand_grid(season=unique(train_dat$season),
-                        co2 = seq(min(tmp$co2_int),max(tmp$co2_int),length.out=50),
+                        co2 = seq(min(dat$co2_int),max(dat$co2_int),length.out=50),
                         mape = seq(0.05,1.5,length.out = 200), 
                         pct_anom = c(-50,0,50)) %>% 
   mutate(pe_anom_12mo = 0.01*pct_anom*mape) %>%
@@ -352,7 +352,7 @@ n4_preds_evi2 <- expand_grid(season=unique(train_dat$season),
 vec_labels <- c("-50"="-50% P:PET Anom.",
                 "0"='0% P:PET Anom.',
                 "50"="50% P:PET Anom.")
-n4_preds_evi2 %>% 
+p4_evi2 <- n4_preds_evi2 %>% 
   ggplot(data=., aes(mape,pred,color=(co2), group=co2))+
   geom_line(alpha=1)+
   scale_color_viridis_c(expression(paste(CO[2]~ppm)), option='B',end=0.85)+
@@ -376,13 +376,13 @@ n4_preds_evi2 %>%
     legend.position = c(0.525,0.175), 
     legend.key.width = unit(0.65,'cm'),
     legend.direction = 'horizontal', 
-    legend.background = element_rect(fill=NA))
+    legend.background = element_rect(fill=NA)); p4_evi2
 ggsave(filename = 'figures/n4_evi2_weibull_ppet_x_co2.png',
        width = 16, height = 8, units='cm', dpi=350, type='cairo')
 
 # n4_preds NIRV ----------------------------------------------------------------
 n4_preds_nirv <- expand_grid(season=unique(train_dat$season),
-                        co2 = seq(min(tmp$co2_int),max(tmp$co2_int),length.out=50),
+                        co2 = seq(min(dat$co2_int),max(dat$co2_int),length.out=50),
                         mape = seq(0.05,1.5,length.out = 200), 
                         pct_anom = c(-50,0,50)) %>% 
   mutate(pe_anom_12mo = 0.01*pct_anom*mape) %>%
@@ -394,7 +394,7 @@ n4_preds_nirv <- expand_grid(season=unique(train_dat$season),
 vec_labels <- c("-50"="-50% P:PET Anom.",
                 "0"='0% P:PET Anom.',
                 "50"="50% P:PET Anom.")
-n4_preds_nirv %>% 
+p4_nirv <- n4_preds_nirv %>% 
   ggplot(data=., aes(mape,pred,color=(co2), group=co2))+
   geom_line(alpha=1)+
   scale_color_viridis_c(expression(paste(CO[2]~ppm)), option='B',end=0.85)+
@@ -418,7 +418,7 @@ n4_preds_nirv %>%
     legend.position = c(0.535,0.16), 
     legend.key.width = unit(0.65,'cm'),
     legend.direction = 'horizontal', 
-    legend.background = element_rect(fill=NA))
+    legend.background = element_rect(fill=NA)); p4_nirv
 ggsave(filename = 'figures/n4_nirv_weibull_ppet_x_co2.png',
        width = 16, height = 8, units='cm', dpi=350, type='cairo')
 
@@ -429,10 +429,13 @@ i2 <- magick::image_read("figures/n4_evi2_weibull_ppet_x_co2.png")
 i3 <- magick::image_read("figures/n4_nirv_weibull_ppet_x_co2.png")
 magick::image_append(c(i1,i2,i3),stack=T)
 
-
+ggsave(p4_ndvi/p4_evi2/p4_nirv, 
+        filename = 'figures/n4_multi_VI_weibull_ppet_x_co2.png',
+        width = 20, height = 24, units='cm', dpi=350, type='cairo')
+       
 # n5_preds ----------------------------------------------------------------
 n5_preds <- expand_grid(season=unique(train_dat$season),
-                        co2 = seq(min(tmp$co2_int),max(tmp$co2_int),length.out=50),
+                        co2 = seq(min(dat$co2_int),max(dat$co2_int),length.out=50),
                         mape = seq(0.05,1.5,length.out = 200), 
                         # pct_anom = c(-50,0,50), 
                         vpd15_anom_3mo = c(-0.5,0,0.5)) %>% 
@@ -474,7 +477,7 @@ n5_preds %>%
 
 # n6_preds ----------------------------------------------------------------
 n6_preds <- expand_grid(season=unique(train_dat$season),
-                       co2 = seq(min(tmp$co2_int),max(tmp$co2_int),length.out=50),
+                       co2 = seq(min(dat$co2_int),max(dat$co2_int),length.out=50),
                        mape = seq(0.05,1.5,length.out = 200), 
                        # pct_anom = c(-50,0,50), 
                        tmax_anom_12mo = c(-1,0,1)) %>% 
@@ -518,7 +521,7 @@ n6_preds %>%
 
 # n7_preds ----------------------------------------------------------------
 n7_preds <- expand_grid(season=unique(train_dat$season),
-                        co2 = seq(min(tmp$co2_int),max(tmp$co2_int),length.out=50),
+                        co2 = seq(min(dat$co2_int),max(dat$co2_int),length.out=50),
                         mape = seq(0.05,1.5,length.out = 200), 
                         pct_anom = c(-50,0,50),
                         vpd15_anom_3mo = c(-0.5,0,0.5)) %>% 

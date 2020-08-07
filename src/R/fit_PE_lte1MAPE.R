@@ -39,7 +39,7 @@ vi <- norms_vi[vi,on=.(x,y,month)] %>%
   .[,`:=`(ndvi_anom = ndvi_hyb - ndvi_u)] %>% 
   .[,`:=`(ndvi_anom_sd = ndvi_anom/ndvi_sd)]
 
-tmp <- arrow::read_parquet("/home/sami/scratch/ARD_ndvi_aclim_anoms.parquet",
+dat <- arrow::read_parquet("/home/sami/scratch/ARD_ndvi_aclim_anoms.parquet",
                            col_select = c(
                              "date", "hydro_year", "id","season",
                              "precip",  
@@ -74,39 +74,39 @@ tmp <- arrow::read_parquet("/home/sami/scratch/ARD_ndvi_aclim_anoms.parquet",
   .[,`:=`(p_anom_12mo_frac = precip_anom_12mo/map)]
 
 
-# unique(tmp[,.(vc,veg_class)]) %>% View
-# tmp <- tmp[order(x,y,date)][,tmean := (tmax+tmin)/2]
-tmp <- tmp[order(x,y,date)][, tmax_3mo := frollmean(tmax,n = 3,fill = NA,align='center'), by=.(x,y)]
-tmp <- tmp[order(x,y,date)][, tmax_u_3mo := frollmean(tmax_u,n = 3,fill = NA,align='center'), by=.(x,y)]
-tmp <- tmp[order(x,y,date)][, tmax_anom_3mo := frollmean(tmax_anom,n = 3,fill = NA,align='center'), by=.(x,y)]
+# unique(dat[,.(vc,veg_class)]) %>% View
+# dat <- dat[order(x,y,date)][,tmean := (tmax+tmin)/2]
+dat <- dat[order(x,y,date)][, tmax_3mo := frollmean(tmax,n = 3,fill = NA,align='center'), by=.(x,y)]
+dat <- dat[order(x,y,date)][, tmax_u_3mo := frollmean(tmax_u,n = 3,fill = NA,align='center'), by=.(x,y)]
+dat <- dat[order(x,y,date)][, tmax_anom_3mo := frollmean(tmax_anom,n = 3,fill = NA,align='center'), by=.(x,y)]
 
-# tmp <- tmp[order(x,y,date)][, tmean_3mo := frollmean(tmean,n = 3,fill = NA,align='center'), by=.(x,y)]
-# tmp <- tmp[order(x,y,date)][, tmin_3mo := frollmean(tmin,n = 3,fill = NA,align='center'), by=.(x,y)]
-# tmp <- tmp[order(x,y,date)][, tmax_12mo := frollmean(tmax,n = 12,fill = NA,align='right'), by=.(x,y)]
-# tmp <- tmp[order(x,y,date)][, pet_3mo := frollmean(pet,n = 3,fill = NA,align='right'), by=.(x,y)]
-tmp <- tmp[order(x,y,date)][, precip_3mo := frollmean(precip,n = 3,fill = NA,align='right'), by=.(x,y)]
-tmp <- tmp[order(x,y,date)][, vpd15_3mo := frollmean(vpd15,n = 3,fill = NA,align='right'), by=.(x,y)]
-# tmp <- tmp[order(x,y,date)][, vpd15_anom_3mo := frollmean(vpd15_anom,n = 3,fill = NA,align='right'), by=.(x,y)]
-# tmp <- tmp[order(x,y,date)][, pet_24mo := frollmean(pet,n = 24,fill = NA,align='right'), by=.(x,y)]
-# tmp <- tmp[order(x,y,date)][, precip_24mo := frollmean(precip,n = 24,fill = NA,align='right'), by=.(x,y)]
-# tmp <- tmp[order(x,y,date)][, pet_48mo := frollmean(pet,n = 48,fill = NA,align='right'), by=.(x,y)]
-# tmp <- tmp[order(x,y,date)][, precip_48mo := frollmean(precip,n = 48,fill = NA,align='right'), by=.(x,y)]
-tmp <- tmp[order(x,y,date)][, tmax_anom_12mo := frollmean(tmax_anom,n = 12,fill = NA,align='right'), by=.(x,y)]
+# dat <- dat[order(x,y,date)][, tmean_3mo := frollmean(tmean,n = 3,fill = NA,align='center'), by=.(x,y)]
+# dat <- dat[order(x,y,date)][, tmin_3mo := frollmean(tmin,n = 3,fill = NA,align='center'), by=.(x,y)]
+# dat <- dat[order(x,y,date)][, tmax_12mo := frollmean(tmax,n = 12,fill = NA,align='right'), by=.(x,y)]
+# dat <- dat[order(x,y,date)][, pet_3mo := frollmean(pet,n = 3,fill = NA,align='right'), by=.(x,y)]
+dat <- dat[order(x,y,date)][, precip_3mo := frollmean(precip,n = 3,fill = NA,align='right'), by=.(x,y)]
+dat <- dat[order(x,y,date)][, vpd15_3mo := frollmean(vpd15,n = 3,fill = NA,align='right'), by=.(x,y)]
+# dat <- dat[order(x,y,date)][, vpd15_anom_3mo := frollmean(vpd15_anom,n = 3,fill = NA,align='right'), by=.(x,y)]
+# dat <- dat[order(x,y,date)][, pet_24mo := frollmean(pet,n = 24,fill = NA,align='right'), by=.(x,y)]
+# dat <- dat[order(x,y,date)][, precip_24mo := frollmean(precip,n = 24,fill = NA,align='right'), by=.(x,y)]
+# dat <- dat[order(x,y,date)][, pet_48mo := frollmean(pet,n = 48,fill = NA,align='right'), by=.(x,y)]
+# dat <- dat[order(x,y,date)][, precip_48mo := frollmean(precip,n = 48,fill = NA,align='right'), by=.(x,y)]
+dat <- dat[order(x,y,date)][, tmax_anom_12mo := frollmean(tmax_anom,n = 12,fill = NA,align='right'), by=.(x,y)]
 
-tmp <- tmp[,`:=`(#pe_3mo = precip_3mo/pet_3mo, 
+dat <- dat[,`:=`(#pe_3mo = precip_3mo/pet_3mo, 
   pe_12mo = precip_12mo/pet_12mo 
   # pe_24mo = precip_24mo/pet_24mo, 
   # pe_36mo = precip_36mo/pet_36mo, 
   # pe_48mo = precip_48mo/pet_48mo
 )]
-dim(tmp)
-tmp <- merge(tmp, 
+dim(dat)
+dat <- merge(dat, 
              vi,
              by=c("x","y","date"), 
              all=TRUE,allow.cartesian=TRUE)
-tmp <- tmp[order(x,y,date)][, ndvi_3mo := frollmean(ndvi_hyb,n = 3,fill = NA,align='center',na.rm=TRUE), by=.(x,y)]
-tmp <- tmp[order(x,y,date)][, evi2_3mo := frollmean(evi2_hyb,n = 3,fill = NA,align='center',na.rm=TRUE), by=.(x,y)]
-tmp <- tmp[order(x,y,date)][, nirv_3mo := frollmean(nirv_hyb,n = 3,fill = NA,align='center',na.rm=TRUE), by=.(x,y)]
+dat <- dat[order(x,y,date)][, ndvi_3mo := frollmean(ndvi_hyb,n = 3,fill = NA,align='center',na.rm=TRUE), by=.(x,y)]
+dat <- dat[order(x,y,date)][, evi2_3mo := frollmean(evi2_hyb,n = 3,fill = NA,align='center',na.rm=TRUE), by=.(x,y)]
+dat <- dat[order(x,y,date)][, nirv_3mo := frollmean(nirv_hyb,n = 3,fill = NA,align='center',na.rm=TRUE), by=.(x,y)]
 
 rm(vi); gc(full=TRUE)
 
@@ -118,22 +118,22 @@ mlo <- readr::read_table("../data_general/CO2_growth_rate/co2_mm_mlo_20200405.tx
   mutate(date = ymd(paste(year,month,1))) %>% 
   select(date,co2_int,co2_trend) %>% 
   as.data.table()
-tmp <- merge(mlo,tmp,by="date")
-tmp <- tmp[is.na(ndvi_3mo)==F & is.na(co2_int)==F]
-center_co2 <- mean(tmp$co2_int)
-tmp <- tmp[,`:=`(cco2=co2_int-center_co2)]
+dat <- merge(mlo,dat,by="date")
+dat <- dat[is.na(ndvi_3mo)==F & is.na(co2_int)==F]
+center_co2 <- mean(dat$co2_int)
+dat <- dat[,`:=`(cco2=co2_int-center_co2)]
 gc()
-tmp <- tmp[is.na(vc)==F]
-tmp <- tmp[str_detect(vc,"Forests") | 
+dat <- dat[is.na(vc)==F]
+dat <- dat[str_detect(vc,"Forests") | 
              str_detect(vc, "Eucalypt") |
              str_detect(vc, "Rainforests")]
-tmp <- tmp[ndvi_m>0][ndvi_anom_sd > -3.5 & ndvi_anom_sd < 3.5]
+dat <- dat[ndvi_m>0][ndvi_anom_sd > -3.5 & ndvi_anom_sd < 3.5]
 #*******************************************************************************
 
 #split test & train ------------------------------------------------------------
-tmp[,`:=`(pe_anom_12mo = pe_12mo - mape)]
-train_dat <- tmp[season=='SON'][mape<1.5][is.na(ndvi_3mo)==F & is.na(pe_12mo)==F][sample(.N, 3e6)]
-test_dat <- tmp[season=='SON'][mape<1.5][is.na(ndvi_3mo)==F & is.na(pe_12mo)==F][sample(.N, 1e6)]
+dat[,`:=`(pe_anom_12mo = pe_12mo - mape)]
+train_dat <- dat[season=='SON'][mape<1.5][is.na(ndvi_3mo)==F & is.na(pe_12mo)==F][sample(.N, 3e6)]
+test_dat <- dat[season=='SON'][mape<1.5][is.na(ndvi_3mo)==F & is.na(pe_12mo)==F][sample(.N, 1e6)]
 #*******************************************************************************
 
 # l_ndvi <- lm(ndvi_m~co2_trend*I(pe_anom_12mo/mape) + mape, 
@@ -154,7 +154,7 @@ summary(l_gv)
 
 expand_grid(mape = seq(0.0837,1,length.out = 100), 
             co2_trend = seq(340,412,length.out = 10), 
-            vc=tmp$vc[100000],
+            vc=dat$vc[100000],
             # pe_anom_12mo = c(-0.15,0,0.15)
             percent_ppet_anom = c(-50,0,50)
   ) %>% 
@@ -196,7 +196,7 @@ train_dat[mape<1] %>% sample_n(50000) %>%
   
 expand_grid(mape = seq(0.0837,1,length.out = 100), 
             co2_trend = seq(340,412,length.out = 10), 
-            vc=tmp$vc[100000],
+            vc=dat$vc[100000],
             # pe_anom_12mo = c(-0.15,0,0.15)
             vpd15_anom_sd = c(-1.5,0,1.5)
 ) %>% 
@@ -285,7 +285,7 @@ train_dat %>%
   summarize(fit = lm(ndvi_3mo ~ scale(log(co2_trend))*I(pe_anom_12mo/mape) + scale(mape) + vc)) %>% 
   ungroup()
 
-tmp[is.na(season)==FALSE][mape<1.5][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5] %>% 
+dat[is.na(season)==FALSE][mape<1.5][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5] %>% 
   as_tibble() %>% 
   mutate(mape_d = cut_width(mape, 0.15)) %>% 
   nest(data = c(-mape_d,-season)) %>% 
@@ -310,13 +310,13 @@ tmp[is.na(season)==FALSE][mape<1.5][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5] %>%
   scale_x_discrete(guide = guide_axis(n.dodge = 3))+
   facet_grid(season~term, scales='free')
 
-tmp[is.na(season)==FALSE][mape<1.5][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5] %>% 
+dat[is.na(season)==FALSE][mape<1.5][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5] %>% 
   as_tibble() %>% 
   mutate(mape_d = cut_width(mape, 0.15)) %>% 
   mutate(season = factor(season, levels=c("SON","DJF","MAM","JJA"),ordered = T)) %>% 
   nest(data = c(-mape_d,-season)) %>% 
   mutate(fit = map(data, 
-       ~lm(ndvi_3mo~scale(co2_trend)+scale(I(pe_anom_12mo/mape))+vc, 
+       ~lm(ndvi_3mo~scale(co2_trend)*scale(I(pe_anom_12mo/mape))+vc, 
            # ~lm(ndvi_3mo~scale(co2_trend)+scale(I(pe_anom_12mo/mape)), 
            data=.x)), 
          tidied = map(fit, tidy)) %>% 
@@ -339,7 +339,11 @@ tmp[is.na(season)==FALSE][mape<1.5][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5] %>%
   labs(x='Mean Annual P:PET Range', 
        title='NDVI Linear Model Effects', 
        subtitle = 'approx. 19 million obs')+
-  facet_grid(season~term, scales = 'free_y')+
+  facet_grid(season~term, scales = 'free_y', 
+             labeller = labeller(
+    term=c("scale(co2_trend)"="CO2", 
+           "scale(co2_trend):scale(I(pe_anom_12mo/mape))"="CO2 x P:PET_anom", 
+           "scale(I(pe_anom_12mo/mape))"="P:PET anom")))+
   theme_linedraw()
 ggsave(filename = 'figures/big_linearModel_by_MAPPET_range.png', 
        height=14, width=16, units='cm')
@@ -488,7 +492,7 @@ yardstick::rmse_vec(test_dat$ndvi_3mo,estimate=predict(n8,newdata=test_dat))
 
 
 o_preds <- expand_grid(season=unique(train_dat$season),
-  co2 = seq(min(tmp$co2_int),max(tmp$co2_int),length.out=50),
+  co2 = seq(min(dat$co2_int),max(dat$co2_int),length.out=50),
   mape = seq(0.05,1.5,length.out = 200), 
   pct_anom = c(-33,0,33)) %>% 
   mutate(pe_anom_12mo = 0.01*pct_anom*mape+mape) %>% 
@@ -540,7 +544,7 @@ ggplot(data=.,aes(mape,pet_u))+
   geom_point()
 
 o_preds <- expand_grid(season=unique(train_dat$season),
-             co2 = seq(min(tmp$co2_int),max(tmp$co2_int),length.out=50),
+             co2 = seq(min(dat$co2_int),max(dat$co2_int),length.out=50),
              mape = seq(0.05,1.5,length.out = 200), 
              x_mape = c(-33,0,33), 
              x_map = c(-50,0,50), 
@@ -605,7 +609,7 @@ test_dat %>%
 fn <- function(x,y) {
   co2_trend <- x
   cco2 <- x-center_co2
-  d <- tmp[1000,] %>% 
+  d <- dat[1000,] %>% 
     as_tibble() %>% 
     select(-co2_trend, -cco2)
   d$co2_trend <- x

@@ -94,17 +94,29 @@ bom <- set_names(bom, 'koppen') %>% as_tibble()
 bom <- left_join(ref_grid %>% as_tibble() %>% select(x,y), 
                  bom)
 coords <- dat %>% select(x,y) %>% distinct()
+
+g_map <- ldat %>% 
+  filter(date>=ymd("1982-01-01")&date<=ymd("2010-12-31")) %>% 
+  group_by(x,y) %>% 
+  summarize(map = mean(precip,na.rm=TRUE)*12) %>% 
+  ungroup() %>% 
+  as_tibble()
+
 kop <- left_join(coords, bom, by=c("x","y")) %>% 
+  inner_join(., g_map, by=c("x","y")) %>% 
+  as_tibble() %>% 
   mutate(zone = case_when(between(koppen,0,11) ~ 'Temperate', 
                           (y <= -40) ~ 'Tasmania',
-                          between(koppen, 12,21)~'Grassland & Desert', # Grassland
-                          between(koppen, 22,30)~'Grassland & Desert', # Desert
+                          between(koppen, 12,21)~'GD_temp', # Grassland
+                          between(koppen, 22,30)~'GD_temp', # Desert
                           between(koppen, 31,34)~'Subtropical',
                           between(koppen, 35,40)~'Tropical', 
                           koppen >= 41 ~ 'Equatorial')) %>% 
   mutate(zone = ifelse(y < -40, 'Temperate Tas.', zone)) %>% #pull(zone) %>% table
+  mutate(zone = ifelse(zone == "GD_temp" & map < 500, 'Desert',zone)) %>%   
+  mutate(zone = ifelse(zone == "GD_temp" & map >= 500, 'Grassland',zone)) %>%   
   mutate(zone = factor(zone, levels = c("Equatorial","Tropical",
-                                        "Subtropical","Grassland & Desert",
+                                        "Subtropical","Grassland","Desert",
                                         "Temperate","Temperate Tas."), ordered = T))
 kop <- kop %>% mutate(cz=zone)
 #*** End Kop zone load ********************************************************
@@ -1065,7 +1077,9 @@ ggsave(filename = 'figures/mcd43_ndvi_pvpd_2d_density.png',
        width=16, height = 10, units='cm',type='cairo')
 # END ********
 
-# P:PET Shift -------------------------------------------------------------
+
+
+# Arrow Vector Field P:PET & NDVI Shift {MAPPET 0-2) -------------------------------------------------------------
 epoch1 <- ldat %>% 
   filter(hydro_year %in% c(1981:1985)) %>% 
   group_by(x,y) %>% 
@@ -1119,17 +1133,112 @@ p_vector <- o %>%
         legend.position = c(0.75,0.15), 
         panel.grid = element_blank()); p_vector
 p_out <- ggExtra::ggMarginal(p_vector, type='histogram')
-
 ggsave(p_out, 
        filename = 'figures/ndvi_ppet_1981_1985_shift_2015_2019_wMarginDistribution.png',
        width=16, height = 10, units='cm',type='cairo')
 
+
+
+# Arrow Vector Field P:PET & NDVI Shift WITH INSET{MAPPET 0-0.75) -------------------------------------------------------------
+epoch1 <- ldat %>% 
+  filter(hydro_year %in% c(1981:1985)) %>% 
+  group_by(x,y) %>% 
+  summarize(ppet = mean(pe_12mo,na.rm=TRUE), 
+            ndvi_u = mean(ndvi_3mo,na.rm=TRUE)) %>% 
+  as_tibble()
+epoch2 <- ldat %>% 
+  filter(hydro_year %in% c(2015:2019)) %>% 
+  group_by(x,y) %>% 
+  summarize(ppet = mean(pe_12mo,na.rm=TRUE), 
+            ndvi_u = mean(ndvi_3mo,na.rm=TRUE)) %>% 
+  as_tibble()
+
+o <- inner_join(epoch1,epoch2,by=c("x","y"),suffix=c("_1","_2")) %>% 
+  filter(ppet_1 <= 2) %>% 
+  filter(ndvi_u_1 > 0 & ndvi_u_2 > 0) %>% 
+  mutate(delta_x = ppet_2 - ppet_1) %>% 
+  mutate(id = cur_group_rows())
+vec_ids <- sample(o$id, 1500)
+p_vector <- o %>% 
+  filter(id %in% vec_ids) %>% 
+  ggplot(data=., aes(ppet_1, ndvi_u_2,color=delta_x))+
+  geom_point(data=epoch2 %>% filter(ndvi_u>0), 
+             aes(ppet, ndvi_u), color=NA)+
+  geom_segment(aes(xend=ppet_2,yend=ndvi_u_1),
+               arrow=arrow(length=unit(0.1,'cm')))+
+  scale_color_gradient2(
+    low='#cf0000',
+    mid='gray20', 
+    high='navy',
+    limits=c(-0.2,0.2), 
+    oob=scales::squish)+
+  labs(x='Annual P:PET',y='NDVI')+
+  scale_x_continuous(limits=c(0,2.25),expand=c(0,0))+
+  scale_y_continuous(expand=c(0,0))+
+  theme_linedraw()+
+  guides(color=guide_colorbar(title.position = 'top', 
+                              title = expression(paste(Delta~P*":"*PET))))+
+  theme(legend.direction = 'vertical',
+        legend.justification = c(0, 1), 
+        legend.position = c(0, 1),
+        legend.background = element_rect(fill=NA),
+        legend.key.width = unit(0.2,units = 'cm'),
+        legend.key.height = unit(0.7,units = 'cm'),
+        # legend.position = c(0.05,0.75),
+        axis.text = element_text(size=12),
+        panel.grid = element_blank()); p_vector
+p_out <- ggExtra::ggMarginal(p_vector, type='histogram')
+p_out
+
+p_vector_inset <- o %>% 
+  filter(id %in% vec_ids) %>% 
+  # filter(ppet_1 < 0.6) %>%
+  # sample_frac(0.5) %>%
+  mutate(ord = abs(delta_x)) %>% 
+  arrange(ord) %>% 
+  ggplot(data=., aes(ppet_1, ndvi_u_2,color=delta_x))+
+  geom_segment(aes(xend=ppet_2,yend=ndvi_u_1),
+               arrow=arrow(length=unit(0.1,'cm')))+
+  scale_color_gradient2(
+    low='#cf0000',
+    mid='gray20', 
+    high='navy',
+    limits=c(-0.2,0.2), 
+    oob=scales::squish)+
+  labs(x=NULL,y=NULL)+
+  # labs(x='P:PET',y='NDVI')+
+  scale_x_continuous(limits=c(0.1,0.4),
+                     expand=c(0,0.01))+
+  scale_y_continuous(expand=c(0,0.01), 
+                     limits=c(0.2,0.6)
+                     )+
+  theme_linedraw()+
+  guides(color=guide_colorbar(title.position = 'top' 
+                # title = expression(paste(Delta~P*":"*PET))
+                ))+
+  theme(legend.direction = 'horizontal',
+        legend.position = 'none',# c(0.75,0.15), 
+        panel.grid = element_blank(),
+        panel.background = element_rect(fill=NA),
+        axis.text = element_text(size=10)); p_vector_inset
+
+ggsave(p_out, 
+       filename = 'figures/ndvi_ppet_1981_1985_shift_2015_2019_wMarginDistribution_wInset_p1.png',
+       width=16, height = 12, units='cm',type='cairo', dpi=350)
+ggsave(p_vector_inset, 
+       filename = 'figures/ndvi_ppet_1981_1985_shift_2015_2019_wMarginDistribution_wInset_p2.png',
+       width=6.25, height = 6.25, units='cm',type='cairo')
+
 library(magick)
-p1 <- magick::image_read("figures/diagram_PPET_CO2_response.png")
-p2 <- magick::image_read("figures/ndvi_ppet_1981_1985_shift_2015_2019_wMarginDistribution.png")
-p_out <- magick::image_append(c(p1,p2),
+p0 <- magick::image_read("figures/diagram_PPET_CO2_response.png")
+p1 <- magick::image_read('figures/ndvi_ppet_1981_1985_shift_2015_2019_wMarginDistribution_wInset_p1.png')
+p2 <- magick::image_read('figures/ndvi_ppet_1981_1985_shift_2015_2019_wMarginDistribution_wInset_p2.png')
+
+p1_2 <- image_composite(p1,p2,offset="+1050+720")
+
+p_0_1_2 <- magick::image_append(c(p0,p1_2),
                      stack=TRUE)
-magick::image_write(p_out, path="figures/join_ndvi_ppet_vectorPlot_diagram.png")
+magick::image_write(p_0_1_2, path="figures/join_ndvi_ppet_vectorPlot_diagram_wInset.png")
 
 
 #*******************************************************************************
