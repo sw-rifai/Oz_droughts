@@ -204,9 +204,6 @@ gc()
 # END AVHRR ---------------------------------------------------------------
 
 
-
-
-
 # MCD43  ------------------------------------------------------------
 o1 <- stars::read_stars("../data_general/MCD43/MCD64A4_SR_5km_EastOz_mmean_NVISmask_2001_2019.tif") %>% 
   slice('band', seq(1,by=2,to = 456)) %>% 
@@ -237,6 +234,22 @@ o <- o %>% lazy_dt() %>%
   as.data.table()
 o <- o %>% lazy_dt() %>% select(x,y,date,ndvi_mcd,evi2_mcd,nirv_mcd) %>% as.data.table()
 hyb <- o[dat,on=.(x,y,date)]
+# END MCD15 FPAR ***************************************************************
+
+
+# MCD15 FPAR  ------------------------------------------------------------
+fp <- stars::read_stars("../data_general/MCD15/MCD15A3_fpar_5000m_EastOz_mMean_maskFireDefor_2001_2020.tif") %>% 
+  st_set_dimensions(., 3, 
+                    values=seq(ymd("2001-01-01"),ymd("2020-07-01"),by="1 month"), 
+                    names = 'date') %>%  
+  as_tibble() %>% 
+  as.data.table() %>% 
+  set_names(c("x","y",'date',"fpar"))
+
+fp <- fp[,`:=`(year=year(date))]
+
+# o <- o %>% lazy_dt() %>% select(x,y,date,ndvi_mcd,evi2_mcd,nirv_mcd) %>% as.data.table()
+# hyb <- o[dat,on=.(x,y,date)]
 
 # hyb <- hyb[is.na(ndvi_mcd)==F & is.na(ndvi)==F]
 

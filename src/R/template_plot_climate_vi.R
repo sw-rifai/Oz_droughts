@@ -81,6 +81,10 @@ dat <- merge(dat,
              all=TRUE,allow.cartesian=TRUE)
 dat <- dat[order(x,y,date)][, ndvi_3mo := frollmean(ndvi_hyb,n = 3,fill = NA,align='center',na.rm=TRUE), by=.(x,y)]
 rm(vi); gc(full=TRUE)
+
+# FILTER TO LON >= 140 !!! ----------
+dat <- dat[x>=140]
+
 ldat <- dat %>% lazy_dt()
 # END Load awap clim dat *****************************************************************
 
@@ -93,7 +97,8 @@ bom <- st_warp(src=bom, dest=ref_grid[,,], use_gdal = F)
 bom <- set_names(bom, 'koppen') %>% as_tibble()
 bom <- left_join(ref_grid %>% as_tibble() %>% select(x,y), 
                  bom)
-coords <- dat %>% select(x,y) %>% distinct()
+
+coords <- dat %>% select(x,y) %>% distinct() %>% filter(x>=140) 
 
 g_map <- ldat %>% 
   filter(date>=ymd("1982-01-01")&date<=ymd("2010-12-31")) %>% 
@@ -646,7 +651,7 @@ ggsave(p_out,
 
 
 
-# Koppen Climate Zones & P:PET Trend & NDVI & VCF distributions --------------------------------------------------
+# 7 Koppen Climate Zones & P:PET Trend & NDVI & VCF distributions --------------------------------------------------
 p_left <- kop %>% 
   ggplot(data=., aes(x,y,fill=as_factor(zone)))+
   geom_sf(inherit.aes = F, data=oz_poly,

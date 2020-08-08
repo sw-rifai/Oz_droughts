@@ -127,6 +127,7 @@ dat <- dat[is.na(vc)==F]
 dat <- dat[str_detect(vc,"Forests") | 
              str_detect(vc, "Eucalypt") |
              str_detect(vc, "Rainforests")]
+dat <- dat[x>= 140] # FILTER TO LON >= 140
 dat <- dat[ndvi_m>0][ndvi_anom_sd > -3.5 & ndvi_anom_sd < 3.5]
 #*******************************************************************************
 
@@ -134,26 +135,22 @@ dat <- dat[ndvi_m>0][ndvi_anom_sd > -3.5 & ndvi_anom_sd < 3.5]
 dat[,`:=`(pe_anom_12mo = pe_12mo - mape)]
 train_dat <- dat[season=='SON'][mape<1.5][is.na(ndvi_3mo)==F & is.na(pe_12mo)==F][sample(.N, 3e6)]
 test_dat <- dat[season=='SON'][mape<1.5][is.na(ndvi_3mo)==F & is.na(pe_12mo)==F][sample(.N, 1e6)]
+gc(full = T)
 #*******************************************************************************
 
-# l_ndvi <- lm(ndvi_m~co2_trend*I(pe_anom_12mo/mape) + mape, 
-#                  data=train_dat[season=="SON"][mape<1][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5])
-# summary(l_ndvi)
-l_ndvi <- lm(ndvi_hyb~scale(log(co2_trend))*I(pe_anom_12mo/mape) + scale(mape) + vc, 
-                 data=train_dat[season=="SON"][mape<1][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5])
+# Epoch 1 AVHRR -----------------------------------------------------------------
+l_ndvi <- lm(ndvi_3mo~scale(cco2)*I(pe_anom_12mo/mape)+scale(cco2)*scale(mape), 
+             data=dat[season=="SON"][mape<1][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5][date<=ymd("2000-12-31")])
 summary(l_ndvi)
-l_evi2 <- lm(evi2_hyb~I(pe_anom_12mo/mape) +scale(cco2)*scale(mape) + vc, 
-                 data=train_dat[season=="SON"][mape<1][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5])
+l_evi2 <- lm(evi2_3mo~scale(cco2)*I(pe_anom_12mo/mape)+scale(cco2)*scale(mape), 
+             data=dat[season=="SON"][mape<1][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5][date<=ymd("2000-12-31")])
 summary(l_evi2)
-l_nirv <- lm(nirv_hyb~I(pe_anom_12mo/mape) + scale(cco2)*scale(mape) + vc, 
-                 data=train_dat[season=="SON"][mape<1][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5])
+l_nirv <- lm(nirv_3mo~scale(cco2)*I(pe_anom_12mo/mape)+scale(cco2)*scale(mape), 
+             data=dat[season=="SON"][mape<1][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5][date<=ymd("2000-12-31")])
 summary(l_nirv)
-l_gv <- lm(gv~I(pe_anom_12mo/mape) + scale(cco2)*scale(mape) + vc, 
-             data=train_dat[season=="SON"][mape<1][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5])
-summary(l_gv)
 
-expand_grid(mape = seq(0.0837,1,length.out = 100), 
-            co2_trend = seq(340,412,length.out = 10), 
+p_1 <- expand_grid(mape = seq(0.0837,1,length.out = 100), 
+            co2_trend = seq(340,370,length.out = 100), 
             vc=dat$vc[100000],
             # pe_anom_12mo = c(-0.15,0,0.15)
             percent_ppet_anom = c(-50,0,50)
@@ -163,15 +160,102 @@ expand_grid(mape = seq(0.0837,1,length.out = 100),
   mutate(pe_12mo = mape+pe_anom_12mo) %>% 
   filter(pe_12mo > 0) %>%
   mutate(pred_ndvi = predict(l_ndvi, newdata=.)) %>% 
-  mutate(pred_evi2 = predict(l_evi2, newdata=.)) %>% 
-  mutate(pred_nirv = predict(l_nirv, newdata=.)) %>% 
-  mutate(pred_gv = predict(l_gv, newdata=.)) %>% 
-  select(pred_ndvi, pred_evi2, pred_nirv,pred_gv,co2_trend,mape,percent_ppet_anom) %>% 
+  # mutate(pred_evi2 = predict(l_evi2, newdata=.)) %>% 
+  # mutate(pred_nirv = predict(l_nirv, newdata=.)) %>% 
+  # mutate(pred_gv = predict(l_gv, newdata=.)) %>% 
+  select(pred_ndvi, 
+         # pred_evi2, pred_nirv,pred_gv,
+         co2_trend,mape,percent_ppet_anom) %>% 
   gather(-co2_trend, -mape,-percent_ppet_anom, key='VI', value='value') %>% 
   ggplot(data=.,aes(mape, value,color=co2_trend,group=co2_trend))+
   geom_line()+
   scale_color_viridis_c(option='B')+
-  facet_grid(VI~percent_ppet_anom,labeller = label_both,scales='free')
+  labs(x='mean annual P:PET', 
+       title="AHVRR Epoch 1982-2000")+
+  facet_grid(VI~percent_ppet_anom,labeller = label_both,scales='free')+
+  theme_linedraw(); p_1
+
+
+
+l_ndvi_2 <- lm(ndvi_3mo~scale(cco2)*I(pe_anom_12mo/mape)+scale(cco2)*scale(mape), 
+             data=dat[season=="SON"][mape<1][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5][date>=ymd("2000-12-31")])
+summary(l_ndvi_2)
+l_evi2_2 <- lm(evi2_3mo~scale(cco2)*I(pe_anom_12mo/mape)+scale(cco2)*scale(mape), 
+             data=dat[season=="SON"][mape<1][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5][date>=ymd("2000-12-31")])
+summary(l_evi2_2)
+l_nirv_2 <- lm(nirv_3mo~scale(cco2)*I(pe_anom_12mo/mape)+scale(cco2)*scale(mape), 
+             data=dat[season=="SON"][mape<1][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5][date>=ymd("2000-12-31")])
+summary(l_nirv_2)
+l_gv_2 <- lm(gv~scale(cco2)*I(pe_anom_12mo/mape)+scale(cco2)*scale(mape), 
+           data=dat[season=="SON"][mape<1][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5][date>=ymd("2000-12-31")])
+summary(l_gv)
+
+dat[date==ymd("2000-12-01")]$co2_trend
+p_2 <- expand_grid(mape = seq(0.0837,1,length.out = 100), 
+            co2_trend = seq(370,412,length.out = 100), 
+            vc=dat$vc[100000],
+            # pe_anom_12mo = c(-0.15,0,0.15)
+            percent_ppet_anom = c(-50,0,50)
+) %>% 
+  mutate(cco2 = co2_trend - center_co2) %>% 
+  mutate(pe_anom_12mo = mape*percent_ppet_anom/100) %>% 
+  mutate(pe_12mo = mape+pe_anom_12mo) %>% 
+  filter(pe_12mo > 0) %>%
+  mutate(pred_ndvi = predict(l_ndvi_2, newdata=.)) %>% 
+  mutate(pred_evi2 = predict(l_evi2_2, newdata=.)) %>% 
+  mutate(pred_nirv = predict(l_nirv_2, newdata=.)) %>% 
+  mutate(pred_gv = predict(l_gv_2, newdata=.)) %>% 
+  select(pred_ndvi, 
+         # pred_evi2, pred_nirv,pred_gv,
+         co2_trend,mape,percent_ppet_anom) %>% 
+  gather(-co2_trend, -mape,-percent_ppet_anom, key='VI', value='value') %>% 
+  ggplot(data=.,aes(mape, value,color=co2_trend,group=co2_trend))+
+  geom_line()+
+  scale_color_viridis_c(option='B',end=0.9)+
+  labs(x='mean annual P:PET', 
+       title="MODIS Epoch 2001-2019")+
+  facet_grid(VI~percent_ppet_anom,labeller = label_both,scales='free')+
+  theme_linedraw(); p_2
+
+
+l_ndvi_3 <- lm(ndvi_3mo~scale(cco2)*I(pe_anom_12mo/mape)+scale(cco2)*scale(mape), 
+               data=dat[season=="SON"][mape<1][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5][date<ymd("2019-09-30")])
+summary(l_ndvi_3)
+p_3 <- expand_grid(mape = seq(0.0837,1,length.out = 100), 
+            co2_trend = seq(310,412,length.out = 100), 
+            vc=dat$vc[100000],
+            # pe_anom_12mo = c(-0.15,0,0.15)
+            percent_ppet_anom = c(-50,0,50)
+) %>% 
+  mutate(cco2 = co2_trend - center_co2) %>% 
+  mutate(pe_anom_12mo = mape*percent_ppet_anom/100) %>% 
+  mutate(pe_12mo = mape+pe_anom_12mo) %>% 
+  filter(pe_12mo > 0) %>%
+  mutate(pred_ndvi = predict(l_ndvi_3, newdata=.)) %>% 
+  select(pred_ndvi, 
+         # pred_evi2, pred_nirv,pred_gv,
+         co2_trend,mape,percent_ppet_anom) %>% 
+  gather(-co2_trend, -mape,-percent_ppet_anom, key='VI', value='value') %>% 
+  ggplot(data=.,aes(mape, value,color=co2_trend,group=co2_trend))+
+  geom_line()+
+  scale_color_viridis_c(option='B',end=0.9)+
+  labs(x='mean annual P:PET', 
+       title="1982-2019   NDVI~CO2*P:PET(anom) + CO2*P:PET(mean annual)")+
+  facet_grid(VI~percent_ppet_anom,labeller = label_both,scales='free')+
+  theme_linedraw(); p_3
+
+
+ggsave(p_3/p_2/p_1, filename = "figures/exploratory_ndvi_co2xPPET_byEpoch.png", 
+       width=20, height = 18, units='cm')
+
+
+
+
+
+dat[date>=ymd("2001-01-01")][sample(.N,1e5)] %>% 
+  ggplot(data=.,aes(date,evi2_3mo))+
+  geom_smooth(method='lm')
+
 
 
 train_dat[mape<1] %>% sample_n(10000) %>% 
@@ -285,30 +369,82 @@ train_dat %>%
   summarize(fit = lm(ndvi_3mo ~ scale(log(co2_trend))*I(pe_anom_12mo/mape) + scale(mape) + vc)) %>% 
   ungroup()
 
-dat[is.na(season)==FALSE][mape<1.5][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5] %>% 
+dat %>% lazy_dt() %>% 
+  filter(mape < 0.225) %>% 
+  group_by(season) %>% 
+  summarize(ndvi = mean(ndvi_hyb, na.rm=TRUE), 
+            evi2 = mean(evi2_hyb,na.rm=TRUE), 
+            nirv = mean(nirv_hyb,na.rm=TRUE),
+            precip = mean(precip,na.rm=TRUE)) %>% 
+  ungroup() %>% 
+  as_tibble()
+
+
+e1 <- dat[is.na(season)==FALSE][mape<1.5][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5] %>% 
+  .[date<ymd("2000-12-31")] %>% 
+  # .[sample(.N,1e5)] %>%
   as_tibble() %>% 
   mutate(mape_d = cut_width(mape, 0.15)) %>% 
   nest(data = c(-mape_d,-season)) %>% 
   mutate(fit = map(data, 
-         ~lm(evi2_3mo~scale(co2_trend)+scale(pe_anom_12mo)+scale(vpd15_anom_sd)+vc, 
+                   ~lm(ndvi_3mo~scale(co2_trend)+scale(pe_anom_12mo), 
+                       # ~lm(ndvi_3mo~scale(co2_trend)+scale(I(pe_anom_12mo/mape)), 
+                       data=.x)), 
+         tidied = map(fit, tidy)) %>% 
+  unnest(tidied) %>% 
+  # mutate(term = str_replace(term,'(',"")) %>% 
+  # mutate(term = str_replace(term,')',"")) %>% 
+  # mutate(term = str_replace(term,'scale',"")) %>% 
+  filter(str_detect(term,'vc')==F) %>%
+  # filter(str_detect(term, 'co2') | 
+  #          str_detect(term, 'tmax_anom_3mo')|
+  #          str_detect(term, 'pe_anom_12mo')) %>% 
+  ggplot(data=., aes(mape_d, estimate))+
+  geom_col()+
+  geom_errorbar(aes(ymin=estimate-2*std.error, 
+                    ymax=estimate+2*std.error),
+                width=0.2)+
+  scale_color_viridis_c(option='B',direction=-1,begin = 0.1,end=0.9, 
+                        limits=c(0,0.1),oob=scales::squish)+
+  scale_x_discrete(guide = guide_axis(n.dodge = 1,angle = 90))+
+  facet_grid(term~season, scales='free')+
+  labs(title='NDVI AVHRR 1982-2000')+
+  theme_linedraw(); e1
+
+e2 <- dat[is.na(season)==FALSE][mape<1.5][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5] %>% 
+  .[date>ymd("2000-12-31") & date < ymd('2019-09-30')] %>% 
+  # .[sample(.N,1e5)] %>%
+  as_tibble() %>% 
+  mutate(mape_d = cut_width(mape, 0.15)) %>% 
+  nest(data = c(-mape_d,-season)) %>% 
+  mutate(fit = map(data, 
+         ~lm(ndvi_3mo~scale(co2_trend)+scale(pe_anom_12mo), 
        # ~lm(ndvi_3mo~scale(co2_trend)+scale(I(pe_anom_12mo/mape)), 
            data=.x)), 
          tidied = map(fit, tidy)) %>% 
   unnest(tidied) %>% 
-  filter(term!="(Intercept)") %>%
-  filter(str_detect(term, 'co2') | 
-           str_detect(term, 'tmax_anom_3mo')|
-           str_detect(term, 'pe_anom_12mo')) %>% 
+  # mutate(term = str_replace(term,'(',"")) %>% 
+  # mutate(term = str_replace(term,')',"")) %>% 
+  # mutate(term = str_replace(term,'scale',"")) %>% 
+  filter(str_detect(term,'vc')==F) %>%
+  # filter(str_detect(term, 'co2') | 
+  #          str_detect(term, 'tmax_anom_3mo')|
+  #          str_detect(term, 'pe_anom_12mo')) %>% 
   ggplot(data=., aes(mape_d, estimate))+
   geom_col()+
   geom_errorbar(aes(ymin=estimate-2*std.error, 
-                    ymax=estimate+2*std.error,
-                    color=p.value),
+                    ymax=estimate+2*std.error),
                 width=0.2)+
   scale_color_viridis_c(option='B',direction=-1,begin = 0.1,end=0.9, 
                         limits=c(0,0.1),oob=scales::squish)+
-  scale_x_discrete(guide = guide_axis(n.dodge = 3))+
-  facet_grid(season~term, scales='free')
+  scale_x_discrete(guide = guide_axis(n.dodge = 1,angle = 90))+
+  facet_grid(term~season, scales='free')+
+  labs(title='NDVI MODIS 2001-2019')+
+  theme_linedraw(); e2
+
+e1|e2
+ggsave(e1|e2, filename = 'figures/big_linearModel_by_MAPPET_range_by_Epoch.png', 
+       width=34, height=18, units='cm')
 
 dat[is.na(season)==FALSE][mape<1.5][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5] %>% 
   as_tibble() %>% 
@@ -347,6 +483,142 @@ dat[is.na(season)==FALSE][mape<1.5][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5] %>%
   theme_linedraw()
 ggsave(filename = 'figures/big_linearModel_by_MAPPET_range.png', 
        height=14, width=16, units='cm')
+
+qfit <- dat[season=='SON'][mape>0.1][mape<0.4][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5] %>% 
+  lm(evi2_3mo~scale(co2_trend)*scale(mape)+scale(co2_trend)*scale(I(pe_12mo/mape)), data=.)
+  # lm(ndvi_3mo ~ scale(co2_trend)*scale(mape)+ scale(pe_anom_12mo)+vc, data=.)
+ # lm(ndvi_3mo ~ scale(co2_trend)*scale(I(pe_anom_12mo/mape))+mape+vc, data=.)
+
+summary(qfit)
+
+
+# lt_lcf_npv <- lcf[is.na(veg_class)==F][date <= ymd('2019-09-01')][,`:=`(year_c = year-center_year_lcf)] %>% 
+#   .[,.(beta = list(unname(fastLm(X = cbind(1,year_c), 
+#                                  y=npv, data=.SD)$coefficients))), 
+#     by=.(x,y,season)] %>% 
+#   .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2]), by=.(x,y,season)] %>% 
+#   .[,.(x,y,season,b0,b1)]
+
+library(RcppArmadillo)
+system.time(
+o <- dat[is.na(ndvi_3mo)==FALSE][is.na(pe_anom_12mo)==FALSE][date<=ymd("2019-09-30")]%>% 
+  .[,.(beta = list(unname(fastLm(X = cbind(1,pe_12mo/mape,cco2,cco2*pe_12mo/mape), 
+                                 y=ndvi_3mo, data=.SD)$coefficients))), 
+    by=.(x,y,season)] %>% 
+  .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2],b2=unlist(beta)[3],b3=unlist(beta)[4]), by=.(x,y,season)] %>% 
+  .[,`:=`(beta_factor = 412*b2 - 341*b2)]
+)
+o <- o %>% filter(between(b0,0,1)) 
+o %>% 
+  ggplot(data=.,aes(x,y,fill=(b2*71 + b3*1)/b0))+
+  geom_tile()+
+  coord_equal()+
+  scale_fill_gradient2(
+                       limits=c(-0.5,0.5),
+                       oob=scales::squish)+
+  facet_wrap(~season,nrow = 1)+
+  theme_dark()
+
+o %>% 
+  ggplot(data=.,aes(x,y,fill=b3))+
+  geom_tile()+
+  coord_equal()+
+  scale_fill_gradient2(
+    limits=c(-0.005,0.005),
+    oob=scales::squish)+
+  facet_wrap(~season,nrow = 1)+
+  theme_dark()
+
+
+
+system.time(
+o2 <- dat[is.na(ndvi_3mo)==FALSE][is.na(pe_anom_12mo)==FALSE][date<=ymd("2019-09-30")]%>% 
+    .[,.(beta = list(unname(fastLm(X = cbind(1,pe_12mo/mape,tmax_anom_3mo,cco2), 
+                                   y=ndvi_3mo, data=.SD)$coefficients))), 
+      by=.(x,y,season)] %>% 
+    .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2],b2=unlist(beta)[3],b3=unlist(beta)[4]), by=.(x,y,season)]
+)
+o2 %>% 
+  filter(between(b0,0,1)) %>% 
+  ggplot(data=.,aes(x,y,fill=b0))+
+  geom_tile()+
+  geom_sf(inherit.aes = F, data=oz_poly,
+          fill='gray40',color='gray10')+
+  geom_tile()+
+  coord_sf(xlim = c(140,155),
+           ylim = c(-45,-10), 
+           expand = FALSE)+
+  scale_fill_viridis_c(limits=c(0,1),
+    oob=scales::squish)+
+  facet_wrap(~season,nrow = 1)+
+  theme_dark()
+o2 %>% 
+  filter(between(b0,0,1)) %>% 
+  ggplot(data=.,aes(x,y,fill=b1))+
+  geom_tile()+
+  coord_equal()+
+  scale_fill_viridis_c(limits=c(0,0.1),
+                       oob=scales::squish)+
+  facet_wrap(~season,nrow = 1)+
+  theme_dark()
+o2 %>% 
+  filter(between(b0,0,1)) %>% 
+  ggplot(data=.,aes(x,y,fill=b2))+
+  geom_tile()+
+  coord_equal()+
+  scale_fill_gradient2(limits=c(-0.05,0.05),
+                       oob=scales::squish)+
+  facet_wrap(~season,nrow = 1)+
+  theme_dark()
+o2 %>% 
+  filter(between(b0,0,1)) %>% 
+  ggplot(data=.,aes(x,y,fill=100*b3*71/b0))+
+  geom_tile()+
+  coord_equal()+
+  scale_fill_gradient2(
+    limits=c(-25,25),
+    oob=scales::squish)+
+  facet_wrap(~season,nrow = 1)+
+  theme_dark()
+
+
+
+dat[id==1000]$mape
+system.time(
+  qfit <- dat[id==1000] %>% lm(ndvi_3mo~co2_trend*pe_anom_12mo, data=.)
+)
+system.time(
+  qfit2 <- with(dat[id==1000], RcppArmadillo::fastLm(
+    X=cbind(1,co2_trend,pe_anom_12mo,co2_trend*pe_anom_12mo),
+    y=ndvi_3mo, data=.))
+  )
+
+
+100*c(predict(qfit, newdata=data.frame(co2_trend=420,pe_anom_12mo=0)) - 
+predict(qfit, newdata=data.frame(co2_trend=340,pe_anom_12mo=0)))/
+  predict(qfit, newdata=data.frame(co2_trend=340,pe_anom_12mo=0))
+
+expand_grid(mape = seq(0.3,0.4,length.out = 100), 
+            co2_trend = seq(340,412,length.out = 10), 
+            vc=dat$vc[100000],
+            # pe_anom_12mo = c(-0.15,0,0.15)
+            percent_ppet_anom = c(-33,0,33)
+  ) %>% 
+  mutate(cco2 = co2_trend - center_co2) %>% 
+  mutate(pe_anom_12mo = mape*percent_ppet_anom/100) %>% 
+  mutate(pe_12mo = mape+pe_anom_12mo) %>% 
+  filter(pe_12mo > 0) %>%
+  mutate(pred_ndvi = predict(qfit, newdata=.)) %>% 
+  # mutate(pred_evi2 = predict(l_evi2, newdata=.)) %>% 
+  # mutate(pred_nirv = predict(l_nirv, newdata=.)) %>% 
+  # mutate(pred_gv = predict(l_gv, newdata=.)) %>% 
+  select(pred_ndvi,mape,percent_ppet_anom,co2_trend) %>% 
+  gather(-co2_trend, -mape,-percent_ppet_anom, key='VI', value='value') %>% 
+  ggplot(data=.,aes(mape, value,color=co2_trend,group=co2_trend))+
+  geom_line()+
+  scale_color_viridis_c(option='B')+
+  facet_grid(VI~percent_ppet_anom,labeller = label_both,scales='free')
+
 
 
 # Asym-Drop*exp(-exp(lrc)*x^pwr)

@@ -128,6 +128,7 @@ dat <- dat[is.na(vc)==F]
 dat <- dat[str_detect(vc,"Forests") | 
              str_detect(vc, "Eucalypt") |
              str_detect(vc, "Rainforests")]
+dat <- dat[x>=140] # Filter to Lon >= 140
 dat <- dat[ndvi_m>0][ndvi_anom_sd > -3.5 & ndvi_anom_sd < 3.5]
 #*******************************************************************************
 
@@ -160,7 +161,7 @@ n4 <- train_dat %>%
          Asym-Drop*exp(-exp(lrc)*mape^pwr) + 
          B1*(pe_anom_12mo/mape) + B2*(cco2) + B3*(cco2*pe_anom_12mo/mape),
        data = .,
-       iter = 5,
+       iter = 1,
        start_lower = c(Asym=0.0, Drop=0.6,lrc=0,pwr=0,B1=-0.5,B2=0,B3=0),
        start_upper = c(Asym=1, Drop=1,lrc=1,pwr=2,B1=0.5,B2=0.001,B3=0.001),
        # supp_errors = 'Y',
@@ -172,7 +173,7 @@ n4_evi2 <- train_dat %>%
                                  Asym-Drop*exp(-exp(lrc)*mape^pwr) + 
                                  B1*(pe_anom_12mo/mape) + B2*(cco2) + B3*(cco2*pe_anom_12mo/mape),
                                data = .,
-                               iter = 5,
+                               iter = 1,
                                start_lower = c(Asym=0.0, Drop=0.6,lrc=0,pwr=0,B1=-0.5,B2=0,B3=0),
                                start_upper = c(Asym=1, Drop=1,lrc=1,pwr=2,B1=0.5,B2=0.001,B3=0.001),
                                # supp_errors = 'Y',
@@ -184,7 +185,7 @@ n4_nirv <- train_dat %>%
                                  Asym-Drop*exp(-exp(lrc)*mape^pwr) + 
                                  B1*(pe_anom_12mo/mape) + B2*(cco2) + B3*(cco2*pe_anom_12mo/mape),
                                data = .,
-                               iter = 5,
+                               iter = 1,
                                start_lower = c(Asym=0.0, Drop=0.6,lrc=0,pwr=0,B1=-0.5,B2=0,B3=0),
                                start_upper = c(Asym=1, Drop=1,lrc=1,pwr=2,B1=0.5,B2=0.001,B3=0.001),
                                # supp_errors = 'Y',
