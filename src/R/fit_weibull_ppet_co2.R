@@ -19,11 +19,12 @@ frac <- frac %>% as.data.table() %>% lazy_dt() %>%
   filter(is.na(npv)==F) %>% 
   as.data.table()
 
-vi <- arrow::read_parquet("../data_general/MCD43/MCD64_AVHRR_NDVI_hybrid_2020-05-26.parquet", 
+vi <- arrow::read_parquet("../data_general/MCD43/MCD43_AVHRR_NDVI_hybrid_2020-08-08.parquet", 
                           col_select = c("x","y","date",
-                                         "ndvi_c","ndvi_m","ndvi_hyb", 
-                                         "nirv_m","nirv_hyb",
-                                         "evi2_hyb","evi2_m")) %>% 
+                                         "ndvi_c","ndvi_mcd","ndvi_hyb", 
+                                         "nirv_c","nirv_mcd","nirv_hyb",
+                                         "evi2_mcd","evi2_hyb",
+                                         'fpar','fpar_hyb')) %>% 
   as.data.table()
 vi <- frac[vi,on=.(x,y,date)]
 
@@ -54,8 +55,7 @@ dat <- arrow::read_parquet("/home/sami/scratch/ARD_ndvi_aclim_anoms.parquet",
                              "tmax_anom","tmax_anom_sd", "matmax",
                              "tmin","tmin_anom",
                              "vpd15","vpd15_anom","vpd15_anom_sd","mavpd15",
-                             "vpd15_anom_3mo",
-                             "vpd15_u",
+                             # "vpd15_u",
                              "pet","mapet",
                              "pet_anom","pet_anom_3mo","pet_u","pet_sd",
                              "pet_anom_sd",
@@ -128,15 +128,18 @@ dat <- dat[is.na(vc)==F]
 dat <- dat[str_detect(vc,"Forests") | 
              str_detect(vc, "Eucalypt") |
              str_detect(vc, "Rainforests")]
-dat <- dat[x>=140] # Filter to Lon >= 140
-dat <- dat[ndvi_m>0][ndvi_anom_sd > -3.5 & ndvi_anom_sd < 3.5]
+dat <- dat[x>= 140] # FILTER TO LON >= 140
+dat <- dat[ndvi_hyb>0][ndvi_anom_sd > -3.5 & ndvi_anom_sd < 3.5]
+dat[,`:=`(pe_anom_12mo = pe_12mo - mape)]
+dat[,`:=`(epoch = ifelse(date<ymd("2000-12-31"),'avhrr','modis'))]
+dat <- dat %>% mutate(epoch = as_factor(epoch), 
+                      season = factor(season, levels=c("SON","DJF","MAM","JJA")))
 #*******************************************************************************
 
 #split test & train ------------------------------------------------------------
-dat[,`:=`(pe_anom_12mo = pe_12mo - mape)]
 train_dat <- dat[season=='SON'][mape<1.5][is.na(ndvi_3mo)==F & is.na(pe_12mo)==F][sample(.N, 1e6)]
 test_dat <- dat[season=='SON'][mape<1.5][is.na(ndvi_3mo)==F & is.na(pe_12mo)==F][sample(.N, 1e6)]
-gc(reset = T, full = T)
+gc(full = T)
 #*******************************************************************************
 
 test_dat %>% mutate(val = pe_anom_12mo/mape) %>% pull(val) %>% quantile(., c(0.1,0.5,0.9))
@@ -159,11 +162,12 @@ summary(w4)
 n4 <- train_dat %>% 
   nls.multstart::nls_multstart(ndvi_3mo ~ 
          Asym-Drop*exp(-exp(lrc)*mape^pwr) + 
-         B1*(pe_anom_12mo/mape) + B2*(cco2) + B3*(cco2*pe_anom_12mo/mape),
+         B1*(pe_anom_12mo/mape) + B2*(cco2) + B3*(cco2*pe_anom_12mo/mape) + 
+         B4*as.numeric(epoch),
        data = .,
        iter = 1,
-       start_lower = c(Asym=0.0, Drop=0.6,lrc=0,pwr=0,B1=-0.5,B2=0,B3=0),
-       start_upper = c(Asym=1, Drop=1,lrc=1,pwr=2,B1=0.5,B2=0.001,B3=0.001),
+       start_lower = c(Asym=0.0, Drop=0.6,lrc=0,pwr=0,B1=-0.5,B2=0,B3=0,B4=-0.1),
+       start_upper = c(Asym=1, Drop=1,lrc=1,pwr=2,B1=0.5,B2=0.001,B3=0.001,B4=0.1),
        # supp_errors = 'Y',
        na.action = na.omit)
 summary(n4)
@@ -171,11 +175,12 @@ summary(n4)
 n4_evi2 <- train_dat %>% 
   nls.multstart::nls_multstart(evi2_3mo ~ 
                                  Asym-Drop*exp(-exp(lrc)*mape^pwr) + 
-                                 B1*(pe_anom_12mo/mape) + B2*(cco2) + B3*(cco2*pe_anom_12mo/mape),
+                                 B1*(pe_anom_12mo/mape) + B2*(cco2) + B3*(cco2*pe_anom_12mo/mape) + 
+                                 B4*as.numeric(epoch),
                                data = .,
                                iter = 1,
-                               start_lower = c(Asym=0.0, Drop=0.6,lrc=0,pwr=0,B1=-0.5,B2=0,B3=0),
-                               start_upper = c(Asym=1, Drop=1,lrc=1,pwr=2,B1=0.5,B2=0.001,B3=0.001),
+                               start_lower = c(Asym=0.0, Drop=0.6,lrc=0,pwr=0,B1=-0.5,B2=0,B3=0,B4=-0.1),
+                               start_upper = c(Asym=1, Drop=1,lrc=1,pwr=2,B1=0.5,B2=0.001,B3=0.001,B4=0.1),
                                # supp_errors = 'Y',
                                na.action = na.omit)
 summary(n4)
@@ -183,11 +188,12 @@ summary(n4)
 n4_nirv <- train_dat %>% 
   nls.multstart::nls_multstart(nirv_3mo ~ 
                                  Asym-Drop*exp(-exp(lrc)*mape^pwr) + 
-                                 B1*(pe_anom_12mo/mape) + B2*(cco2) + B3*(cco2*pe_anom_12mo/mape),
+                                 B1*(pe_anom_12mo/mape) + B2*(cco2) + B3*(cco2*pe_anom_12mo/mape) + 
+                                 B4*as.numeric(epoch),
                                data = .,
                                iter = 1,
-                               start_lower = c(Asym=0.0, Drop=0.6,lrc=0,pwr=0,B1=-0.5,B2=0,B3=0),
-                               start_upper = c(Asym=1, Drop=1,lrc=1,pwr=2,B1=0.5,B2=0.001,B3=0.001),
+                               start_lower = c(Asym=0.0, Drop=0.6,lrc=0,pwr=0,B1=-0.5,B2=0,B3=0,B4=-0.1),
+                               start_upper = c(Asym=1, Drop=1,lrc=1,pwr=2,B1=0.5,B2=0.001,B3=0.001,B4=0.1),
                                # supp_errors = 'Y',
                                na.action = na.omit)
 summary(n4)
@@ -244,15 +250,15 @@ n8 <- train_dat %>%
 summary(n8)
 
 
-yardstick::rsq_trad_vec(test_dat$evi2_3mo,estimate=predict(n4,newdata=test_dat))
-yardstick::rsq_trad_vec(test_dat$evi2_3mo,estimate=predict(n5,newdata=test_dat))
-yardstick::rsq_trad_vec(test_dat$evi2_3mo,estimate=predict(n7,newdata=test_dat))
-yardstick::rsq_trad_vec(test_dat$evi2_3mo,estimate=predict(n8,newdata=test_dat))
+yardstick::rsq_trad_vec(test_dat$ndvi_3mo,estimate=predict(n4,newdata=test_dat))
+yardstick::rsq_trad_vec(test_dat$ndvi_3mo,estimate=predict(n5,newdata=test_dat))
+yardstick::rsq_trad_vec(test_dat$ndvi_3mo,estimate=predict(n7,newdata=test_dat))
+yardstick::rsq_trad_vec(test_dat$ndvi_3mo,estimate=predict(n8,newdata=test_dat))
 
-yardstick::rmse_vec(test_dat$evi2_3mo,estimate=predict(n4,newdata=test_dat))
-yardstick::rmse_vec(test_dat$evi2_3mo,estimate=predict(n5,newdata=test_dat))
-yardstick::rmse_vec(test_dat$evi2_3mo,estimate=predict(n7,newdata=test_dat))
-yardstick::rmse_vec(test_dat$evi2_3mo,estimate=predict(n8,newdata=test_dat))
+yardstick::rmse_vec(test_dat$ndvi_3mo,estimate=predict(n4,newdata=test_dat))
+yardstick::rmse_vec(test_dat$ndvi_3mo,estimate=predict(n5,newdata=test_dat))
+yardstick::rmse_vec(test_dat$ndvi_3mo,estimate=predict(n7,newdata=test_dat))
+yardstick::rmse_vec(test_dat$ndvi_3mo,estimate=predict(n8,newdata=test_dat))
 
 bbmle::AICtab(n4,n5,n6,n7,n8)
 
@@ -299,9 +305,10 @@ o_preds %>%
 
 # n4_preds NDVI ----------------------------------------------------------------
 n4_preds <- expand_grid(season=unique(train_dat$season),
-                        co2 = seq(min(dat$co2_int),max(dat$co2_int),length.out=50),
+                        co2 = seq(min(dat$co2_int),max(dat$co2_int),length.out=100),
                         mape = seq(0.05,1.5,length.out = 200), 
-                        pct_anom = c(-50,0,50)) %>% 
+                        pct_anom = c(-50,0,50), 
+                        epoch = 2) %>% 
   mutate(pe_anom_12mo = 0.01*pct_anom*mape) %>%
   # mutate(pe_12mo = pe_anom_12mo+mape) %>% 
   mutate(cco2 = co2-center_co2) %>% 
@@ -341,8 +348,9 @@ ggsave(filename = 'figures/n4_weibull_ppet_x_co2.png',
 
 # n4_preds EVI2 ----------------------------------------------------------------
 n4_preds_evi2 <- expand_grid(season=unique(train_dat$season),
-                        co2 = seq(min(dat$co2_int),max(dat$co2_int),length.out=50),
-                        mape = seq(0.05,1.5,length.out = 200), 
+                        co2 = seq(min(dat$co2_int),max(dat$co2_int),length.out=100),
+                        mape = seq(0.05,1.5,length.out = 200),
+                        epoch=2,
                         pct_anom = c(-50,0,50)) %>% 
   mutate(pe_anom_12mo = 0.01*pct_anom*mape) %>%
   # mutate(pe_12mo = pe_anom_12mo+mape) %>% 
@@ -383,8 +391,9 @@ ggsave(filename = 'figures/n4_evi2_weibull_ppet_x_co2.png',
 
 # n4_preds NIRV ----------------------------------------------------------------
 n4_preds_nirv <- expand_grid(season=unique(train_dat$season),
-                        co2 = seq(min(dat$co2_int),max(dat$co2_int),length.out=50),
+                        co2 = seq(min(dat$co2_int),max(dat$co2_int),length.out=100),
                         mape = seq(0.05,1.5,length.out = 200), 
+                        epoch=2,
                         pct_anom = c(-50,0,50)) %>% 
   mutate(pe_anom_12mo = 0.01*pct_anom*mape) %>%
   # mutate(pe_12mo = pe_anom_12mo+mape) %>% 

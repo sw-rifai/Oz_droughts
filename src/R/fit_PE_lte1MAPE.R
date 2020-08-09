@@ -19,11 +19,12 @@ frac <- frac %>% as.data.table() %>% lazy_dt() %>%
   filter(is.na(npv)==F) %>% 
   as.data.table()
 
-vi <- arrow::read_parquet("../data_general/MCD43/MCD64_AVHRR_NDVI_hybrid_2020-05-26.parquet", 
+vi <- arrow::read_parquet("../data_general/MCD43/MCD43_AVHRR_NDVI_hybrid_2020-08-08.parquet", 
                           col_select = c("x","y","date",
-                                         "ndvi_c","ndvi_m","ndvi_hyb", 
-                                         "nirv_m","nirv_hyb",
-                                         "evi2_hyb","evi2_m")) %>% 
+                                         "ndvi_c","ndvi_mcd","ndvi_hyb", 
+                                         "nirv_c","nirv_mcd","nirv_hyb",
+                                         "evi2_mcd","evi2_hyb",
+                                         'fpar','fpar_hyb')) %>% 
   as.data.table()
 vi <- frac[vi,on=.(x,y,date)]
 
@@ -128,11 +129,14 @@ dat <- dat[str_detect(vc,"Forests") |
              str_detect(vc, "Eucalypt") |
              str_detect(vc, "Rainforests")]
 dat <- dat[x>= 140] # FILTER TO LON >= 140
-dat <- dat[ndvi_m>0][ndvi_anom_sd > -3.5 & ndvi_anom_sd < 3.5]
+dat <- dat[ndvi_hyb>0][ndvi_anom_sd > -3.5 & ndvi_anom_sd < 3.5]
+dat[,`:=`(pe_anom_12mo = pe_12mo - mape)]
+dat[,`:=`(epoch = ifelse(date<ymd("2000-12-31"),'avhrr','modis'))]
+dat <- dat %>% mutate(epoch = as_factor(epoch), 
+                      season = factor(season, levels=c("SON","DJF","MAM","JJA")))
 #*******************************************************************************
 
 #split test & train ------------------------------------------------------------
-dat[,`:=`(pe_anom_12mo = pe_12mo - mape)]
 train_dat <- dat[season=='SON'][mape<1.5][is.na(ndvi_3mo)==F & is.na(pe_12mo)==F][sample(.N, 3e6)]
 test_dat <- dat[season=='SON'][mape<1.5][is.na(ndvi_3mo)==F & is.na(pe_12mo)==F][sample(.N, 1e6)]
 gc(full = T)
@@ -188,7 +192,7 @@ l_nirv_2 <- lm(nirv_3mo~scale(cco2)*I(pe_anom_12mo/mape)+scale(cco2)*scale(mape)
 summary(l_nirv_2)
 l_gv_2 <- lm(gv~scale(cco2)*I(pe_anom_12mo/mape)+scale(cco2)*scale(mape), 
            data=dat[season=="SON"][mape<1][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5][date>=ymd("2000-12-31")])
-summary(l_gv)
+summary(l_gv_2)
 
 dat[date==ymd("2000-12-01")]$co2_trend
 p_2 <- expand_grid(mape = seq(0.0837,1,length.out = 100), 
@@ -218,12 +222,14 @@ p_2 <- expand_grid(mape = seq(0.0837,1,length.out = 100),
   theme_linedraw(); p_2
 
 
-l_ndvi_3 <- lm(ndvi_3mo~scale(cco2)*I(pe_anom_12mo/mape)+scale(cco2)*scale(mape), 
-               data=dat[season=="SON"][mape<1][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5][date<ymd("2019-09-30")])
+l_ndvi_3 <- lm(ndvi_3mo~scale(cco2)*I(pe_anom_12mo/mape)+scale(cco2)*scale(mape)+epoch, 
+               data=dat[season=="SON"][mape<1][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5][date<ymd("2019-09-30")] %>% 
+                 mutate(epoch = ifelse(date<ymd("2000-12-31"),'avhrr','modis')))
 summary(l_ndvi_3)
 p_3 <- expand_grid(mape = seq(0.0837,1,length.out = 100), 
             co2_trend = seq(310,412,length.out = 100), 
             vc=dat$vc[100000],
+            epoch='modis',
             # pe_anom_12mo = c(-0.15,0,0.15)
             percent_ppet_anom = c(-50,0,50)
 ) %>% 
@@ -446,19 +452,22 @@ e1|e2
 ggsave(e1|e2, filename = 'figures/big_linearModel_by_MAPPET_range_by_Epoch.png', 
        width=34, height=18, units='cm')
 
+
 dat[is.na(season)==FALSE][mape<1.5][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5] %>% 
   as_tibble() %>% 
+  mutate(epoch = ifelse(date < ymd("2000-12-31"),'avhrr','modis')) %>% 
   mutate(mape_d = cut_width(mape, 0.15)) %>% 
   mutate(season = factor(season, levels=c("SON","DJF","MAM","JJA"),ordered = T)) %>% 
   nest(data = c(-mape_d,-season)) %>% 
   mutate(fit = map(data, 
-       ~lm(ndvi_3mo~scale(co2_trend)*scale(I(pe_anom_12mo/mape))+vc, 
+       ~lm(ndvi_3mo~scale(co2_trend)+scale(I(pe_anom_12mo/mape))+vc+epoch, 
            # ~lm(ndvi_3mo~scale(co2_trend)+scale(I(pe_anom_12mo/mape)), 
            data=.x)), 
          tidied = map(fit, tidy)) %>% 
   unnest(tidied) %>% 
   filter(str_detect(term,"vc")==F) %>%
   filter(str_detect(term,"Intercept")==F) %>%
+  filter(str_detect(term,"epoch")==F) %>%
   # filter(str_detect(term, 'co2') | 
   #          str_detect(term, 'tmax_anom_3mo')|
   #          str_detect(term, 'pe_anom_12mo')) %>% 
@@ -473,13 +482,14 @@ dat[is.na(season)==FALSE][mape<1.5][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5] %>%
   #                       limits=c(0,0.05),oob=scales::squish)+
   scale_x_discrete(guide = guide_axis(n.dodge = 1,angle = 90))+
   labs(x='Mean Annual P:PET Range', 
-       title='NDVI Linear Model Effects', 
-       subtitle = 'approx. 19 million obs')+
-  facet_grid(season~term, scales = 'free_y', 
+       title='NDVI Linear Model Effects (1982-2019)', 
+       subtitle = 'N = 15.6e6   NDVI~CO2+P:PET_anom+Veg.Class.+Sensor')+
+  facet_grid(term~season, scales = 'free_y', 
              labeller = labeller(
-    term=c("scale(co2_trend)"="CO2", 
-           "scale(co2_trend):scale(I(pe_anom_12mo/mape))"="CO2 x P:PET_anom", 
-           "scale(I(pe_anom_12mo/mape))"="P:PET anom")))+
+    term=c("scale(co2_trend)"="CO2",
+           "scale(co2_trend):scale(I(pe_anom_12mo/mape))"="CO2 x P:PET_anom",
+           "scale(I(pe_anom_12mo/mape))"="P:PET anom"))
+    )+
   theme_linedraw()
 ggsave(filename = 'figures/big_linearModel_by_MAPPET_range.png', 
        height=14, width=16, units='cm')
@@ -501,16 +511,29 @@ summary(qfit)
 
 library(RcppArmadillo)
 system.time(
-o <- dat[is.na(ndvi_3mo)==FALSE][is.na(pe_anom_12mo)==FALSE][date<=ymd("2019-09-30")]%>% 
-  .[,.(beta = list(unname(fastLm(X = cbind(1,pe_12mo/mape,cco2,cco2*pe_12mo/mape), 
+o <- dat[is.na(ndvi_3mo)==FALSE][is.na(pe_anom_12mo)==FALSE][date<=ymd("2019-09-30")]%>%
+  .[,.(beta = list(unname(fastLm(X = cbind(1,pe_12mo/mape,cco2,epoch), 
                                  y=ndvi_3mo, data=.SD)$coefficients))), 
     by=.(x,y,season)] %>% 
-  .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2],b2=unlist(beta)[3],b3=unlist(beta)[4]), by=.(x,y,season)] %>% 
+  .[,`:=`(b1=unlist(beta)[1], b2=unlist(beta)[2],b3=unlist(beta)[3],b4=unlist(beta)[4]), by=.(x,y,season)] %>% 
   .[,`:=`(beta_factor = 412*b2 - 341*b2)]
 )
-o <- o %>% filter(between(b0,0,1)) 
+o <- o %>% filter(between(b1,0,1)) %>% 
+  filter(between(b2, -1,1))
 o %>% 
-  ggplot(data=.,aes(x,y,fill=(b2*71 + b3*1)/b0))+
+  ggplot(data=.,aes(x,y,fill=100*42*b3/(b1+b2+b4*1.5)))+
+  geom_tile()+
+  coord_equal()+
+  scico::scale_fill_scico(
+    palette = 'roma',
+    direction=1,                      
+    limits=c(-30,30),
+    oob=scales::squish)+
+  facet_wrap(~season,nrow = 1)+
+  theme_dark()
+
+o %>% 
+  ggplot(data=.,aes(x,y,fill=(b3*38)/b1))+
   geom_tile()+
   coord_equal()+
   scale_fill_gradient2(
@@ -524,7 +547,7 @@ o %>%
   geom_tile()+
   coord_equal()+
   scale_fill_gradient2(
-    limits=c(-0.005,0.005),
+    limits=c(-0.01,0.01),
     oob=scales::squish)+
   facet_wrap(~season,nrow = 1)+
   theme_dark()

@@ -1,12 +1,12 @@
 library(stars); library(tidyverse); library(data.table); library(lubridate)
 library(dtplyr, warn.conflicts = FALSE)
-
+setDTthreads(threads=0)
 # AVHRR SR ----------------------------------------------------------------
-dat_s <- stars::read_stars("../data_general/AVHRR_CDRv5_VI/AVHRR_longTermSdNDVI_EastOz_2007_2014.tif") %>% 
+dat_s <- stars::read_stars("../data_general/AVHRR_CDRv5_VI/AVHRR_longTermSdNDVI_EastOz_2007_2014.tif",proxy = F) %>% 
   as_tibble() %>% 
   as.data.table() %>% 
   set_names(c("x","y","sd"))
-dat_red <- stars::read_stars("../data_general/AVHRR_CDRv5_VI/AVHRR_SR_median_EastOz_1982_2019.tif") %>%
+dat_red <- stars::read_stars("../data_general/AVHRR_CDRv5_VI/AVHRR_SR_median_EastOz_1982_2019.tif",proxy=F) %>%
   slice('band', seq(1,by=2,length.out = 456)) %>% 
   st_set_dimensions(., 3, 
                     values=seq(ymd("1982-01-01"),ymd("2019-12-01"),by="1 month"), 
@@ -14,7 +14,8 @@ dat_red <- stars::read_stars("../data_general/AVHRR_CDRv5_VI/AVHRR_SR_median_Eas
   as_tibble() %>% 
   as.data.table() %>% 
   set_names(c("x","y","date","red"))
-dat_nir <- stars::read_stars("../data_general/AVHRR_CDRv5_VI/AVHRR_SR_median_EastOz_1982_2019.tif") %>%
+dat_nir <- stars::read_stars("../data_general/AVHRR_CDRv5_VI/AVHRR_SR_median_EastOz_1982_2019.tif", 
+                             proxy=F) %>%
   slice('band', seq(2,by=2,length.out = 456)) %>% 
   st_set_dimensions(., 3, 
                     values=seq(ymd("1982-01-01"),ymd("2019-12-01"),by="1 month"), 
@@ -32,7 +33,7 @@ dat <- dat_s[dat,on=.(x,y)]
 
 # add the NVIS vegetation classes
 base <- stars::read_stars('../data_general/AVHRR_CDRv5_VI/AVHRR_SR_median_EastOz_1982_2019.tif', 
-                          RasterIO = list(bands=1))
+                          RasterIO = list(bands=1),proxy=F)
 nvis <- stars::read_stars("../data_general/NVIS/nvis51_majorVegClass_0p05.tif")
 nvis2 <- st_warp(src=nvis, dest=base[,,], use_gdal = T)
 names(nvis2) <- "veg_class"
@@ -45,7 +46,7 @@ vc <- left_join(nvis, codes, by='veg_class')
 dat <- vc[dat, on=.(x,y)]
 
 # Attach the solar zenith angle -------------------------------------------
-sz <- stars::read_stars("../data_general/AVHRR_CDRv5_VI/AVHRR_SolarZenithAngle_median_EastOz_1982_2019.tif") %>%
+sz <- stars::read_stars("../data_general/AVHRR_CDRv5_VI/AVHRR_SolarZenithAngle_median_EastOz_1982_2019.tif",proxy=F) %>%
   # slice('band', seq(1,by=2,length.out = 456)) %>% 
   st_set_dimensions(., 3, 
                     values=seq(ymd("1982-01-01"),ymd("2019-12-01"),by="1 month"), 
@@ -205,22 +206,24 @@ gc()
 
 
 # MCD43  ------------------------------------------------------------
-o1 <- stars::read_stars("../data_general/MCD43/MCD64A4_SR_5km_EastOz_mmean_NVISmask_2001_2019.tif") %>% 
-  slice('band', seq(1,by=2,to = 456)) %>% 
+o1 <- stars::read_stars("../data_general/MCD43/MCD43A4_red_nir_5000m_EastOz_mMean_maskFireDefor_2001-01-01_to_2020-07-30.tif", 
+                        proxy=F) %>% 
+  slice('band', seq(1,by=2,to = 470)) %>% 
   st_set_dimensions(., 3, 
-                    values=seq(ymd("2001-01-01"),ymd("2019-12-01"),by="1 month"), 
+                    values=seq(ymd("2001-01-01"),ymd("2020-07-01"),by="1 month"), 
                     names = 'date') %>%  
   as_tibble() %>% 
-  as.data.table() %>% 
-  set_names(c("x","y","date","red"))
-o2 <- stars::read_stars("../data_general/MCD43/MCD64A4_SR_5km_EastOz_mmean_NVISmask_2001_2019.tif") %>% 
-  slice('band', seq(2,by=2,to = 456)) %>% 
-  st_set_dimensions(., 3, 
-                    values=seq(ymd("2001-01-01"),ymd("2019-12-01"),by="1 month"), 
-                    names = 'date') %>%  
-  as_tibble() %>% 
-  as.data.table() %>% 
+  as.data.table() %>%
   set_names(c("x","y","date","nir"))
+o2 <- stars::read_stars("../data_general/MCD43/MCD43A4_red_nir_5000m_EastOz_mMean_maskFireDefor_2001-01-01_to_2020-07-30.tif", 
+                        proxy=F) %>% 
+  slice('band', seq(2,by=2,to = 470)) %>% 
+  st_set_dimensions(., 3, 
+                    values=seq(ymd("2001-01-01"),ymd("2020-07-01"),by="1 month"), 
+                    names = 'date') %>%  
+  as_tibble() %>% 
+  as.data.table() %>%
+  set_names(c("x","y","date","red"))
 
 o <- o1[o2,on=.(x,y,date)]
 rm(o1,o2); gc()
@@ -246,74 +249,39 @@ fp <- stars::read_stars("../data_general/MCD15/MCD15A3_fpar_5000m_EastOz_mMean_m
   as.data.table() %>% 
   set_names(c("x","y",'date',"fpar"))
 
+
+# END SECTION *************************************************************************
+
+
+# AVHRR CDR FAPAR ---------------------------------------------------------
+fp_cdr <- stars::read_stars("../data_general/AVHRR_CDRv5_VI/AVHRR_CDRv5_fpar_5000m_EastOz_mMean_1981_2000.tif", 
+                            proxy=F) %>% 
+  st_set_dimensions(., 3,values=seq(ymd("1981-08-01"),ymd("2000-12-01"),by='1 month')) %>% 
+  as_tibble() %>% 
+  as.data.table() %>% 
+  set_names(c("x","y","date","fapar"))
+fp_cdr2 <- stars::read_stars("../data_general/AVHRR_CDRv5_VI/AVHRR_CDRv5_fpar_5000m_EastOz_mMean_maskFireDefor_2001_2019.tif", 
+                            proxy=F) %>% 
+  st_set_dimensions(., 3,values=seq(ymd("2001-01-01"),ymd("2019-12-01"),by='1 month')) %>% 
+  as_tibble() %>% 
+  as.data.table() %>% 
+  set_names(c("x","y","date","fapar"))
+fp_a <- rbindlist(list(fp_cdr, fp_cdr2))
+rm(fp_cdr, fp_cdr2)
+gc()
+
+fp <- merge(fp_a, fp, by=c("x","y","date"), all=TRUE)
 fp <- fp[,`:=`(year=year(date))]
+# END SECTION ******************************************************************
 
-# o <- o %>% lazy_dt() %>% select(x,y,date,ndvi_mcd,evi2_mcd,nirv_mcd) %>% as.data.table()
-# hyb <- o[dat,on=.(x,y,date)]
-
-# hyb <- hyb[is.na(ndvi_mcd)==F & is.na(ndvi)==F]
-
-
-# # MYD13A2 Aqua ------------------------------------------------------------
-# o1 <- stars::read_stars("../data_general/MYD13A2/MYD13A2_SR_5km_EastOz_mmean_NVISmask_2003_2019.tif") %>% 
-#   slice('band', seq(1,by=2,to = 408)) %>% 
-#   st_set_dimensions(., 3, 
-#                     values=seq(ymd("2003-01-01"),ymd("2019-12-01"),by="1 month"), 
-#                     names = 'date') %>%  
-#   as_tibble() %>% 
-#   as.data.table() %>% 
-#   set_names(c("x","y","date","red"))
-# o2 <- stars::read_stars("../data_general/MYD13A2/MYD13A2_SR_5km_EastOz_mmean_NVISmask_2003_2019.tif") %>% 
-#   slice('band', seq(2,by=2,to = 408)) %>% 
-#   st_set_dimensions(., 3, 
-#                     values=seq(ymd("2003-01-01"),ymd("2019-12-01"),by="1 month"), 
-#                     names = 'date') %>%  
-#   as_tibble() %>% 
-#   as.data.table() %>% 
-#   set_names(c("x","y","date","nir"))
-# 
-# o <- o1[o2,on=.(x,y,date)]
-# rm(o1,o2); gc()
-# 
-# o <- o[,`:=`(ndvi_myd=(nir-red)/(nir+red))]
-# o <- o[,`:=`(year=year(date))]
-# o <- o %>% lazy_dt() %>% 
-#   filter(is.na(ndvi_myd)==F & red > 0 & nir > 0) %>% 
-#   as.data.table()
-# o <- o %>% lazy_dt() %>% select(x,y,date,ndvi_myd) %>% as.data.table()
-# hyb <- o[hyb,on=.(x,y,date)]
-# 
-# # Import MOD13A2 Terra -----------------------------------------------------------
-# o1 <- stars::read_stars("../data_general/MOD13A2/MOD13A2_SR_5km_EastOz_mmean_NVISmask_2003_2019.tif") %>% 
-#   slice('band', seq(1,by=2,to = 408)) %>% 
-#   st_set_dimensions(., 3, 
-#                     values=seq(ymd("2003-01-01"),ymd("2019-12-01"),by="1 month"), 
-#                     names = 'date') %>%  
-#   as_tibble() %>% 
-#   as.data.table() %>% 
-#   set_names(c("x","y","date","red"))
-# o2 <- stars::read_stars("../data_general/MOD13A2/MOD13A2_SR_5km_EastOz_mmean_NVISmask_2003_2019.tif") %>% 
-#   slice('band', seq(2,by=2,to = 408)) %>% 
-#   st_set_dimensions(., 3, 
-#                     values=seq(ymd("2003-01-01"),ymd("2019-12-01"),by="1 month"), 
-#                     names = 'date') %>%  
-#   as_tibble() %>% 
-#   as.data.table() %>% 
-#   set_names(c("x","y","date","nir"))
-# 
-# o <- o1[o2,on=.(x,y,date)]
-# rm(o1,o2); gc()
-# 
-# o <- o[,`:=`(ndvi_mod=(nir-red)/(nir+red))] %>% 
-#      .[,`:=`(year=year(date))]
-# o <- o %>% lazy_dt() %>% 
-#   filter(is.na(ndvi_mod)==F & red > 0 & nir > 0) %>% 
-#   as.data.table()
-# o <- o %>% lazy_dt() %>% select(x,y,date,ndvi_mod) %>% as.data.table()
-# # End import *****************************************************************
-# 
-# # join MODIS Terra with the rest
-# hyb <- hyb[o,on=.(x,y,date)]
+# Merge fpar with others
+hyb <- merge(hyb, fp, by=c("x","y","date"),all=TRUE)
+hyb <- hyb %>% lazy_dt() %>% 
+  filter(str_detect(vc,"Eucalypt")==T |
+           str_detect(vc,"Rainforests")==T |
+           str_detect(vc,"Forest")==T | 
+           str_detect(vc,"Woodlands")) %>% 
+  as.data.table
 
 # Fit calibration model ---------------------------------------------------
 library(mgcv)
@@ -335,7 +303,10 @@ test <- hyb %>% lazy_dt() %>%
   sample_n(3e5) %>% 
   as.data.table()
 
-gc()
+gc(reset = T, full=T)
+rm(fp)
+gc(reset = T, full=T)
+
 # m0_ndvi <- bam(ndvi_mcd~
 #                  te(sz,ndvi_c)+
 #                  s(x,y)+s(vc,bs='re'),
@@ -361,15 +332,25 @@ gc()
 #                family=betar(link='logit'),
 #                select = TRUE, discrete=TRUE, method='fREML', nthreads = 8,
 #                data=train)
+
+# OLD --- worked, but probably produced some real wonky values
+# s(sz,k=5)+s(nir_c,k=5)+s(red_c,k=5)+s(ndvi_c,k=5,m = 1)+
+#   s(x,y)+s(vc,bs='re')
+
 m4_ndvi <- bam(ndvi_mcd~
-                 s(sz,k=5)+s(nir_c,k=5)+s(red_c,k=5)+s(ndvi_c,k=5,m = 1)+
-                 s(x,y)+s(vc,bs='re'),
+                 te(sz,ndvi_c, k=5,bs='cs')+
+                 nir_c+
+                 red_c+
+                 ndvi_c*vc+
+                 s(x,y),
                family=Gamma(link='log'),
                select = TRUE, discrete=TRUE, method='fREML', nthreads = 8,
-               data=train)
+               data=train[red_c>0 & red_c<1])
 # bbmle::AICtab(m0_ndvi, m1_ndvi, m2_ndvi, m3_ndvi, m4_ndvi)
 
 summary(m4_ndvi)
+plot(m4_ndvi,scale=0,scheme=2)
+
 # predict(m1_ndvi, type='response') %>% hist
 # gam.check(m1_ndvi)
 # gratia::qq_plot(m1_ndvi)
@@ -377,28 +358,52 @@ summary(m4_ndvi)
 # bbmle::AICtab(m0_ndvi,m1_ndvi)
 
 m4_evi2 <- bam(evi2_mcd~
-                 s(sz,k=5)+s(nir_c,k=5)+s(red_c,k=5)+s(ndvi_c,k=5,m = 1)+
-                 s(x,y)+s(vc,bs='re'),
+                 te(sz,ndvi_c, k=5,bs='cs')+
+                 nir_c+
+                 red_c+
+                 ndvi_c*vc+
+                 s(x,y),
                family=Gamma(link='log'),
                select = TRUE, discrete=TRUE, method='fREML', nthreads = 8,
                data=train)
+summary(m4_evi2)
 m4_nirv <- bam(nirv_mcd~
-                 s(sz,k=5)+s(nir_c,k=5)+s(red_c,k=5)+s(ndvi_c,k=5,m = 1)+
-                 s(x,y)+s(vc,bs='re'),
+                 te(sz,ndvi_c, k=5,bs='cs')+
+                 nir_c+
+                 red_c+
+                 ndvi_c*vc+
+                 s(x,y),
                family=Gamma(link='log'),
                select = TRUE, discrete=TRUE, method='fREML', nthreads = 8,
                data=train)
+summary(m4_nirv)
+
+m4_fpar <- bam(fpar~ s(fpar,k=5)+
+                 te(sz,ndvi_c, k=5,bs='cs')+
+                 nir_c+
+                 red_c+
+                 ndvi_c*vc+
+                 s(x,y),
+               family=Gamma(link='log'),
+               select = TRUE, discrete=TRUE, method='fREML', nthreads = 8,
+               data=train[fpar>0])
+summary(m4_fpar)
 
 oos_eval <- test %>% 
+  filter(is.na(fpar)==F) %>% 
   mutate(pred_ndvi_mcd = predict(m4_ndvi, newdata=., type='response'), 
          pred_evi2_mcd = predict(m4_evi2, newdata=., type='response'), 
-         pred_nirv_mcd = predict(m4_nirv, newdata=., type='response')) %>% 
+         pred_nirv_mcd = predict(m4_nirv, newdata=., type='response'), 
+         pred_fpar_mod = predict(m4_fpar, newdata=., type='response')) %>% 
   summarize(r2_ndvi = cor(ndvi_mcd, pred_ndvi_mcd)**2, 
             r2_evi2 = cor(evi2_mcd, pred_evi2_mcd)**2,
             r2_nirv = cor(nirv_mcd, pred_nirv_mcd)**2, 
+            r2_fpar = cor(fpar, pred_fpar_mod)**2, 
             rmse_ndvi = sqrt(mean((pred_ndvi_mcd-ndvi_mcd)**2)), 
             rmse_evi2 = sqrt(mean((pred_evi2_mcd - evi2_mcd)**2)), 
-            rmse_nirv = sqrt(mean((pred_nirv_mcd - nirv_mcd)**2)))
+            rmse_nirv = sqrt(mean((pred_nirv_mcd - nirv_mcd)**2)),
+            rmse_fpar = sqrt(mean((pred_fpar_mod - fpar)**2)))
+oos_eval
 oos_eval %>% 
   mutate(eval_date = Sys.Date()) %>% 
   write_csv(.,path = paste0("outputs/OutOfSample_VI_merge_",Sys.Date(),".csv"))
@@ -408,16 +413,19 @@ hyb <- hyb %>% lazy_dt() %>%
   filter(str_detect(vc,"Eucalypt")==T |
            str_detect(vc,"Rainforests")==T |
            str_detect(vc,"Forest")==T | 
-           str_detect(vc,"Woodlands")) %>% 
-  mutate(ndvi_hyb = predict(m4_ndvi, newdata=., n.threads = 8,type='response'), 
-         evi2_hyb = predict(m4_evi2, newdata=., n.threads = 8,type='response'), 
-         nirv_hyb = predict(m4_nirv, newdata=., n.threads = 8,type='response')) %>% 
+           str_detect(vc,"Woodlands")) %>%
+  filter(red_c > 0 & nir_c > 0) %>% 
+  mutate(ndvi_hyb = predict(m4_ndvi, newdata=., n.threads = 16,type='response'), 
+         evi2_hyb = predict(m4_evi2, newdata=., n.threads = 16,type='response'), 
+         nirv_hyb = predict(m4_nirv, newdata=., n.threads = 16,type='response'), 
+         fpar_hyb = predict(m4_fpar, newdata=., n.threads = 16,type='response')) %>% 
   as.data.table()
 
 out <- hyb %>% lazy_dt() %>% 
   mutate(ndvi_hyb = coalesce(ndvi_mcd, ndvi_hyb), 
          evi2_hyb = coalesce(evi2_mcd, evi2_hyb), 
-         nirv_hyb = coalesce(nirv_mcd, nirv_hyb)) %>% 
+         nirv_hyb = coalesce(nirv_mcd, nirv_hyb), 
+         fpar_hyb = coalesce(fpar, fpar_hyb)) %>% 
   as.data.table() %>% 
   group_by(x,y) %>% 
   mutate(id = cur_group_id()) %>% 
@@ -425,9 +433,11 @@ out <- hyb %>% lazy_dt() %>%
 
 out %>% lazy_dt() %>% 
   filter(is.na(ndvi_hyb)==F) %>% 
+  filter(ndvi_hyb > 0 & ndvi_hyb <1) %>% 
   as.data.table() %>% 
   arrow::write_parquet(sink = 
-          paste0("../data_general/MCD43/MCD43_AVHRR_NDVI_hybrid_",Sys.Date(),".parquet"))
+          paste0("../data_general/MCD43/MCD43_AVHRR_NDVI_hybrid_",Sys.Date(),".parquet"), 
+          compression='snappy')
 
 # hyb[is.na(vc)==F] %>%
 #   lazy_dt() %>%
@@ -682,3 +692,74 @@ out %>% lazy_dt() %>%
 #   ungroup() %>% 
 #   as_tibble() %>% 
 #   ggplot(data=., aes(year,val))+geom_line()
+
+
+
+
+# o <- o %>% lazy_dt() %>% select(x,y,date,ndvi_mcd,evi2_mcd,nirv_mcd) %>% as.data.table()
+# hyb <- o[dat,on=.(x,y,date)]
+
+# hyb <- hyb[is.na(ndvi_mcd)==F & is.na(ndvi)==F]
+
+
+# # MYD13A2 Aqua ------------------------------------------------------------
+# o1 <- stars::read_stars("../data_general/MYD13A2/MYD13A2_SR_5km_EastOz_mmean_NVISmask_2003_2019.tif") %>% 
+#   slice('band', seq(1,by=2,to = 408)) %>% 
+#   st_set_dimensions(., 3, 
+#                     values=seq(ymd("2003-01-01"),ymd("2019-12-01"),by="1 month"), 
+#                     names = 'date') %>%  
+#   as_tibble() %>% 
+#   as.data.table() %>% 
+#   set_names(c("x","y","date","red"))
+# o2 <- stars::read_stars("../data_general/MYD13A2/MYD13A2_SR_5km_EastOz_mmean_NVISmask_2003_2019.tif") %>% 
+#   slice('band', seq(2,by=2,to = 408)) %>% 
+#   st_set_dimensions(., 3, 
+#                     values=seq(ymd("2003-01-01"),ymd("2019-12-01"),by="1 month"), 
+#                     names = 'date') %>%  
+#   as_tibble() %>% 
+#   as.data.table() %>% 
+#   set_names(c("x","y","date","nir"))
+# 
+# o <- o1[o2,on=.(x,y,date)]
+# rm(o1,o2); gc()
+# 
+# o <- o[,`:=`(ndvi_myd=(nir-red)/(nir+red))]
+# o <- o[,`:=`(year=year(date))]
+# o <- o %>% lazy_dt() %>% 
+#   filter(is.na(ndvi_myd)==F & red > 0 & nir > 0) %>% 
+#   as.data.table()
+# o <- o %>% lazy_dt() %>% select(x,y,date,ndvi_myd) %>% as.data.table()
+# hyb <- o[hyb,on=.(x,y,date)]
+# 
+# # Import MOD13A2 Terra -----------------------------------------------------------
+# o1 <- stars::read_stars("../data_general/MOD13A2/MOD13A2_SR_5km_EastOz_mmean_NVISmask_2003_2019.tif") %>% 
+#   slice('band', seq(1,by=2,to = 408)) %>% 
+#   st_set_dimensions(., 3, 
+#                     values=seq(ymd("2003-01-01"),ymd("2019-12-01"),by="1 month"), 
+#                     names = 'date') %>%  
+#   as_tibble() %>% 
+#   as.data.table() %>% 
+#   set_names(c("x","y","date","red"))
+# o2 <- stars::read_stars("../data_general/MOD13A2/MOD13A2_SR_5km_EastOz_mmean_NVISmask_2003_2019.tif") %>% 
+#   slice('band', seq(2,by=2,to = 408)) %>% 
+#   st_set_dimensions(., 3, 
+#                     values=seq(ymd("2003-01-01"),ymd("2019-12-01"),by="1 month"), 
+#                     names = 'date') %>%  
+#   as_tibble() %>% 
+#   as.data.table() %>% 
+#   set_names(c("x","y","date","nir"))
+# 
+# o <- o1[o2,on=.(x,y,date)]
+# rm(o1,o2); gc()
+# 
+# o <- o[,`:=`(ndvi_mod=(nir-red)/(nir+red))] %>% 
+#      .[,`:=`(year=year(date))]
+# o <- o %>% lazy_dt() %>% 
+#   filter(is.na(ndvi_mod)==F & red > 0 & nir > 0) %>% 
+#   as.data.table()
+# o <- o %>% lazy_dt() %>% select(x,y,date,ndvi_mod) %>% as.data.table()
+# # End import *****************************************************************
+# 
+# # join MODIS Terra with the rest
+# hyb <- hyb[o,on=.(x,y,date)]
+
