@@ -1,4 +1,5 @@
-library(qgam)
+library(qgam); library(tidyverse); library(lubridate); 
+library(colorspace)
 
 quSeq <- c(0.25, 0.5, 0.99)
 fit <- mqgam(ndvi_3mo ~ s(pe_12mo, bs='cs',k=5) + 
@@ -9,7 +10,8 @@ fit <- mqgam(ndvi_3mo ~ s(pe_12mo, bs='cs',k=5) +
             qu = quSeq)
 
 zz <- expand_grid(season=unique(train_dat$season),
-            co2 = seq(min(dat$co2_trend),max(dat$co2_trend),length.out=100),
+            co2=c(340,380,420),
+            # co2 = seq(min(dat$co2_trend),max(dat$co2_trend),length.out=3),
             mape = seq(0.05,1.5,length.out = 100), 
             epoch=train_dat$epoch[1],
             pct_anom = c(-50,0,50), 
@@ -26,10 +28,18 @@ zz <- zz %>%
 zz %>% 
   select(co2,mape,pct_anom,pred_high, pred_med, pred_low) %>% 
   gather(-co2,-mape,-pct_anom, key='key',value='value') %>% 
-  ggplot(data=., aes(mape, value,color=co2,group=co2))+
+  mutate(key=factor(key,levels = c('pred_high','pred_med','pred_low'),ordered = T)) %>% 
+  ggplot(data=., aes(mape, value,color=key,group=key))+
+  geom_hline(aes(yintercept=c(0.9)),color='red',lty=3)+
+  geom_vline(aes(xintercept=0.25),color='blue',lty=3)+
+  geom_vline(aes(xintercept=0.5),color='blue',lty=3)+
+  geom_vline(aes(xintercept=1),color='blue',lty=3)+
   geom_line()+
-  scale_color_viridis_c(end=0.9,option='B')+
-  facet_grid(key~pct_anom,labeller = label_both)
+  # scale_color_discrete_sequential('ag_GrnYl',rev = TRUE)+
+  scale_color_viridis_d(end=0.7,option='D',direction = -1)+
+  scale_y_continuous(limits=c(0,1),expand=c(0,0.01))+
+  facet_grid(pct_anom~co2,labeller = label_both)+
+  theme_linedraw()
 
 qdo(fit,0.99,predict)
 
@@ -47,37 +57,3 @@ for(iq in quSeq){
 
 
 
-x <- rnorm(1e4, mean=300, sd=50)
-eps <- rnorm(1e4, mean=0, sd=20)
-y <- 100 + 0.5*x + eps
-
-cor(x,y)
-mean(y)/mean(x)
-lm(y~x)
-lm(log(y)~log(x))
-lm(log(y)~x) %>% coef %>% exp
-
-mean(log10(y)/log10(x))
-mean(log(y)/log(x))
-
-
-fpar <- stars::read_stars("../data_general/MCD15/MCD15A3_fpar_5000m_EastOz_mMean_maskFireDefor_2001_2020.tif")
-
-ggplot()+
-  stars::geom_stars(data=fpar[,,,235])
-
-
-
-dat[vc=="Eucalypt Tall Open Forests"][ndvi_c>0] %>% 
-  ggplot(data=.,aes(ndvi_c,ndvi_mcd))+
-  geom_smooth()
-
-out %>% filter(vc=="Eucalypt Tall Open Forests") %>% 
-  filter(year==2003) %>% 
-  filter(ndvi_c>0) %>% 
-  sample_n(10000) %>% 
-  ggplot(data=.,aes(ndvi_c,ndvi_mcd))+
-  geom_point() + 
-  geom_smooth()
-
-out$ndvi_c %>% hist
