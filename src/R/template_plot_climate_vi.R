@@ -124,6 +124,7 @@ kop <- left_join(coords, bom, by=c("x","y")) %>%
                                         "Subtropical","Grassland","Desert",
                                         "Temperate","Temperate Tas."), ordered = T))
 kop <- kop %>% mutate(cz=zone)
+arrow::write_parquet(kop, sink='../data_general/Koppen_climate/BOM_Koppen_simplified7.parquet')
 #*** End Kop zone load ********************************************************
 
 # Vegetation continuous cover data ----------------------------------------

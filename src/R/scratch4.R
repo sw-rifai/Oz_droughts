@@ -630,3 +630,37 @@ p_left <- kop %>%
         legend.direction = 'vertical',
         panel.grid = element_blank(), 
         panel.background = element_rect(fill='lightblue')); p_left
+
+
+
+kop <- arrow::read_parquet(file ='../data_general/Koppen_climate/BOM_Koppen_simplified7.parquet')
+
+q_gv <- dat %>% 
+  lazy_dt() %>%  
+  filter(epoch=='modis') %>% 
+  filter(is.na(gv)==F) %>% 
+  select(x,y,hydro_year,gv) %>% 
+  group_by(x,y,hydro_year) %>% 
+  filter(gv == min(gv)) %>% 
+  ungroup() %>% 
+  as_tibble()
+
+q_npv <- dat %>% 
+  lazy_dt() %>%  
+  filter(epoch=='modis') %>% 
+  filter(is.na(npv)==F) %>% 
+  select(x,y,hydro_year,npv) %>% 
+  group_by(x,y,hydro_year) %>% 
+  filter(npv == max(npv)) %>% 
+  ungroup() %>% 
+  as_tibble()
+
+q_npv <- dat[epoch=='modis'][is.na(npv)==F] %>% 
+  .[,.SD[npv==min(npv)],keyby=.(x,y,hydro_year)]
+
+dat %>% lazy_dt() %>% group_by(x,y) %>% filter(npv == min(npv)) %>% show_query()
+
+inner_join(q_npv,kop,by=c('x','y')) %>% 
+  ggplot(data=., aes(hydro_year, npv, color=zone))+
+  geom_smooth()+
+  facet_wrap(~zone,scales = 'free')
