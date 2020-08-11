@@ -243,21 +243,21 @@ system.time(
 # Linear change in MODIS VCF  ---------------------------------------------------
 library(RcppArmadillo)
 system.time(
-  lt_tree <- mod[year<2019][,`:=`(year_c = year-2009.5)] %>% 
+  lt_tree <- mod[,`:=`(year_c = year-2009.5)] %>% 
     .[,.(beta = list(unname(fastLm(X = cbind(1,year_c), 
                                    y=tree_cover, data=.SD)$coefficients))), 
       by=.(x,y)] %>% 
     .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2]), by=.(x,y)]  
 )
 system.time(
-  lt_nontree <- mod[year<2019][,`:=`(year_c = year-2009.5)] %>% 
+  lt_nontree <- mod[,`:=`(year_c = year-2009.5)] %>% 
     .[,.(beta = list(unname(fastLm(X = cbind(1,year_c), 
                                    y=nontree_cover, data=.SD)$coefficients))), 
       by=.(x,y)] %>% 
     .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2]), by=.(x,y)]  
 )
 system.time(
-  lt_nonveg <- mod[year<2019][,`:=`(year_c = year-2009.5)] %>% 
+  lt_nonveg <- mod[,`:=`(year_c = year-2009.5)] %>% 
     .[,.(beta = list(unname(fastLm(X = cbind(1,year_c), 
                                    y=nonveg_cover, data=.SD)$coefficients))), 
       by=.(x,y)] %>% 
@@ -795,6 +795,8 @@ p_vcf <- vcf %>%
   theme(panel.grid = element_blank(), 
         strip.text = element_text(face='bold'),
         legend.position = 'none'); p_vcf
+
+
 
 (p_left|((p_right/p_bottom)))/(p_vcf)+    
   plot_layout(heights=c(20,5,3,2),

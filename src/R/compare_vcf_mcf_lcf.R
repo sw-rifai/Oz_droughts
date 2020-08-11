@@ -248,6 +248,83 @@ ggsave(p_lcf_ts,
 
 # end section ******************************************************************
 
+# Plot MODIS Time series ------------------------------------------------
+tmp <- merge(mcf,kop,by=c("x","y"))
+tmp <- tmp[is.na(zone)==F]
+tmp_norms <- tmp[,.(gv_u = mean(gv,na.rm=TRUE), 
+                    npv_u = mean(npv,na.rm=TRUE), 
+                    soil_u = mean(soil,na.rm=TRUE)),
+                 keyby=c("x","y","month")]
+tmp <- merge(tmp,tmp_norms,by=c("x","y","month"))
+tmp[,`:=`(gv_anom = gv-gv_u, 
+          npv_anom = npv-npv_u, 
+          soil_anom = soil-soil_u)]
+tmp[,`:=`(gv_pct_anom = (100*(gv/gv_u) - 100), 
+          npv_pct_anom = (100*(npv/npv_u) - 100), 
+          soil_pct_anom = (100*(soil/soil_u) - 100))]
+
+p_mcf_ts <- tmp %>% 
+  filter(date <= ymd("2019-08-01")) %>% 
+  select(zone,hydro_year,season,gv_pct_anom,npv_pct_anom,soil_pct_anom) %>% 
+  gather(-zone, -hydro_year,-season,key='key',value='value') %>% 
+  mutate(key=factor(key, levels = c("npv_pct_anom",
+                                    "gv_pct_anom",
+                                    "soil_pct_anom"),
+                    ordered = T)) %>%
+  ggplot(data=.,aes(hydro_year, value,color=key))+
+  geom_smooth(method='lm')+
+  scico::scale_color_scico_d('Fraction', 
+                             palette ='batlow',
+                             end=0.75, labels=c("gv_pct_anom"='GV',
+                                                "npv_pct_anom"="NPV", 
+                                                "soil_pct_anom"="Soil"))+
+  # scale_color_viridis_d('Fraction', option='A',
+  #                       end=0.75, labels=c("gv_pct_anom"='GV',
+  #                                          "npv_pct_anom"="NPV", 
+  #                                          "soil_pct_anom"="Soil"))+
+  scale_x_continuous(expand = c(0,0))+
+  labs(x=NULL,y='% Cover Fraction Anom.')+
+  facet_grid(zone~season,scales='free', 
+             labeller = labeller(zone=lut_kop))+
+  theme_linedraw()+
+  theme(legend.position = 'bottom'); 
+
+ggsave(p_mcf_ts, 
+       filename = 'figures/MODIS_cover_fraction_timeseries.png',
+       width=25, height=18, units='cm', dpi=350, type='cairo')
+
+p_mcf_gam <- tmp %>% 
+  filter(date <= ymd("2019-08-01")) %>% 
+  select(zone,hydro_year,season,gv_pct_anom,npv_pct_anom,soil_pct_anom) %>% 
+  gather(-zone, -hydro_year,-season,key='key',value='value') %>% 
+  mutate(key=factor(key, levels = c("npv_pct_anom",
+                                    "gv_pct_anom",
+                                    "soil_pct_anom"),
+                    ordered = T)) %>%
+  ggplot(data=.,aes(hydro_year, value,color=key))+
+  geom_smooth()+
+  scico::scale_color_scico_d('Fraction', 
+                             palette ='batlow',
+                             end=0.75, labels=c("gv_pct_anom"='GV',
+                                                "npv_pct_anom"="NPV", 
+                                                "soil_pct_anom"="Soil"))+
+  # scale_color_viridis_d('Fraction', option='A',
+  #                       end=0.75, labels=c("gv_pct_anom"='GV',
+  #                                          "npv_pct_anom"="NPV", 
+  #                                          "soil_pct_anom"="Soil"))+
+  scale_x_continuous(expand = c(0,0))+
+  labs(x=NULL,y='% Cover Fraction Anom.')+
+  facet_grid(zone~season,scales='free', 
+             labeller = labeller(zone=lut_kop))+
+  theme_linedraw()+
+  theme(legend.position = 'bottom'); 
+
+ggsave(p_mcf_gam, 
+       filename = 'figures/MODIS_cover_fraction_timeseries_gam.png',
+       width=25, height=18, units='cm', dpi=350, type='cairo')
+
+# end section ******************************************************************
+
 
 # Compare MODIS VCF with Landsat Seasonal Fraction ------------------------
 diff(range(rnorm(10)))
@@ -285,31 +362,116 @@ tmp_l %>%
 
 
 
-# Trend of MODIS VCF with and without 2019 --------------------------------
+# Trend of MODIS VCF with and without 2019 -------------------------------------
+# without 2019  --------------------------------------------------
+library(RcppArmadillo)
+system.time(
+  lt_tree <- mod[year<2019][,`:=`(year_c = year-2009.5)] %>% 
+    .[,.(beta = list(unname(fastLm(X = cbind(1,year_c), 
+                                   y=tree_cover, data=.SD)$coefficients))), 
+      by=.(x,y)] %>% 
+    .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2]), by=.(x,y)]  
+)
+system.time(
+  lt_nontree <- mod[year<2019][,`:=`(year_c = year-2009.5)] %>% 
+    .[,.(beta = list(unname(fastLm(X = cbind(1,year_c), 
+                                   y=nontree_cover, data=.SD)$coefficients))), 
+      by=.(x,y)] %>% 
+    .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2]), by=.(x,y)]  
+)
+system.time(
+  lt_nonveg <- mod[year<2019][,`:=`(year_c = year-2009.5)] %>% 
+    .[,.(beta = list(unname(fastLm(X = cbind(1,year_c), 
+                                   y=nonveg_cover, data=.SD)$coefficients))), 
+      by=.(x,y)] %>% 
+    .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2]), by=.(x,y)]  
+)
+
+
+vcf_no2019 <- inner_join(lt_nontree %>% rename(grass_u=b0, grass_b=b1) %>% select(-beta), 
+                  lt_nonveg %>% rename(nonveg_u=b0, nonveg_b=b1) %>% select(-beta))
+vcf_no2019 <- lt_tree %>% lazy_dt() %>% 
+  select(-beta) %>% 
+  rename(tree_u=b0, 
+         tree_b=b1) %>% 
+  as.data.table() %>% 
+  inner_join(., vcf_no2019)
+# end section ******************************************************************
+
+# with 2019  --------------------------------------------------
+library(RcppArmadillo)
+system.time(
+  lt_tree <- mod[,`:=`(year_c = year-2009.5)] %>% 
+    .[,.(beta = list(unname(fastLm(X = cbind(1,year_c), 
+                                   y=tree_cover, data=.SD)$coefficients))), 
+      by=.(x,y)] %>% 
+    .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2]), by=.(x,y)]  
+)
+system.time(
+  lt_nontree <- mod[,`:=`(year_c = year-2009.5)] %>% 
+    .[,.(beta = list(unname(fastLm(X = cbind(1,year_c), 
+                                   y=nontree_cover, data=.SD)$coefficients))), 
+      by=.(x,y)] %>% 
+    .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2]), by=.(x,y)]  
+)
+system.time(
+  lt_nonveg <- mod[,`:=`(year_c = year-2009.5)] %>% 
+    .[,.(beta = list(unname(fastLm(X = cbind(1,year_c), 
+                                   y=nonveg_cover, data=.SD)$coefficients))), 
+      by=.(x,y)] %>% 
+    .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2]), by=.(x,y)]  
+)
+
+vcf_w2019 <- inner_join(lt_nontree %>% rename(grass_u=b0, grass_b=b1) %>% select(-beta), 
+                         lt_nonveg %>% rename(nonveg_u=b0, nonveg_b=b1) %>% select(-beta))
+vcf_w2019 <- lt_tree %>% lazy_dt() %>% 
+  select(-beta) %>% 
+  rename(tree_u=b0, 
+         tree_b=b1) %>% 
+  as.data.table() %>% 
+  inner_join(., vcf_w2019)
+# end section ******************************************************************
+
+
+
+
+# Plot comparison of MODIS VCF w/wo 2019 ----------------------------------
+vcf_j <- bind_rows(vcf_w2019 %>% 
+            mutate(y2019='yes'),
+          vcf_no2019 %>% 
+            mutate(y2019='no')) %>% as_tibble()
+
+
+
 library(ggridges)
-p_vcf <- vcf %>% 
+p2019 <- vcf_j %>% 
   as_tibble() %>% 
   filter(is.na(tree_u)==F) %>% 
   inner_join(., kop %>% select(x,y,cz), by=c("x","y")) %>% 
-  select(cz, nonveg_b, grass_b, tree_b) %>%
+  select(cz,y2019, nonveg_b, grass_b, tree_b) %>%
   rename(`Non. Veg.`=nonveg_b, 
          `Non. Tree Veg.`=grass_b, 
          `Tree Veg.`=tree_b) %>% 
-  gather(-cz, key = 'measure', value='estimate') %>% 
+  gather(-cz,-y2019, key = 'measure', value='estimate') %>% 
   mutate(measure = as_factor(measure)) %>% 
   filter(is.na(estimate)==F) %>% 
   ggplot(data=., aes(x=estimate,
                      y=cz,
+                     color=y2019,
                      fill=cz,
                      after_stat(scaled)))+
   ggridges::stat_density_ridges(
     quantile_lines = TRUE, 
     rel_min_height=0.01, 
-    alpha=0.5, 
+    alpha=0.333,
     scale=1, 
-    color='black')+
-  scale_fill_viridis_d(option='B',direction = 1,end=0.9)+
-  geom_vline(aes(xintercept=0),color='red',lwd=0.75)+
+    # color='black'
+    )+
+  scale_fill_viridis_d('Climate',
+                       option='B',direction = 1,end=0.9)+
+  scale_color_manual("Includes 2019",
+                     values=c("yes"='red','no'='navy'))+
+  geom_vline(aes(xintercept=0),color='black',lwd=0.75)+
   scale_x_continuous(limits=c(-1,1))+
   scale_y_discrete(expand=c(0,0),
                    limits=rev(c("Equatorial","Tropical", 
@@ -325,8 +487,10 @@ p_vcf <- vcf %>%
   theme_linedraw()+
   theme(panel.grid = element_blank(), 
         strip.text = element_text(face='bold'),
-        legend.position = 'none'); p_vcf
-
+        # legend.position = 'none'
+        ); p2019
+ggsave(p2019, filename = 'figures/compare_modis_vcf_wwo2019.png', 
+       width=22,height = 18,units='cm',dpi=350,type='cairo')
 
 
 
@@ -363,6 +527,19 @@ tmp %>%
 ###*****************************************************************************
 # SCRATCH -----------------------------------------------------------------
 ###*****************************************************************************
+
+ba <- stars::read_stars("../data_general/MCD64/MCD64_Oz/MCD64A1_BurnArea_2001_2019.tif", 
+                        proxy = F) %>% 
+  stars::st_set_dimensions(., 3, values=seq(ymd("2001-01-01"),ymd("2019-12-31"),by='1 month')) %>% 
+  as_tibble() %>% 
+  purrr::set_names(c('x','y','date','ba'))
+ba <- ba %>% inner_join(.,kop,by=c("x","y")) %>% 
+  filter(is.na(zone)==F) 
+ba %>% 
+  group_by(date,zone) %>% summarize(val =sum(ba,na.rm=TRUE)) %>% ungroup() %>% 
+  ggplot(data=., aes(date,val,color=zone))+geom_smooth()
+
+
 
 # vegetation index record
 vi <- arrow::read_parquet("../data_general/MCD43/MCD43_AVHRR_NDVI_hybrid_2020-07-01.parquet", 

@@ -137,39 +137,150 @@ dat <- dat %>% mutate(epoch = as_factor(epoch),
 #*******************************************************************************
 
 #split test & train ------------------------------------------------------------
-train_dat <- dat[season=='SON'][mape<1.5][is.na(ndvi_3mo)==F & is.na(pe_12mo)==F][sample(.N, 1e6)]
-test_dat <- dat[season=='SON'][mape<1.5][is.na(ndvi_3mo)==F & is.na(pe_12mo)==F][sample(.N, 1e6)]
+train_dat <- dat[mape<1.5][is.na(ndvi_3mo)==F & is.na(pe_12mo)==F][sample(.N, 4e6)]
+test_dat <- dat[mape<1.5][is.na(ndvi_3mo)==F & is.na(pe_12mo)==F][sample(.N, 4e6)]
 gc(full = T)
 #*******************************************************************************
 
-test_dat %>% mutate(val = pe_anom_12mo/mape) %>% pull(val) %>% quantile(., c(0.1,0.5,0.9))
+n4_son <- train_dat[season=='SON'] %>% 
+  nls.multstart::nls_multstart(ndvi_3mo ~ 
+                                 Asym-Drop*exp(-exp(lrc)*mape^pwr) + 
+                                 B1*(pe_anom_12mo/mape) + 
+                                 B2*(cco2*mape)+ 
+                                 B3*(cco2*pe_anom_12mo/mape) + 
+                                 B4*as.numeric(epoch),
+                               data = .,
+                               iter = 1,
+                               start_lower = c(Asym=0.0, Drop=0.6,lrc=0,pwr=0,B1=-0.5,B2=0,B3=0,B4=-0.1),
+                               start_upper = c(Asym=1, Drop=1,lrc=1,pwr=2,B1=0.5,B2=0.001,B3=0.001,B4=0.1),
+                               # supp_errors = 'Y',
+                               na.action = na.omit)
+n4_djf <- train_dat[season=='DJF'] %>% 
+  nls.multstart::nls_multstart(ndvi_3mo ~ 
+                                 Asym-Drop*exp(-exp(lrc)*mape^pwr) + 
+                                 B1*(pe_anom_12mo/mape) + 
+                                 B2*(cco2*mape) + 
+                                 B3*(cco2*pe_anom_12mo/mape) + 
+                                 B4*as.numeric(epoch),
+                               data = .,
+                               iter = 1,
+                               start_lower = c(Asym=0.0, Drop=0.6,lrc=0,pwr=0,B1=-0.5,B2=0,B3=0,B4=-0.1),
+                               start_upper = c(Asym=1, Drop=1,lrc=1,pwr=2,B1=0.5,B2=0.001,B3=0.001,B4=0.1),
+                               # supp_errors = 'Y',
+                               na.action = na.omit)
+n4_mam <- train_dat[season=='MAM'] %>% 
+  nls.multstart::nls_multstart(ndvi_3mo ~ 
+                                 Asym-Drop*exp(-exp(lrc)*mape^pwr) + 
+                                 B1*(pe_anom_12mo/mape) + 
+                                 B2*(cco2*mape) + 
+                                 B3*(cco2*pe_anom_12mo/mape) + 
+                                 B4*as.numeric(epoch),
+                               data = .,
+                               iter = 1,
+                               start_lower = c(Asym=0.0, Drop=0.6,lrc=0,pwr=0,B1=-0.5,B2=0,B3=0,B4=-0.1),
+                               start_upper = c(Asym=1, Drop=1,lrc=1,pwr=2,B1=0.5,B2=0.001,B3=0.001,B4=0.1),
+                               # supp_errors = 'Y',
+                               na.action = na.omit)
+n4_jja <- train_dat[season=='JJA'] %>% 
+  nls.multstart::nls_multstart(ndvi_3mo ~ 
+                                 Asym-Drop*exp(-exp(lrc)*mape^pwr) + 
+                                 B1*(pe_anom_12mo/mape) + 
+                                 B2*(cco2*mape) + 
+                                 B3*(cco2*pe_anom_12mo/mape) + 
+                                 B4*as.numeric(epoch),
+                               data = .,
+                               iter = 1,
+                               start_lower = c(Asym=0.0, Drop=0.6,lrc=0,pwr=0,B1=-0.5,B2=0,B3=0,B4=-0.1),
+                               start_upper = c(Asym=1, Drop=1,lrc=1,pwr=2,B1=0.5,B2=0.001,B3=0.001,B4=0.1),
+                               # supp_errors = 'Y',
+                               na.action = na.omit)
 
 
-w4 <- train_dat[sample(.N,5e5)] %>% 
-  nls_multstart(ndvi_3mo ~ 
-                  (Asym+B1*cco2)-(Drop)*exp(-exp(lrc+B2*cco2)*mape^(pwr)), 
-                # (Asym+B1*cco2)-(Drop+B2*cco2)*exp(-exp(lrc+B3*cco2)*pe_12mo^(pwr)), 
-                data = .,
-                iter = 1,
-                start_lower = c(Asym=0.0, Drop=0.6,lrc=0,pwr=0,B1=0,B2=0),
-                start_upper = c(Asym=1, Drop=1,lrc=1,pwr=2,B1=0.001,B2=0),
-                # lower = c(Asym=0.5, Drop=0.4, lrc=0.1, pwr=0.1,B3=-0.01),
-                # supp_errors = 'Y',
-                na.action = na.omit)
-summary(w4)
+
+yardstick::rsq_trad_vec(test_dat[season=='SON']$ndvi_3mo,
+                        estimate=predict(n4_son,newdata=test_dat[season=="SON"]))
+yardstick::rsq_trad_vec(test_dat[season=='DJF']$ndvi_3mo,
+                        estimate=predict(n4_djf,newdata=test_dat[season=="DJF"]))
+yardstick::rsq_trad_vec(test_dat[season=='MAM']$ndvi_3mo,
+                        estimate=predict(n4_mam,newdata=test_dat[season=="MAM"]))
+yardstick::rsq_trad_vec(test_dat[season=='JJA']$ndvi_3mo,
+                        estimate=predict(n4_jja,newdata=test_dat[season=="JJA"]))
+
+yardstick::rmse_vec(test_dat[season=='SON']$ndvi_3mo,
+                        estimate=predict(n4_son,newdata=test_dat[season=="SON"]))
+yardstick::rmse_vec(test_dat[season=='DJF']$ndvi_3mo,
+                        estimate=predict(n4_djf,newdata=test_dat[season=="DJF"]))
+yardstick::rmse_vec(test_dat[season=='MAM']$ndvi_3mo,
+                        estimate=predict(n4_mam,newdata=test_dat[season=="MAM"]))
+yardstick::rmse_vec(test_dat[season=='JJA']$ndvi_3mo,
+                        estimate=predict(n4_jja,newdata=test_dat[season=="JJA"]))
+
+
+
+# n4 seaonal NDVI ----------------------------------------------------------------
+n4_preds <- expand_grid(season=unique(train_dat$season),
+                        co2 = seq(min(dat$co2_int),max(dat$co2_int),length.out=100),
+                        mape = seq(0.05,1.5,length.out = 200), 
+                        pct_anom = c(-50,0,50), 
+                        epoch = 2) %>% 
+  mutate(pe_anom_12mo = 0.01*pct_anom*mape) %>%
+  # mutate(pe_12mo = pe_anom_12mo+mape) %>% 
+  mutate(cco2 = co2-center_co2)
+
+n4_preds <- bind_rows(
+n4_preds %>% filter(season=='SON') %>% mutate(pred = predict(n4_son, newdata=.)),
+n4_preds %>% filter(season=='DJF') %>% mutate(pred = predict(n4_djf, newdata=.)),
+n4_preds %>% filter(season=='MAM') %>% mutate(pred = predict(n4_mam, newdata=.)),
+n4_preds %>% filter(season=='JJA') %>% mutate(pred = predict(n4_jja, newdata=.)))
+
+
+vec_labels <- c("-50"=" -50% P:PET Anom. ",
+                "0"=' 0% P:PET Anom. ',
+                "50"=" +50% P:PET Anom. ")
+p4_ndvi <- n4_preds %>% 
+  ggplot(data=., aes(mape,pred,color=(co2), group=co2))+
+  geom_line(alpha=1)+
+  scale_color_viridis_c(expression(paste(CO[2]~ppm)), option='B',end=0.85)+
+  scale_x_continuous(limits=c(0.08,1.5),
+                     breaks=c(0,0.5,1,1.5),
+                     labels = c(0,0.5,1,1.5),
+                     expand=c(0,0),
+                     guide = guide_axis(n.dodge=1, angle=0,check.overlap = TRUE)
+  )+
+  scale_y_continuous(limits=c(0,0.95),expand=c(0.025,0.025))+
+  labs(x=expression(paste("Mean Annual P:PET")),
+       y=expression(paste(NDVI["3 mo"])))+
+  facet_grid(pct_anom~season, labeller = labeller(pct_anom=vec_labels))+
+  theme_linedraw()+
+  # guides(color=guide_colorbar(title.position = 'top'))+
+  theme(#panel.grid = element_blank(),
+    # panel.spacing.x = unit(6, "mm"),
+    axis.text = element_text(size=10),
+    # axis.text.x = element_text(angle=45, vjust=-0.5),
+    # legend.position = c(0.525,0.175), 
+    legend.position = 'bottom',
+    legend.key.width = unit(1,'cm'),
+    legend.key.height = unit(0.2,'cm'),
+    legend.direction = 'horizontal', 
+    legend.background = element_rect(fill=NA)); p4_ndvi
+ggsave(filename = 'figures/n4_ndvi_season_weibull_ppet_x_co2.png',
+       width = 16, height = 12, units='cm', dpi=350, type='cairo')
+#_______________________***______________****____________****_____*****____**_*_*
+
+
 
 
 n4 <- train_dat %>% 
   nls.multstart::nls_multstart(ndvi_3mo ~ 
-         Asym-Drop*exp(-exp(lrc)*mape^pwr) + 
-         B1*(pe_anom_12mo/mape) + B2*(cco2) + B3*(cco2*pe_anom_12mo/mape) + 
-         B4*as.numeric(epoch),
-       data = .,
-       iter = 1,
-       start_lower = c(Asym=0.0, Drop=0.6,lrc=0,pwr=0,B1=-0.5,B2=0,B3=0,B4=-0.1),
-       start_upper = c(Asym=1, Drop=1,lrc=1,pwr=2,B1=0.5,B2=0.001,B3=0.001,B4=0.1),
-       # supp_errors = 'Y',
-       na.action = na.omit)
+                                 Asym-Drop*exp(-exp(lrc)*mape^pwr) + 
+                                 B1*(pe_anom_12mo/mape) + B2*(cco2) + B3*(cco2*pe_anom_12mo/mape) + 
+                                 B4*as.numeric(epoch),
+                               data = .,
+                               iter = 1,
+                               start_lower = c(Asym=0.0, Drop=0.6,lrc=0,pwr=0,B1=-0.5,B2=0,B3=0,B4=-0.1),
+                               start_upper = c(Asym=1, Drop=1,lrc=1,pwr=2,B1=0.5,B2=0.001,B3=0.001,B4=0.1),
+                               # supp_errors = 'Y',
+                               na.action = na.omit)
 summary(n4)
 
 n4_evi2 <- train_dat %>% 
@@ -197,6 +308,29 @@ n4_nirv <- train_dat %>%
                                # supp_errors = 'Y',
                                na.action = na.omit)
 summary(n4)
+
+
+
+
+
+
+test_dat %>% mutate(val = pe_anom_12mo/mape) %>% pull(val) %>% quantile(., c(0.1,0.5,0.9))
+
+
+w4 <- train_dat[sample(.N,5e5)] %>% 
+  nls_multstart(ndvi_3mo ~ 
+                  (Asym+B1*cco2)-(Drop)*exp(-exp(lrc+B2*cco2)*mape^(pwr)), 
+                # (Asym+B1*cco2)-(Drop+B2*cco2)*exp(-exp(lrc+B3*cco2)*pe_12mo^(pwr)), 
+                data = .,
+                iter = 1,
+                start_lower = c(Asym=0.0, Drop=0.6,lrc=0,pwr=0,B1=0,B2=0),
+                start_upper = c(Asym=1, Drop=1,lrc=1,pwr=2,B1=0.001,B2=0),
+                # lower = c(Asym=0.5, Drop=0.4, lrc=0.1, pwr=0.1,B3=-0.01),
+                # supp_errors = 'Y',
+                na.action = na.omit)
+summary(w4)
+
+
 
 n5 <- train_dat %>% 
   nls_multstart(evi2_3mo ~ 
