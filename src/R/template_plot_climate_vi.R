@@ -127,7 +127,7 @@ kop <- kop %>% mutate(cz=zone)
 arrow::write_parquet(kop, sink='../data_general/Koppen_climate/BOM_Koppen_simplified7.parquet')
 #*** End Kop zone load ********************************************************
 
-# Vegetation continuous cover data ----------------------------------------
+# MODIS Vegetation continuous cover data ----------------------------------------
 mod_tree <- stars::read_stars("../data_general/Oz_misc_data/MOD44BPercent_Tree_Cover_5000m_East_Oz_noMask_2000_2019.tif") %>% 
   st_set_dimensions(., 3, 
                     values=seq(ymd("2000-01-01"),ymd("2019-01-01"),by="1 year"), 
@@ -240,23 +240,24 @@ system.time(
 )
 # END **************************************************************************
 
-# Linear change in VCF  ---------------------------------------------------
+# Linear change in MODIS VCF  ---------------------------------------------------
+library(RcppArmadillo)
 system.time(
-  lt_tree <- mod[,`:=`(year_c = year-2009.5)] %>% 
+  lt_tree <- mod[year<2019][,`:=`(year_c = year-2009.5)] %>% 
     .[,.(beta = list(unname(fastLm(X = cbind(1,year_c), 
                                    y=tree_cover, data=.SD)$coefficients))), 
       by=.(x,y)] %>% 
     .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2]), by=.(x,y)]  
 )
 system.time(
-  lt_nontree <- mod[,`:=`(year_c = year-2009.5)] %>% 
+  lt_nontree <- mod[year<2019][,`:=`(year_c = year-2009.5)] %>% 
     .[,.(beta = list(unname(fastLm(X = cbind(1,year_c), 
                                    y=nontree_cover, data=.SD)$coefficients))), 
       by=.(x,y)] %>% 
     .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2]), by=.(x,y)]  
 )
 system.time(
-  lt_nonveg <- mod[,`:=`(year_c = year-2009.5)] %>% 
+  lt_nonveg <- mod[year<2019][,`:=`(year_c = year-2009.5)] %>% 
     .[,.(beta = list(unname(fastLm(X = cbind(1,year_c), 
                                    y=nonveg_cover, data=.SD)$coefficients))), 
       by=.(x,y)] %>% 
