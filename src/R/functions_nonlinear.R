@@ -50,7 +50,6 @@ SSRichards_x2 <-
             c("Asym", "xmid", "scal", "lpow"),
             function(x,x2, Asym, xmid, scal, lpow) {})
 
-
 ric_x2 <- function(x,x2,
                    Asym,Asym2,
                    xmid,xmid2,
@@ -63,6 +62,22 @@ mod_grad_ric_x2 <- deriv(
   namevec = c("Asym","Asym2","xmid","xmid2","scal","scal2","lpow","lpow2"), 
   function.arg = ric_x2
 )
+
+ric_x3 <- function(x,x2,epoch,
+                   Asym,Asym2,
+                   xmid,xmid2,
+                   scal,scal2,
+                   lpow,lpow2,B1){
+  epoch <- as.numeric(epoch)
+  (Asym+Asym2*x2) * (1+exp(((xmid+xmid2*x2) - x)/(scal+scal2*x2)))^(-exp(-(lpow+lpow2*x2))) + B1*epoch
+}
+mod_grad_ric_x3 <- deriv(
+  body(ric_x3)[[3]], 
+  namevec = c("Asym","Asym2","xmid","xmid2","scal","scal2","lpow","lpow2","B1"), 
+  function.arg = ric_x3
+)
+
+
 
 ric_offset <- function(x,x2,
                    offset,offset2,

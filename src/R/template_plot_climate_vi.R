@@ -1,3 +1,4 @@
+# !diagnostics off
 #*******************************************************************************
 #* Description:
 #* Plot Climate stuff
@@ -12,6 +13,7 @@ library(dtplyr);
 library(RcppArmadillo); library(patchwork)
 library(stars)
 library(foreach); library(doParallel)
+options(pillar.sigfig = 5)
 # IMPORT DATA ###################################################################
 
 # load("data/gridCell_lm_ndvi_clim.Rdata") # grid cell linear regressions
@@ -30,12 +32,12 @@ mcf <- mcf %>% as.data.table() %>% lazy_dt() %>%
   mutate(date=as.Date(date)) %>% 
   filter(is.na(npv)==F) %>% 
   as.data.table()
-mcf[,`:=`(year=year(date),month=month(date))] %>% 
-  .[,`:=`(season = case_when(month%in%c(3:5)~'MAM',
-                             month%in%c(6:8)~'JJA',
-                             month%in%c(9:11)~'SON',
-                             month%in%c(12,1,2)~'DJF'))]
-mcf[,`:=`(season = factor(season, levels = c('SON','DJF','MAM','JJA'),ordered = TRUE))]
+# mcf[,`:=`(year=year(date),month=month(date))] %>% 
+#   .[,`:=`(season = case_when(month%in%c(3:5)~'MAM',
+#                              month%in%c(6:8)~'JJA',
+#                              month%in%c(9:11)~'SON',
+#                              month%in%c(12,1,2)~'DJF'))]
+# mcf[,`:=`(season = factor(season, levels = c('SON','DJF','MAM','JJA'),ordered = TRUE))]
 
 
 
@@ -44,11 +46,22 @@ vi <- arrow::read_parquet("../data_general/MCD43/MCD43_AVHRR_NDVI_hybrid_2020-07
                           col_select = c("x","y","date",
                                          "ndvi_c","ndvi_mcd","ndvi_hyb", 
                                          "evi2_hyb","evi2_mcd","sz")) %>% 
-  as.data.table()
-vi <- frac[vi,on=.(x,y,date)]
+  as.data.table() %>% 
+  .[ndvi_hyb > 0]
+norms_vi <- vi[,`:=`(month=month(date))] %>% 
+  .[,.(ndvi_u = mean(ndvi_hyb,na.rm=TRUE), 
+       ndvi_sd = sd(ndvi_hyb,na.rm=TRUE)),keyby=.(x,y,month)]
+vi <- norms_vi[vi,on=.(x,y,month)] %>% 
+  .[,`:=`(ndvi_anom = ndvi_hyb - ndvi_u)] %>% 
+  .[,`:=`(ndvi_anom_sd = ndvi_anom/ndvi_sd)]
+
+vi <- mcf[,.(x,y,date,soil,gv,npv)][vi,on=.(x,y,date)]
+
+# Load climate data 
 dat <- arrow::read_parquet("/home/sami/scratch/ARD_ndvi_aclim_anoms.parquet",
                            col_select = c(
-                             "date", "hydro_year", "id","season",
+                             "date", "hydro_year", "id",
+                             # "season",
                              "precip",  "precip_anom", 
                              "precip_anom_3mo","precip_anom_36mo",
                              "precip_anom_12mo",
@@ -65,7 +78,7 @@ dat <- arrow::read_parquet("/home/sami/scratch/ARD_ndvi_aclim_anoms.parquet",
                              # "ndvi_u",
                              # "ndvi_anom",
                              # "ndvi_anom_12mo",
-                             "ndvi_anom_sd",
+                             # "ndvi_anom_sd",
                              # "ndvi_mcd",
                              'vc','veg_class',
                              'month',
@@ -81,6 +94,15 @@ dat <- merge(dat,
              all=TRUE,allow.cartesian=TRUE)
 dat <- dat[order(x,y,date)][, ndvi_3mo := frollmean(ndvi_hyb,n = 3,fill = NA,align='center',na.rm=TRUE), by=.(x,y)]
 rm(vi); gc(full=TRUE)
+
+# Attach season
+dat[,`:=`(year=year(date),month=month(date))] %>%
+  .[,`:=`(season = case_when(month%in%c(3:5)~'MAM',
+                             month%in%c(6:8)~'JJA',
+                             month%in%c(9:11)~'SON',
+                             month%in%c(12,1,2)~'DJF'))]
+dat[,`:=`(season = factor(season, levels = c('SON','DJF','MAM','JJA'),ordered = TRUE))]
+dat[,`:=`(hydro_year=year(date+months(1)))]
 
 # FILTER TO LON >= 140 !!! ----------
 dat <- dat[x>=140]
@@ -243,21 +265,21 @@ system.time(
 # Linear change in MODIS VCF  ---------------------------------------------------
 library(RcppArmadillo)
 system.time(
-  lt_tree <- mod[,`:=`(year_c = year-2009.5)] %>% 
+  lt_tree <- mod[year<=2018][,`:=`(year_c = year-2009.5)] %>% 
     .[,.(beta = list(unname(fastLm(X = cbind(1,year_c), 
                                    y=tree_cover, data=.SD)$coefficients))), 
       by=.(x,y)] %>% 
     .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2]), by=.(x,y)]  
 )
 system.time(
-  lt_nontree <- mod[,`:=`(year_c = year-2009.5)] %>% 
+  lt_nontree <- mod[year<=2018][,`:=`(year_c = year-2009.5)] %>% 
     .[,.(beta = list(unname(fastLm(X = cbind(1,year_c), 
                                    y=nontree_cover, data=.SD)$coefficients))), 
       by=.(x,y)] %>% 
     .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2]), by=.(x,y)]  
 )
 system.time(
-  lt_nonveg <- mod[,`:=`(year_c = year-2009.5)] %>% 
+  lt_nonveg <- mod[year<=2018][,`:=`(year_c = year-2009.5)] %>% 
     .[,.(beta = list(unname(fastLm(X = cbind(1,year_c), 
                                    y=nonveg_cover, data=.SD)$coefficients))), 
       by=.(x,y)] %>% 
@@ -279,28 +301,31 @@ vcf <- lt_tree %>% lazy_dt() %>%
 # NDVI linear change -----------------------------------------------------------
 system.time(
   lt_ndvi_season <- dat[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>%
-    .[date>= ymd("1982-01-01") & date<= ymd("2019-12-31")] %>% 
-    .[,.(val = mean(ndvi_3mo, na.rm=TRUE)), by=.(x,y,season,hydro_year)] %>% 
+    .[ndvi_hyb > 0] %>% 
+    .[date>= ymd("1982-01-01") & date<= ymd("2019-09-30")] %>% 
+    .[,.(val = mean(ndvi_hyb, na.rm=TRUE)), by=.(x,y,season,hydro_year)] %>% 
     .[is.na(val)==F] %>% 
     .[,.(b1 = fastLm(X = cbind(1,hydro_year-2000.5), y=val, data=.SD)$coefficients[2]), 
       by=.(x,y,season)]
 )
 
 # NDVI linear change by satellite epoch -----------------------------------------------------------
-system.time(
-  lt_ndvi_season_p1 <- dat[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>%
+c_year <- mean(seq(ymd("1982-01-01"),ymd("2000-12-31"),by='1 month')) %>% decimal_date();
+lt_ndvi_season_p1 <- dat[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>%
+    .[ndvi_hyb > 0] %>% 
     .[date>= ymd("1982-01-01") & date<= ymd("2000-12-31")] %>% 
-    .[,.(val = mean(ndvi_c, na.rm=TRUE)), by=.(x,y,season,hydro_year)] %>% 
+    .[,.(val = mean(ndvi_hyb, na.rm=TRUE)), by=.(x,y,season,hydro_year)] %>% 
     .[is.na(val)==F] %>% 
-    .[,.(b1 = fastLm(X = cbind(1,hydro_year-2000.5), y=val, data=.SD)$coefficients[2]), 
+    .[,.(b1 = fastLm(X = cbind(1,hydro_year-cyear), y=val, data=.SD)$coefficients[2]), 
       by=.(x,y,season)]
-)
-system.time(
-  lt_ndvi_season_p2 <- dat[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>%
+
+c_year <- mean(seq(ymd("2001-01-01"),ymd("2019-09-30"),by='1 month')) %>% decimal_date()
+lt_ndvi_season_p2 <- dat[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>%
+    .[ndvi_hyb > 0] %>% 
     .[date>= ymd("2001-01-01") & date<= ymd("2019-09-30")] %>% 
-    .[,.(val = mean(ndvi_mcd, na.rm=TRUE)), by=.(x,y,season,hydro_year)] %>% 
+    .[,.(val = mean(ndvi_hyb, na.rm=TRUE)), by=.(x,y,season,hydro_year)] %>% 
     .[is.na(val)==F] %>% 
-    .[,.(b1 = fastLm(X = cbind(1,hydro_year-2000.5), y=val, data=.SD)$coefficients[2]), 
+    .[,.(b1 = fastLm(X = cbind(1,hydro_year-c_year), y=val, data=.SD)$coefficients[2]), 
       by=.(x,y,season)]
 )
 lt_ndvi_season_p1$epoch <- "AVHRR NDVI 1981-2000"
@@ -568,7 +593,7 @@ p_right <- bind_rows(lt_ndvi_season_p1, lt_ndvi_season_p2) %>%
         axis.text = element_blank(), 
         axis.ticks = element_blank()); p_right
 ggsave(p_left+p_right+plot_layout(widths = c(1.25,2), guides = 'keep'),
-  filename = "figures/PPET_ndvi_seasonal_longtermTrends_prePost2000epochs.png", 
+  filename = "figures/PPET_ndvi_seasonal_longtermTrends_prePost2000epochs_v2.png", 
        dpi=350, width=15,height=15,units='cm',type='cairo')
 # END **************************************************************************
 
@@ -654,8 +679,16 @@ ggsave(p_out,
 
 
 # 7 Koppen Climate Zones & P:PET Trend & NDVI & VCF distributions --------------------------------------------------
+lut_koppen <- c("Equatorial" = "Equatorial",
+             "Tropical" = "Tropical", 
+             "Subtropical" = "Subtropical", 
+             "Grassland" = "Grassland", 
+             "Desert" = "Arid",
+             "Temperate" = "Temperate",
+             "Temperate Tas." = "Temperate Tasm.")
 p_left <- kop %>% 
-  ggplot(data=., aes(x,y,fill=as_factor(zone)))+
+  # mutate(zone = fct_recode(zone, zone="Desert",zone="Arid")) %>% 
+  ggplot(data=., aes(x,y,fill=zone))+
   geom_sf(inherit.aes = F, data=oz_poly,
           fill='gray40',color='gray10')+
   geom_tile()+
@@ -663,7 +696,7 @@ p_left <- kop %>%
            ylim = c(-45,-10), 
            expand = FALSE)+
   scale_x_continuous(breaks=seq(140,155,by=5))+
-  scale_fill_viridis_d(option='B',direction = 1,end=0.95)+
+  scale_fill_viridis_d(option='B',direction = 1,end=0.95, label = lut_koppen)+
   # scico::scale_fill_scico_d(end=0.9,direction = 1)+
   labs(x=NULL,y=NULL)+
   theme_linedraw()+
@@ -720,7 +753,7 @@ lut_kop <- c("Equatorial" = "Equat.",
              "Tropical" = "Trop.", 
              "Subtropical" = "Subtr.", 
              "Grassland" = "Grass.", 
-             "Desert" = "Des.",
+             "Desert" = "Arid",
              "Temperate" = "Temp.",
              "Temperate Tas." = "Tasm.")
 lt_ndvi_season_p1$epoch <- "AVHRR NDVI 1981-2000"
@@ -728,21 +761,26 @@ lt_ndvi_season_p2$epoch <- "MODIS NDVI 2001-2019"
 j <- bind_rows(lt_ndvi_season_p1, lt_ndvi_season_p2)
 p_bottom <- inner_join(kop,j,by=c("x","y")) %>% 
   rename(`Zone` = cz) %>% 
-  filter(between(b1,-0.004,0.004)) %>% 
+  filter(between(b1,-0.004,0.005)) %>% 
   mutate(season = factor(season, levels=c("SON","DJF","MAM","JJA"),ordered = T)) %>% 
   ggplot(data=., aes(b1,after_stat(density),
                      fill=as_factor(`Zone`),
-                     color=as_factor(`Zone`),alpha=epoch))+
+                     color=epoch, #as_factor(`Zone`),
+                     alpha=epoch))+
   # geom_histogram(bins = 30, position = 'identity')+
   geom_density(position='identity')+
   # geom_freqpoly()+
   geom_vline(aes(xintercept=0),col='#cf0000',lwd=1)+
   geom_vline(aes(xintercept=0),col='red',lwd=0.5)+
   # scico::scale_fill_scico_d()+
-  scale_alpha_discrete(range=c(0.4,0.8))+
+  scale_alpha_discrete(range=c(0.2,0.8))+
   scale_fill_viridis_d(option='B',direction = 1,end=0.925)+
-  scale_color_viridis_d(option='B',direction = 1,end=0.925)+
-  scale_x_continuous(expand=c(0,0), breaks=c(-0.003,0,0.003))+
+  # scale_color_viridis_d(option='B',direction = 1,end=0.925)+
+  scale_color_manual(values=c("black",NA),
+                     breaks=c("AVHRR NDVI 1981-2000","MODIS NDVI 2001-2019"))+
+  scale_x_continuous(expand=c(0,0), 
+                     limits=c(-0.005,0.0055),
+                     breaks=c(-0.003,0,0.003))+
   scale_y_continuous(expand=c(0,0),position = 'left')+
   facet_grid(`Zone`~season, scales = 'free_y', 
              # labeller = label_wrap_gen(width=10, multi_line = TRUE)
@@ -785,7 +823,7 @@ p_vcf <- vcf %>%
               "Subtropical", "Grassland","Desert", 
               "Temperate","Temperate Tas.")), 
      labels=str_wrap(rev(c("Equatorial","Tropical", 
-                  "Subtropical", "Grassland", "Desert", 
+                  "Subtropical", "Grassland", "Arid", 
                   "Temperate","Temperate Tasmania")),width = 10), 
      position = 'left')+
   labs(x=expression(paste(Cover~Trend~('%'~yr**-1))), 
@@ -808,7 +846,7 @@ library(cowplot)
 cp_r <- cowplot::plot_grid(p_right,p_bottom,p_vcf,nrow = 3,rel_heights = c(2,3,3))
 cowplot::plot_grid(p_left,cp_r)
 ggsave(plot=cowplot::plot_grid(p_left,cp_r),
-       filename = "figures/map_7KoppenZones_PPET_change_VCF.png", 
+       filename = "figures/map_7KoppenZones_PPET_change_VCF_v2.png", 
        width = 25, height=30, units='cm', dpi=350, type='cairo')
 
 # END SECTION ******************************************************************
@@ -1179,18 +1217,27 @@ ggsave(p_out,
 
 
 
-# Arrow Vector Field P:PET & NDVI Shift WITH INSET{MAPPET 0-0.75) -------------------------------------------------------------
+# Arrow Vector Field P:PET & NDVI Shift WITH INSET{MAPPET 0-0.75} -------------------------------------------------------------
+set.seed(321)
 epoch1 <- ldat %>% 
+  filter(ndvi_anom_sd > -3.5) %>% 
+  filter(ndvi_anom_sd < 3.5) %>% 
   filter(hydro_year %in% c(1981:1985)) %>% 
   group_by(x,y) %>% 
   summarize(ppet = mean(pe_12mo,na.rm=TRUE), 
-            ndvi_u = mean(ndvi_3mo,na.rm=TRUE)) %>% 
+            ndvi_u = mean(ndvi_hyb,na.rm=TRUE), 
+            nobs = n()) %>%
+  ungroup() %>% 
   as_tibble()
 epoch2 <- ldat %>% 
+  filter(ndvi_anom_sd > -3.5) %>% 
+  filter(ndvi_anom_sd < 3.5) %>% 
   filter(hydro_year %in% c(2015:2019)) %>% 
   group_by(x,y) %>% 
   summarize(ppet = mean(pe_12mo,na.rm=TRUE), 
-            ndvi_u = mean(ndvi_3mo,na.rm=TRUE)) %>% 
+            ndvi_u = mean(ndvi_3mo,na.rm=TRUE), 
+            nobs = n()) %>% 
+  ungroup() %>% 
   as_tibble()
 
 o <- inner_join(epoch1,epoch2,by=c("x","y"),suffix=c("_1","_2")) %>% 
@@ -1198,20 +1245,31 @@ o <- inner_join(epoch1,epoch2,by=c("x","y"),suffix=c("_1","_2")) %>%
   filter(ndvi_u_1 > 0 & ndvi_u_2 > 0) %>% 
   mutate(delta_x = ppet_2 - ppet_1) %>% 
   mutate(id = cur_group_rows())
+o <- o %>% filter(nobs_1 >= 25 & 
+                  nobs_2 >= 25)
 vec_ids <- sample(o$id, 1500)
+
 p_vector <- o %>% 
-  filter(id %in% vec_ids) %>% 
+  mutate(mape_d = cut_interval(sqrt(ppet_1),n=15)) %>%
+  group_by(mape_d) %>%
+  sample_n(30) %>%
+  ungroup() %>%
+  # filter(id %in% vec_ids) %>%
+  arrange(abs(delta_x)) %>% 
   ggplot(data=., aes(ppet_1, ndvi_u_2,color=delta_x))+
   geom_point(data=epoch2 %>% filter(ndvi_u>0), 
              aes(ppet, ndvi_u), color=NA)+
   geom_segment(aes(xend=ppet_2,yend=ndvi_u_1),
                arrow=arrow(length=unit(0.1,'cm')))+
-  scale_color_gradient2(
-    low='#cf0000',
-    mid='gray20', 
-    high='navy',
-    limits=c(-0.2,0.2), 
-    oob=scales::squish)+
+  scale_color_gradientn(colours = c("#cf0000","#b87b7b",
+                                    "#7b81b8","navy"), 
+                        limits=c(-0.2,0.2), oob=scales::squish)+
+  # scale_color_gradient2(
+  #   low='#cf0000',
+  #   mid='gray50', 
+  #   high='navy',
+  #   limits=c(-0.2,0.2), 
+  #   oob=scales::squish)+
   labs(x='Annual P:PET',y='NDVI')+
   scale_x_continuous(limits=c(0,2.25),expand=c(0,0))+
   scale_y_continuous(expand=c(0,0))+
@@ -1231,7 +1289,7 @@ p_out <- ggExtra::ggMarginal(p_vector, type='histogram')
 p_out
 
 p_vector_inset <- o %>% 
-  filter(id %in% vec_ids) %>% 
+  # filter(id %in% vec_ids) %>% 
   # filter(ppet_1 < 0.6) %>%
   # sample_frac(0.5) %>%
   mutate(ord = abs(delta_x)) %>% 
@@ -1239,12 +1297,9 @@ p_vector_inset <- o %>%
   ggplot(data=., aes(ppet_1, ndvi_u_2,color=delta_x))+
   geom_segment(aes(xend=ppet_2,yend=ndvi_u_1),
                arrow=arrow(length=unit(0.1,'cm')))+
-  scale_color_gradient2(
-    low='#cf0000',
-    mid='gray20', 
-    high='navy',
-    limits=c(-0.2,0.2), 
-    oob=scales::squish)+
+  scale_color_gradientn(colours = c("#cf0000","#b87b7b",
+                                    "#7b81b8","navy"), 
+                        limits=c(-0.2,0.2), oob=scales::squish)+
   labs(x=NULL,y=NULL)+
   # labs(x='P:PET',y='NDVI')+
   scale_x_continuous(limits=c(0.1,0.4),
@@ -1278,7 +1333,7 @@ p1_2 <- image_composite(p1,p2,offset="+1050+720")
 
 p_0_1_2 <- magick::image_append(c(p0,p1_2),
                      stack=TRUE)
-magick::image_write(p_0_1_2, path="figures/join_ndvi_ppet_vectorPlot_diagram_wInset.png")
+magick::image_write(p1_2, path="figures/join_ndvi_ppet_vectorPlot_wInset.png")
 
 
 #*******************************************************************************
@@ -1341,7 +1396,7 @@ ggsave(p_lm, filename = "figures/ndvi_lin_trend_10yr_segs.png",
        width=20, height=15, units='cm', dpi=350, type='cairo')
 
 #*******************************************************************************
-# NDVI GAM time series by Koppen climate zone ------------------------------------
+# NDVI Linear Model time series by Koppen climate zone ------------------------------------
 #*******************************************************************************
 library(mgcv)
 exists('kop')
@@ -1349,20 +1404,22 @@ dat <- merge(kop,
              dat,
              by=c("x","y"), 
              all=TRUE,allow.cartesian=TRUE)
+dat <- dat %>% as.data.table()
 
 vec_ids <- unique(dat[,.(id,cz)]) %>% .[is.na(id)==F & is.na(cz)==F]
 vec_ids <- vec_ids[,.SD[sample(.N, min(10000,.N))],by=cz]
 o <- dat[is.na(season)==F] %>%
   .[id %in% vec_ids$id] %>% 
   .[date >= ymd('1982-01-01')] %>% 
-  .[date <= ymd('2019-10-01')] %>% 
+  .[date <= ymd('2019-09-30')] %>% 
   .[,.(x,y,date,season,cz,id,ndvi_hyb,ndvi_3mo,ndvi_mcd)]
 vec_cols <- viridis::viridis(10, begin = 0.1,end=0.9)
 factor(o$season[1], levels=c("SON","DJF","MAM","JJA"),ordered = T)
 lut_kop <- c("Equatorial" = "Equat.",
              "Tropical" = "Trop.", 
              "Subtropical" = "Subtr.", 
-             "Grassland & Desert" = "Grass.", 
+             "Grassland" = "Grass.",
+             "Desert" = "Arid",
              "Temperate" = "Temp.",
              "Temperate Tas." = "Tasm.")
 p_lm <- o %>%   
@@ -1370,19 +1427,19 @@ p_lm <- o %>%
   ggplot(data=., aes(date, ndvi_hyb))+
   geom_smooth(method='lm', color='black',se=F)+
   geom_smooth(method='lm',color=vec_cols[2],se=F, 
-              data=o[date %between% c("1981-01-01","1991-01-01")])+
+              data=o[sample(.N,1e6)][date %between% c("1981-01-01","1991-01-01")])+
   geom_smooth(method='lm',color=vec_cols[3],se=F, 
-              data=o[date %between% c("1986-01-01","1996-01-01")])+
+              data=o[sample(.N,1e6)][date %between% c("1986-01-01","1996-01-01")])+
   geom_smooth(method='lm',color=vec_cols[4],se=F, 
-              data=o[date %between% c("1991-01-01","2001-01-01")])+
+              data=o[sample(.N,1e6)][date %between% c("1991-01-01","2001-01-01")])+
   geom_smooth(method='lm',color=vec_cols[5],se=F, 
-              data=o[date %between% c("1996-01-01","2006-01-01")])+
+              data=o[sample(.N,1e6)][date %between% c("1996-01-01","2006-01-01")])+
   geom_smooth(method='lm',color=vec_cols[6],se=F, 
-              data=o[date %between% c("2001-01-01","2011-01-01")])+
+              data=o[sample(.N,1e6)][date %between% c("2001-01-01","2011-01-01")])+
   geom_smooth(method='lm',color=vec_cols[7],se=F, 
-              data=o[date %between% c("2006-01-01","2016-01-01")])+
+              data=o[sample(.N,1e6)][date %between% c("2006-01-01","2016-01-01")])+
   geom_smooth(method='lm',color=vec_cols[8],se=F, 
-              data=o[date %between% c("2011-01-01","2019-09-01")])+
+              data=o[sample(.N,1e6)][date %between% c("2011-01-01","2019-09-01")])+
   geom_smooth(method='lm',color='red',se=F, 
               data=o[date %between% c("2001-01-01","2019-09-01")], 
               aes(date, ndvi_mcd))+

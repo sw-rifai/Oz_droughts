@@ -3,14 +3,31 @@ library(tidyverse)
 library(data.table); setDTthreads(threads = 8)
 library(lubridate); 
 library(dtplyr); 
+library(nls.multstart);
 options(mc.cores=parallel::detectCores()-3) 
 
 # IMPORT ###################################################################
 source("src/R/extract_awap_rad.R")
-vi <- arrow::read_parquet("../data_general/MCD43/MCD64_AVHRR_NDVI_hybrid_2020-05-26.parquet", 
+vi <- arrow::read_parquet("../data_general/MCD43/MCD43_AVHRR_NDVI_hybrid_2020-08-08.parquet", 
                           col_select = c("x","y","date",
-                                         "ndvi_c","ndvi_m","ndvi_hyb", 
-                                         "evi2_hyb","evi2_m"))
+                                         "ndvi_c","ndvi_mcd","ndvi_hyb", 
+                                         "nirv_c","nirv_mcd","nirv_hyb",
+                                         "evi2_mcd","evi2_hyb",
+                                         'fpar','fpar_hyb')) %>% 
+  as.data.table()
+
+lvi <- lazy_dt(vi)
+
+lvi %>% group_by(x,y) %>% summarize(ndvi_u =mean(ndvi_hyb,na.rm=TRUE)) %>% show_query()
+
+norms_vi <- vi[,`:=`(month=month(date))] %>% 
+  .[,.(ndvi_u = mean(ndvi_hyb,na.rm=TRUE), 
+       ndvi_sd = sd(ndvi_hyb,na.rm=TRUE)),keyby=.(x,y,month)]
+
+vi <- norms_vi[vi,on=.(x,y,month)] %>% 
+  .[,`:=`(ndvi_anom = ndvi_hyb - ndvi_u)] %>% 
+  .[,`:=`(ndvi_anom_sd = ndvi_anom/ndvi_sd)]
+
 tmp <- arrow::read_parquet("/home/sami/scratch/ARD_ndvi_aclim_anoms.parquet",
                            col_select = c(
                              "date", "hydro_year", "id","season",
@@ -35,7 +52,7 @@ tmp <- arrow::read_parquet("/home/sami/scratch/ARD_ndvi_aclim_anoms.parquet",
                              # "ndvi_u",
                              # "ndvi_anom",
                              # "ndvi_anom_12mo",
-                             "ndvi_anom_sd",
+                             # "ndvi_anom_sd",
                              # "ndvi_mcd",
                              'vc','veg_class',
                              'month',
@@ -44,23 +61,23 @@ tmp <- arrow::read_parquet("/home/sami/scratch/ARD_ndvi_aclim_anoms.parquet",
   .[is.infinite(mape)==F] %>% 
   .[,`:=`(p_anom_12mo_frac = precip_anom_12mo/map)]
 
-tmp <- merge(tmp, 
-             arad %>% select(x_vi,y_vi,time,rad) %>% 
-               rename(x=x_vi,y=y_vi,date=time) %>% 
-               mutate(date=as.Date(date)),
-             by=c("x","y","date"), 
-             all=TRUE,allow.cartesian=TRUE)
+# tmp <- merge(tmp, 
+#              arad %>% select(x_vi,y_vi,time,rad) %>% 
+#                rename(x=x_vi,y=y_vi,date=time) %>% 
+#                mutate(date=as.Date(date)),
+#              by=c("x","y","date"), 
+#              all=TRUE,allow.cartesian=TRUE)
 
 
-oo <- tmp[,.(rad_u = mean(rad, na.rm=TRUE)), by=.(x,y,month)]
-tmp <- oo[tmp,on=.(x,y,month)]
-rm(oo)
-tmp <- tmp[,`:=`(rad_anom = rad-rad_u)]
+# oo <- tmp[,.(rad_u = mean(rad, na.rm=TRUE)), by=.(x,y,month)]
+# tmp <- oo[tmp,on=.(x,y,month)]
+# rm(oo)
+# tmp <- tmp[,`:=`(rad_anom = rad-rad_u)]
 
 # unique(tmp[,.(vc,veg_class)]) %>% View
 # tmp <- tmp[order(x,y,date)][,tmean := (tmax+tmin)/2]
 tmp <- tmp[order(x,y,date)][, tmax_3mo := frollmean(tmax,n = 3,fill = NA,align='center'), by=.(x,y)]
-tmp <- tmp[order(x,y,date)][, rad_3mo := frollmean(rad,n = 3,fill = NA,align='center'), by=.(x,y)]
+# tmp <- tmp[order(x,y,date)][, rad_3mo := frollmean(rad,n = 3,fill = NA,align='center'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, tmax_anom_3mo := frollmean(tmax_anom,n = 3,fill = NA,align='center'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, rad_anom_3mo := frollmean(rad_anom,n = 3,fill = NA,align='center'), by=.(x,y)]
 
@@ -76,7 +93,7 @@ tmp <- tmp[order(x,y,date)][, rad_anom_3mo := frollmean(rad_anom,n = 3,fill = NA
 # tmp <- tmp[order(x,y,date)][, pet_48mo := frollmean(pet,n = 48,fill = NA,align='right'), by=.(x,y)]
 # tmp <- tmp[order(x,y,date)][, precip_48mo := frollmean(precip,n = 48,fill = NA,align='right'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, tmax_anom_12mo := frollmean(tmax_anom,n = 12,fill = NA,align='right'), by=.(x,y)]
-tmp <- tmp[order(x,y,date)][, rad_anom_12mo := frollmean(rad_anom,n = 12,fill = NA,align='right'), by=.(x,y)]
+# tmp <- tmp[order(x,y,date)][, rad_anom_12mo := frollmean(rad_anom,n = 12,fill = NA,align='right'), by=.(x,y)]
 
 tmp <- tmp[,`:=`(#pe_3mo = precip_3mo/pet_3mo, 
                  pe_12mo = precip_12mo/pet_12mo 
@@ -105,8 +122,201 @@ tmp <- merge(mlo,tmp,by="date")
 tmp <- tmp[is.na(ndvi_3mo)==F & is.na(co2_int)==F]
 center_co2 <- mean(tmp$co2_int)
 tmp <- tmp[,`:=`(cco2=co2_int-center_co2)]
+tmp <- tmp %>% lazy_dt() %>% 
+  mutate(epoch = ifelse(date <= ymd("2000-12-31"),'avhrr','modis')) %>% 
+  mutate(epoch = factor(sensor, levels=c("avhrr","modis"))) %>% 
+  as.data.table()
 gc()
 #*******************************************************************************
+
+#*******************************************************************************
+# NLS fits Richard func by Season with CO2--------------------------------------
+#*******************************************************************************
+train_son <- tmp[season=='SON'][pe_12mo <= 2] %>% 
+  # .[p_anom_12mo_frac > -0.75 & p_anom_12mo_frac < 0.75] %>%
+  .[sample(.N,1000000)]
+train_djf <- tmp[season=='DJF'][pe_12mo <= 2] %>% 
+  # .[p_anom_12mo_frac > -0.75 & p_anom_12mo_frac < 0.75] %>%
+  .[sample(.N,1000000)]
+train_mam <- tmp[season=='MAM'][pe_12mo <= 2] %>% 
+  # .[p_anom_12mo_frac > -0.75 & p_anom_12mo_frac < 0.75] %>%
+  .[sample(.N,1000000)]
+train_jja <- tmp[season=='JJA'][pe_12mo <= 2] %>% 
+  # .[p_anom_12mo_frac > -0.75 & p_anom_12mo_frac < 0.75] %>%
+  .[sample(.N,1000000)]
+
+
+ric_x3_son <- nls_multstart(ndvi_3mo ~ 
+  (Asym+Asym2*cco2+Asym3*I((pe_12mo-mape)/mape)) * 
+    (1+exp(((xmid+xmid2*cco2+xmid3*I((pe_12mo-mape)/mape)) - mape)/
+             (scal+scal2*cco2+scal3*I((pe_12mo-mape)/mape))))^
+    (-exp(-(lpow+lpow2*cco2+lpow3*I((pe_12mo-mape)/mape)))) + 
+    B1*as.numeric(epoch), 
+  data=train_son, 
+  iter = 1, 
+  supp_errors = 'N',
+  control=nls.control(maxiter=100),
+  start_lower = c(Asym=0.7561,Asym2=5e-4,Asym3=0,
+            xmid=0.27,xmid2=3e-4,xmid3=0,
+            scal=0.28,scal2=0,scal3=0,
+            lpow=-0.28,lpow2=0, lpow3=0, 
+            B3=0), 
+  start_upper = c(Asym=0.7561,Asym2=5e-4,Asym3=0.0001,
+                  xmid=0.27,xmid2=3e-4,xmid3=0.0001,
+                  scal=0.28,scal2=0,scal3=0,
+                  lpow=-0.28,lpow2=0, lpow3=0, 
+                  B3=0))
+summary(ric_x3_son)
+yardstick::rsq_trad_vec(truth = train_son$ndvi_3mo, estimate = predict(ric_x3_son))
+yardstick::rmse_vec(truth = train_son$ndvi_3mo, estimate = predict(ric_x3_son))
+
+
+ric_x3_djf <- nls_multstart(ndvi_3mo ~ 
+                              (Asym+Asym2*cco2+Asym3*I((pe_12mo-mape)/mape)) * 
+                              (1+exp(((xmid+xmid2*cco2+xmid3*I((pe_12mo-mape)/mape)) - mape)/
+                                       (scal+scal2*cco2+scal3*I((pe_12mo-mape)/mape))))^
+                              (-exp(-(lpow+lpow2*cco2+lpow3*I((pe_12mo-mape)/mape)))) + 
+                              B1*as.numeric(epoch), 
+                            data=train_djf, 
+                            iter = 1, 
+                            supp_errors = 'N',
+                            control=nls.control(maxiter=100),
+                            start_lower = c(Asym=0.7561,Asym2=5e-4,Asym3=0,
+                                            xmid=0.27,xmid2=3e-4,xmid3=0,
+                                            scal=0.28,scal2=0,scal3=0,
+                                            lpow=-0.28,lpow2=0, lpow3=0, 
+                                            B3=0), 
+                            start_upper = c(Asym=0.7561,Asym2=5e-4,Asym3=0.0001,
+                                            xmid=0.27,xmid2=3e-4,xmid3=0.0001,
+                                            scal=0.28,scal2=0,scal3=0,
+                                            lpow=-0.28,lpow2=0, lpow3=0, 
+                                            B3=0))
+ric_x3_djf
+yardstick::rsq_trad_vec(truth = train_djf$ndvi_3mo, estimate = predict(ric_x3_djf))
+yardstick::rmse_vec(truth = train_djf$ndvi_3mo, estimate = predict(ric_x3_djf))
+
+ric_x3_mam <- nls_multstart(ndvi_3mo ~ 
+                              (Asym+Asym2*cco2+Asym3*I((pe_12mo-mape)/mape)) * 
+                              (1+exp(((xmid+xmid2*cco2+xmid3*I((pe_12mo-mape)/mape)) - mape)/
+                                       (scal+scal2*cco2+scal3*I((pe_12mo-mape)/mape))))^
+                              (-exp(-(lpow+lpow2*cco2+lpow3*I((pe_12mo-mape)/mape)))) + 
+                              B1*as.numeric(epoch), 
+                            data=train_mam, 
+                            iter = 1, 
+                            supp_errors = 'N',
+                            control=nls.control(maxiter=100),
+                            start_lower = c(Asym=0.7561,Asym2=5e-4,Asym3=0,
+                                            xmid=0.27,xmid2=3e-4,xmid3=0,
+                                            scal=0.28,scal2=0,scal3=0,
+                                            lpow=-0.28,lpow2=0, lpow3=0, 
+                                            B3=0), 
+                            start_upper = c(Asym=0.7561,Asym2=5e-4,Asym3=0.0001,
+                                            xmid=0.27,xmid2=3e-4,xmid3=0.0001,
+                                            scal=0.28,scal2=0,scal3=0,
+                                            lpow=-0.28,lpow2=0, lpow3=0, 
+                                            B3=0))
+ric_x3_mam
+yardstick::rsq_trad_vec(truth = train_mam$ndvi_3mo, estimate = predict(ric_x3_mam))
+yardstick::rmse_vec(truth = train_mam$ndvi_3mo, estimate = predict(ric_x3_mam))
+
+
+ric_x3_jja <- nls_multstart(ndvi_3mo ~ 
+                              (Asym+Asym2*cco2+Asym3*I((pe_12mo-mape)/mape)) * 
+                              (1+exp(((xmid+xmid2*cco2+xmid3*I((pe_12mo-mape)/mape)) - mape)/
+                                       (scal+scal2*cco2+scal3*I((pe_12mo-mape)/mape))))^
+                              (-exp(-(lpow+lpow2*cco2+lpow3*I((pe_12mo-mape)/mape)))) + 
+                              B1*as.numeric(epoch), 
+                            data=train_jja, 
+                            iter = 1, 
+                            supp_errors = 'N',
+                            control=nls.control(maxiter=100),
+                            start_lower = c(Asym=0.7561,Asym2=5e-4,Asym3=0,
+                                            xmid=0.27,xmid2=3e-4,xmid3=0,
+                                            scal=0.28,scal2=0,scal3=0,
+                                            lpow=-0.28,lpow2=0, lpow3=0, 
+                                            B3=0), 
+                            start_upper = c(Asym=0.7561,Asym2=5e-4,Asym3=0.0001,
+                                            xmid=0.27,xmid2=3e-4,xmid3=0.0001,
+                                            scal=0.28,scal2=0,scal3=0,
+                                            lpow=-0.28,lpow2=0, lpow3=0, 
+                                            B3=0))
+ric_x3_jja
+yardstick::rsq_trad_vec(truth = train_jja$ndvi_3mo, estimate = predict(ric_x3_jja))
+yardstick::rmse_vec(truth = train_jja$ndvi_3mo, estimate = predict(ric_x3_jja))
+
+
+pred_son <- expand_grid(#season=unique(tmp$season), 
+  co2 = seq(min(tmp$co2_int),max(tmp$co2_int),length.out=50),
+  epoch=tmp[15e6]$epoch,
+  pe_12mo = seq(0.01,1.5,length.out = 200)) %>% 
+  mutate(cco2 = co2-center_co2) %>% 
+  mutate(mape=pe_12mo) %>% 
+  mutate(pred = predict(ric_x3_son, newdata=.), 
+         season=train_son$season[1])
+pred_djf <- expand_grid(#season=unique(tmp$season), 
+  co2 = seq(min(tmp$co2_int),max(tmp$co2_int),length.out=50),
+  epoch=tmp[15e6]$epoch,
+  pe_12mo = seq(0.01,1.5,length.out = 200)) %>% 
+  mutate(cco2 = co2-center_co2) %>% 
+  mutate(mape=pe_12mo) %>% 
+  mutate(pred = predict(ric_x3_djf, newdata=.), 
+         season = train_djf$season[1])
+pred_mam <- expand_grid(#season=unique(tmp$season), 
+  co2 = seq(min(tmp$co2_int),max(tmp$co2_int),length.out=50),
+  epoch=tmp[15e6]$epoch,
+  pe_12mo = seq(0.01,1.5,length.out = 200)) %>% 
+  mutate(cco2 = co2-center_co2) %>% 
+  mutate(mape=pe_12mo) %>% 
+  mutate(pred = predict(ric_x3_mam, newdata=.), 
+         season = train_mam$season[1])
+pred_jja <- expand_grid(#season=unique(tmp$season), 
+  co2 = seq(min(tmp$co2_int),max(tmp$co2_int),length.out=50),
+  epoch=tmp[15e6]$epoch,
+  pe_12mo = seq(0.01,1.5,length.out = 200)) %>% 
+  mutate(cco2 = co2-center_co2) %>% 
+  mutate(mape=pe_12mo) %>% 
+  mutate(pred = predict(ric_x3_jja, newdata=.), 
+         season=train_jja$season[1])
+
+bind_rows(pred_son, pred_djf, pred_mam, pred_jja) %>% 
+  mutate(season = factor(season,levels=c("SON","DJF","MAM","JJA"), 
+                         ordered = TRUE)) %>% 
+  ggplot(data=., aes(pe_12mo,pred,color=(co2), group=co2))+
+  geom_line(alpha=1)+
+  # geom_vline(aes(xintercept=p50, color=hydro_year), 
+  #            data=wdat %>% 
+  #        mutate(p50 = (log((Asym - R0)/Asym) + 0.693147180559945)*exp(-lrc)))+
+  scale_color_viridis_c(expression(paste(CO[2]~ppm)), option='B',end=0.85)+
+  scale_x_continuous(limits=c(0,1.55),
+                     breaks=c(0,0.5,1,1.5),
+                     labels = c(0,0.5,1,1.5),
+                     expand=c(0,0)
+                     # guide = guide_axis(n.dodge=1, angle=0,check.overlap = TRUE)
+  )+
+  scale_y_continuous(limits=c(0,0.9), expand=c(0,0))+
+  labs(x="Mean Annual P:PET",
+    # x=expression(paste(paste(sum(Precip[t], "1 mo", "12 mo")," / ", sum(PET[t], "1 mo", "12 mo")))), 
+       y=expression(paste(NDVI["3 mo"])))+
+  facet_wrap(~season,nrow=2)+
+  theme_linedraw()+
+  guides(color=guide_colorbar(title.position = 'top'))+
+  theme(#panel.grid = element_blank(),
+        # panel.spacing.x = unit(6, "mm"),
+        axis.text = element_text(size=10),
+        # axis.text.x = element_text(angle=45, vjust=-0.5),
+        legend.position = c(0.85,0.1), 
+        legend.key.width = unit(0.65,'cm'),
+        legend.direction = 'horizontal', 
+        legend.background = element_rect(fill=NA))
+ggsave("figures/ndvi3mo_PE12mo_richard_x3_nlsFit_bySeason.png", 
+       width=15, height=12, units='cm', dpi=350, type='cairo')
+# END SECTION *******************************************************************
+
+
+
+
+
+
 
 #*******************************************************************************
 # Residuals of simple Richards 1981-1985 fit -----------------------------------

@@ -1,7 +1,7 @@
 library(stars); library(tidyverse); library(data.table); library(lubridate)
 library(dtplyr, warn.conflicts = FALSE);
 library(RcppArmadillo)
-
+kop <- arrow::read_parquet("../data_general/Koppen_climate/BOM_Koppen_simplified7.parquet")
 mod_tree <- stars::read_stars("../data_general/Oz_misc_data/MOD44BPercent_Tree_Cover_5000m_East_Oz_noMask_2000_2019.tif") %>% 
   st_set_dimensions(., 3, 
                     values=seq(ymd("2000-01-01"),ymd("2019-01-01"),by="1 year"), 
@@ -59,7 +59,7 @@ mod %>% lazy_dt() %>%
   hist
 
 system.time(
-lt_tree <- mod[,`:=`(year_c = year-2009.5)] %>% 
+lt_tree <- mod[year<2019][,`:=`(year_c = year-2009.5)] %>% 
       .[,.(beta = list(unname(fastLm(X = cbind(1,year_c), 
                                      y=tree_cover, data=.SD)$coefficients))), 
         by=.(x,y)] %>% 
@@ -67,7 +67,7 @@ lt_tree <- mod[,`:=`(year_c = year-2009.5)] %>%
 )
 
 system.time(
-  lt_nontree <- mod[,`:=`(year_c = year-2009.5)] %>% 
+  lt_nontree <- mod[year<2019][,`:=`(year_c = year-2009.5)] %>% 
     .[,.(beta = list(unname(fastLm(X = cbind(1,year_c), 
                                    y=nontree_cover, data=.SD)$coefficients))), 
       by=.(x,y)] %>% 
@@ -75,7 +75,7 @@ system.time(
 )
 
 system.time(
-  lt_nonveg <- mod[,`:=`(year_c = year-2009.5)] %>% 
+  lt_nonveg <- mod[year<2019][,`:=`(year_c = year-2009.5)] %>% 
     .[,.(beta = list(unname(fastLm(X = cbind(1,year_c), 
                                    y=nonveg_cover, data=.SD)$coefficients))), 
       by=.(x,y)] %>% 
@@ -120,6 +120,7 @@ map_theme2 <- theme(panel.background = element_rect(fill = '#99A3C4'),
 # EOZ_tree_grass_change ---------------------------------------------------
 p_change <- lt_veg %>% 
   inner_join(., vc) %>% 
+  inner_join(., kop,by=c('x','y')) %>% 
   mutate(change = 
            case_when(delta_treecover>=0.1 & delta_nontree_veg >= 0.1 ~ 'tree & grass incr.', 
                      delta_treecover<0.1 & delta_nontree_veg >= 0.1 ~ 'grass incr. & tree decr.',
@@ -130,7 +131,7 @@ p_change <- lt_veg %>%
                      is.na(delta_treecover)==TRUE ~ NA_character_)) %>% #pull(change) %>% table
   filter(is.na(change)==F) %>% 
   ggplot(data=., aes(x,y,fill=change))+
-  geom_sf(inherit.aes = F, data=oz_poly,fill='gray70',color='gray10')+
+  geom_sf(inherit.aes = F, data=oz_poly,fill='gray40',color='black')+
   geom_tile()+
   coord_sf(xlim = c(140,159),
            ylim = c(-45,-10), expand = FALSE)+
@@ -161,9 +162,10 @@ ggsave(filename = "figures/EOZ_tree_grass_change.png",
 vec_col3 <- RColorBrewer::brewer.pal(n=7,'BrBG')
 p_treecover <- lt_veg %>% 
   inner_join(., vc) %>% 
+  inner_join(., kop,by=c('x','y')) %>% 
   filter(is.na(delta_treecover)==F) %>% 
   ggplot(data=., aes(x,y,fill=delta_treecover))+
-  geom_sf(inherit.aes = F, data=oz_poly,fill='gray70',color='gray10')+
+  geom_sf(inherit.aes = F, data=oz_poly,fill='gray40',color='black')+
   geom_tile()+
   coord_sf(xlim = c(140,154),
            ylim = c(-45,-10), expand = FALSE)+
@@ -187,9 +189,10 @@ p_treecover <- lt_veg %>%
 vec_col3 <- RColorBrewer::brewer.pal(n=7,'BrBG')
 p_nontree_veg_cover <- lt_veg %>% 
   inner_join(., vc) %>% 
+  inner_join(., kop,by=c("x","y")) %>% 
   filter(is.na(delta_nontree_veg)==F) %>% 
   ggplot(data=., aes(x,y,fill=delta_nontree_veg))+
-  geom_sf(inherit.aes = F, data=oz_poly,fill='gray70',color='gray10')+
+  geom_sf(inherit.aes = F, data=oz_poly,fill='gray40',color='black')+
   geom_tile()+
   coord_sf(xlim = c(140,154),
            ylim = c(-45,-10), expand = FALSE)+
