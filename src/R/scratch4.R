@@ -664,3 +664,60 @@ inner_join(q_npv,kop,by=c('x','y')) %>%
   ggplot(data=., aes(hydro_year, npv, color=zone))+
   geom_smooth()+
   facet_wrap(~zone,scales = 'free')
+
+
+o %>% filter(ndvi_u_1==min(ndvi_u_1))
+
+
+o$delta_x %>% hist
+
+
+o %>% 
+  filter(delta_x > 0) %>% 
+  filter(ndvi_u_2 < ndvi_u_1) %>% 
+  # ggplot(aes(x,y,fill=ndvi_u_1 - ndvi_u_2))+
+  ggplot(aes(x,y,fill=ppet_2 - ppet_1))+
+  geom_sf(inherit.aes = F, data=oz_poly,fill='gray70',color='gray10')+
+  geom_tile()+
+  scale_fill_viridis_c(limits=c(0,0.1))+
+  coord_sf(xlim = c(140,154),
+           ylim = c(-45,-10), expand = FALSE)
+
+
+
+dat[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>%
+    .[ndvi_hyb > 0] %>% 
+    .[date>= ymd("1982-01-01") & date<= ymd("2019-12-31")] %>% 
+    .[,.(val = mean(ndvi_hyb, na.rm=TRUE)), by=.(x,y,season,hydro_year)] %>% 
+    .[is.na(val)==F]
+dat$hydro_year %>% is.na %>% table
+dat[is.na(hydro_year)==T]$date
+# %>% 
+#     .[,.(b1 = fastLm(X = cbind(1,hydro_year-2000.5), y=val, data=.SD)$coefficients[2]), 
+#       by=.(x,y,season)]
+# )
+
+
+year(ymd("1983-12-01")+months(1))
+
+dat[date==ymd("1983-12-01")]$hydro_year
+
+
+
+o %>%   
+  # mutate(season=factor(o$season, levels=c("SON","DJF","MAM","JJA"),ordered = T)) %>% 
+  mutate(date_d = cut_width(date, n=7)) %>% pull(date_d) %>% unique
+  ggplot(data=., aes(date, ndvi_hyb, color=date_d))+
+  geom_smooth(method='lm', se=F)+
+  scale_x_date(expand=c(0,0))+
+  scale_color_viridis_c(option='B',end=0.9)+
+  labs(x=NULL, y="NDVI")+
+  facet_grid(cz~season, scales = 'free_y', 
+             # labeller = label_wrap_gen(width=10, multi_line = TRUE)
+             labeller = labeller(cz = lut_kop)
+  )+
+  theme_linedraw()+
+  theme(panel.grid = element_blank(), 
+        legend.position = 'bottom',
+        strip.text = element_text(face='bold'))
+

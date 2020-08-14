@@ -452,13 +452,15 @@ e1|e2
 ggsave(e1|e2, filename = 'figures/big_linearModel_by_MAPPET_range_by_Epoch.png', 
        width=34, height=18, units='cm')
 
-
-dat[is.na(season)==FALSE][mape<1.5][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5] %>% 
+dat[is.na(season)==FALSE][mape<2][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5] %>% 
   as_tibble() %>% 
   mutate(epoch = ifelse(date < ymd("2000-12-31"),'avhrr','modis')) %>% 
-  mutate(mape_d = cut_width(mape, 0.15)) %>% 
+  mutate(mape_d = cut_width(mape, 0.125)) %>% 
+  group_by(mape_d) %>% 
+  mutate(mape_dc= mean(mape,na.rm=TRUE)) %>% 
+  ungroup() %>% 
   mutate(season = factor(season, levels=c("SON","DJF","MAM","JJA"),ordered = T)) %>% 
-  nest(data = c(-mape_d,-season)) %>% 
+  nest(data = c(-mape_d,-mape_dc,-season)) %>% 
   mutate(fit = map(data, 
        ~lm(ndvi_3mo~scale(co2_trend)+scale(I(pe_anom_12mo/mape))+vc+epoch, 
            # ~lm(ndvi_3mo~scale(co2_trend)+scale(I(pe_anom_12mo/mape)), 
@@ -471,16 +473,19 @@ dat[is.na(season)==FALSE][mape<1.5][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5] %>%
   # filter(str_detect(term, 'co2') | 
   #          str_detect(term, 'tmax_anom_3mo')|
   #          str_detect(term, 'pe_anom_12mo')) %>% 
-  ggplot(data=., aes(mape_d, estimate))+
+  ggplot(data=., aes(mape_dc, estimate))+
   geom_col()+
   geom_errorbar(aes(ymin=estimate-2*std.error, 
                     ymax=estimate+2*std.error),
-                width=0.2)+
+                width=0.05)+
   # scale_fill_viridis_c(option='B',direction=1,begin = 0.1,end=0.9, 
   #                       limits=c(0,0.05),oob=scales::squish)+
   # scale_color_viridis_c(option='B',direction=1,begin = 0.1,end=0.9, 
   #                       limits=c(0,0.05),oob=scales::squish)+
-  scale_x_discrete(guide = guide_axis(n.dodge = 1,angle = 90))+
+  # scale_x_discrete(guide = guide_axis(n.dodge = 1,angle = 90))+
+  scale_x_continuous(limits=c(0,2.1), 
+                     # breaks=c(0.25,0.5,0.75,1,1.25,1.5,1.75),
+                     expand=c(0,0.05))+
   labs(x='Mean Annual P:PET Range', 
        title='NDVI Linear Model Effects (1982-2019)', 
        subtitle = 'N = 15.6e6   NDVI~CO2+P:PET_anom+Veg.Class.+Sensor')+
@@ -492,7 +497,7 @@ dat[is.na(season)==FALSE][mape<1.5][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5] %>%
     )+
   theme_linedraw()
 ggsave(filename = 'figures/big_linearModel_by_MAPPET_range.png', 
-       height=14, width=16, units='cm')
+       height=12, width=16, units='cm')
 
 qfit <- dat[season=='SON'][mape>0.1][mape<0.4][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5] %>% 
   lm(evi2_3mo~scale(co2_trend)*scale(mape)+scale(co2_trend)*scale(I(pe_12mo/mape)), data=.)

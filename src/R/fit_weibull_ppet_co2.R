@@ -221,7 +221,7 @@ yardstick::rmse_vec(test_dat[season=='JJA']$ndvi_3mo,
 n4_preds <- expand_grid(season=unique(train_dat$season),
                         co2 = seq(min(dat$co2_int),max(dat$co2_int),length.out=100),
                         mape = seq(0.05,1.5,length.out = 200), 
-                        pct_anom = c(-50,0,50), 
+                        pct_anom = c(0), 
                         epoch = 2) %>% 
   mutate(pe_anom_12mo = 0.01*pct_anom*mape) %>%
   # mutate(pe_12mo = pe_anom_12mo+mape) %>% 
@@ -247,24 +247,25 @@ p4_ndvi <- n4_preds %>%
                      expand=c(0,0),
                      guide = guide_axis(n.dodge=1, angle=0,check.overlap = TRUE)
   )+
-  scale_y_continuous(limits=c(0,0.95),expand=c(0.025,0.025))+
+  scale_y_continuous(limits=c(0,0.9),expand=c(0,0.01))+
   labs(x=expression(paste("Mean Annual P:PET")),
        y=expression(paste(NDVI["3 mo"])))+
-  facet_grid(pct_anom~season, labeller = labeller(pct_anom=vec_labels))+
+  facet_grid(~season, labeller = labeller(pct_anom=vec_labels))+
   theme_linedraw()+
   # guides(color=guide_colorbar(title.position = 'top'))+
   theme(#panel.grid = element_blank(),
     # panel.spacing.x = unit(6, "mm"),
     axis.text = element_text(size=10),
     # axis.text.x = element_text(angle=45, vjust=-0.5),
+    plot.margin = margin(t = 0.1,r = 0.4,b = 0.1,l = 0.4,'cm'),
     # legend.position = c(0.525,0.175), 
     legend.position = 'bottom',
     legend.key.width = unit(1,'cm'),
     legend.key.height = unit(0.2,'cm'),
     legend.direction = 'horizontal', 
     legend.background = element_rect(fill=NA)); p4_ndvi
-ggsave(filename = 'figures/n4_ndvi_season_weibull_ppet_x_co2.png',
-       width = 16, height = 12, units='cm', dpi=350, type='cairo')
+ggsave(p4_ndvi, filename = 'figures/n4_ndvi_season_weibull_ppet_x_co2_v2.png',
+       width = 16, height = 7, units='cm', dpi=350, type='cairo')
 #_______________________***______________****____________****_____*****____**_*_*
 
 

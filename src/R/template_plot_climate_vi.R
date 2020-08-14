@@ -2012,3 +2012,58 @@ mcf %>% lazy_dt() %>%
   # brms::theme_black()+
   theme(panel.grid = element_blank())
 ggsave(filename = 'figures/CSIRO_MODIS_LandCoverFraction_by_Koppen.png')
+
+
+
+# Log Beta Factor calculated from NDVI regression -------------------------
+library(RcppArmadillo)
+system.time(
+  lt_ndvi <- dat[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>%
+    .[date>= ymd("1982-01-01") & date<= ymd("2019-09-30")] %>% 
+    .[,.(val = mean(ndvi_hyb, na.rm=TRUE)), by=.(x,y,hydro_year)] %>% 
+    .[is.na(val)==F] %>% 
+    .[,.(beta = list(unname(fastLm(
+      X = cbind(1,hydro_year-2000.5), y=val, data=.SD)$coefficients))), 
+      by=.(x,y)] %>% 
+    .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2]),by=.(x,y)] %>% 
+    .[,.(x,y,b0,b1)]
+)
+lt_lcf_gv <- lcf[is.na(veg_class)==F][date <= ymd('2019-09-01')][,`:=`(year_c = year-center_year_lcf)] %>% 
+  .[,.(beta = list(unname(fastLm(X = cbind(1,year_c), 
+                                 y=gv, data=.SD)$coefficients))), 
+    by=.(x,y,season)] %>% 
+  .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2]), by=.(x,y,season)] %>% 
+  .[,.(x,y,season,b0,b1)]
+
+
+mlo[date==ymd('1982-01-01')]
+mlo[date==ymd('2019-09-01')]
+denom <- log(412.5/341.1)
+(ymd("2019-09-01")-ymd("1982-01-01"))/365
+d_bf <- lt_ndvi %>% 
+  as_tibble() %>% 
+  rowwise() %>% 
+  mutate(ndvi_a = b0 - 19*b1, 
+         ndvi_e = b0 + 19*b1) %>% 
+  mutate(numerator = log(ndvi_e/ndvi_a)) %>% 
+  mutate(beta_factor = log(ndvi_e/ndvi_a)/denom) %>% 
+  ungroup() %>% 
+  filter(ndvi_e > 0.1)
+d_bf$numerator %>% summary
+d_bf %>% filter(is.na(numerator)==T)
+d_bf$beta_factor %>% hist
+
+log(0.6/0.5)/denom
+
+
+d_bf %>% 
+  ggplot(aes(x,y,fill=beta_factor))+
+  geom_tile()+
+  coord_equal()+
+  scale_fill_gradient2(limits=c(-3,3), oob=scales::squish)
+  scale_fill_viridis_c(limits=c(0,2))
+
+d_bf$beta_factor %>% summary
+(d_bf$ndvi_a/d_bf$ndvi_e) %>% hist
+d_bf$ndvi_e %>% hist
+# end section ******************************************************************
