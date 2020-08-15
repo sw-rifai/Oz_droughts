@@ -1,6 +1,6 @@
 library(tidyverse); library(stars); library(sf); library(data.table); 
 library(dtplyr);
-library(lubridate); 
+library(lubridate); library(patchwork)
 
 # load("data/gridCell_lm_ndvi_clim.Rdata") # grid cell linear regressions
 oz_poly <- sf::read_sf("../data_general/GADM/gadm36_AUS.gpkg", 
@@ -19,6 +19,7 @@ ba <- stars::read_stars("../data_general/MCD64/MCD64_Oz/MCD64A1_BurnArea_reduced
   as_tibble() %>% 
   purrr::set_names(c('x','y','date','ba'))
 ba <- ba %>% inner_join(., kop, by=c("x","y"))
+ba <- ba %>% filter(date <= ymd("2018-12-31"))
 
 ba$ba %>% max
 
