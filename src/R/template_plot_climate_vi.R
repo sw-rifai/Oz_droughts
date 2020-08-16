@@ -242,7 +242,7 @@ system.time(
 
 # END **************************************************************************
 
-# NDVI linear change by season ***********************************************************
+# Calc NDVI linear change by season ***********************************************************
 library(RcppArmadillo)
 system.time(
   lt_ndvi_season <- dat[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>%
@@ -253,12 +253,13 @@ system.time(
       by=.(x,y,season)]
 )
 system.time(
-  lt_ndvi_hy <- dat[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>%
+  lt_ndvi_season_wEpoch <- dat[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>%
     .[date>= ymd("1982-01-01") & date<= ymd("2019-09-30")] %>% 
-    .[,.(val = mean(ndvi_3mo, na.rm=TRUE)), by=.(season,hydro_year)] %>% 
+    .[,.(val = mean(ndvi_3mo, na.rm=TRUE)), by=.(x,y,season,hydro_year)] %>% 
+    .[,`:=`(epoch=ifelse(hydro_year < 2001,0,1))] %>% 
     .[is.na(val)==F] %>% 
-    .[,.(b1 = fastLm(X = cbind(1,hydro_year-2000.5), y=val, data=.SD)$coefficients[2]), 
-      by=.(season,hydro_year)]
+    .[,.(b1 = fastLm(X = cbind(1,hydro_year-2000.5,epoch), y=val, data=.SD)$coefficients[2]), 
+      by=.(x,y,season)]
 )
 # END **************************************************************************
 
@@ -298,7 +299,7 @@ vcf <- lt_tree %>% lazy_dt() %>%
 
 
 
-# NDVI linear change -----------------------------------------------------------
+# Calc NDVI linear change -----------------------------------------------------------
 system.time(
   lt_ndvi_season <- dat[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>%
     .[ndvi_hyb > 0] %>% 
@@ -309,14 +310,14 @@ system.time(
       by=.(x,y,season)]
 )
 
-# NDVI linear change by satellite epoch -----------------------------------------------------------
+# Calc NDVI linear change by satellite epoch -----------------------------------------------------------
 c_year <- mean(seq(ymd("1982-01-01"),ymd("2000-12-31"),by='1 month')) %>% decimal_date();
 lt_ndvi_season_p1 <- dat[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>%
     .[ndvi_hyb > 0] %>% 
     .[date>= ymd("1982-01-01") & date<= ymd("2000-12-31")] %>% 
     .[,.(val = mean(ndvi_hyb, na.rm=TRUE)), by=.(x,y,season,hydro_year)] %>% 
     .[is.na(val)==F] %>% 
-    .[,.(b1 = fastLm(X = cbind(1,hydro_year-cyear), y=val, data=.SD)$coefficients[2]), 
+    .[,.(b1 = fastLm(X = cbind(1,hydro_year-c_year), y=val, data=.SD)$coefficients[2]), 
       by=.(x,y,season)]
 
 c_year <- mean(seq(ymd("2001-01-01"),ymd("2019-09-30"),by='1 month')) %>% decimal_date()
@@ -334,15 +335,15 @@ lt_ndvi_season_p2$epoch <- "MODIS NDVI 2001-2019"
 
 # Map ndvi longterm by season -------------------------------
 vec_col <- RColorBrewer::brewer.pal(n=7, name='BrBG')
-lt_ndvi_season %>% 
+lt_ndvi_season_wEpoch %>% 
   ggplot(data=., aes(x,y,fill=b1))+
-  geom_sf(inherit.aes = F, data=oz_poly,fill='gray70',color='gray10')+
+  geom_sf(inherit.aes = F, data=oz_poly,fill='gray60',color='black')+
   geom_tile()+
   scale_fill_gradient2(expression(paste(Delta*NDVI~yr^-1)),
                        high=vec_col[7], mid=vec_col[4], low=vec_col[1],
-                       limits=c(-0.0025,0.0025),
-                       breaks=c(-0.0025,-0.001,0,0.001,0.0025),
-                       labels=c("<-0.00025",-0.001,0,0.001,">0.0025"),
+                       limits=c(-0.005,0.005),
+                       breaks=c(-0.004,-0.002,0,0.002,0.004),
+                       labels=c("<-0.0004",-0.002,0,0.002,">0.004"),
                        oob=scales::squish,
                        na.value='gray')+
   # scale_fill_viridis_c(expression(paste(Delta*NDVI~yr^-1)),
@@ -362,7 +363,7 @@ lt_ndvi_season %>%
         strip.text = element_text(face='bold'),
         axis.text = element_blank(), 
         axis.ticks = element_blank())
-ggsave(filename = "figures/ndvi_seasonal_longtermTrend_1982_2019.png", 
+ggsave(filename = "figures/ndvi_f_of_timeANDsensor_seasonal_longtermTrend_1982_2019.png", 
        dpi=350, width=15,height=12,units='cm',type='cairo')
 
 
