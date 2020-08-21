@@ -303,13 +303,13 @@ p_violin <- inner_join({lt_ndvi_year %>% as_tibble() %>%
                        high=scico::scico(5,palette='roma')[5], 
                        # limits=c(-12,12)
                        )+
-  labs(x=NULL, y=expression(paste("WUE pred. - ",Delta,"NDVI (%)")))+
+  labs(x=NULL, y=expression(paste(Delta,"NDVI",-Delta*NDVI[Pred.]," (%)")))+
   theme_linedraw()+
   theme(legend.position = 'right', 
-        panel.grid = element_blank())
+        panel.grid = element_blank()); p_violin
 
-(p_vpd|p_wue|p_diff)/p_violin+plot_layout(heights = c(1,0.6))
-ggsave(filename = 'figures/map_dvpd_dndvipred_ddifference_violin.png', 
+ggsave((p_vpd|p_wue|p_diff)/p_violin+plot_layout(heights = c(1,0.6)), 
+       filename = 'figures/map_dvpd_dndvipred_ddifference_violin.png', 
        width = 26, height = 30, units='cm', dpi=350, type='cairo')
 
 

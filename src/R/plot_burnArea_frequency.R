@@ -48,7 +48,7 @@ library(RcppArmadillo)
 ba <- ba %>% mutate(year=year(date))
 ba$year %>% mean
 system.time(
-  lt_ba <- ba %>% as.data.table() %>% .[,`:=`(year_c = year-2010)] %>%
+  lt_ba <- ba %>% as.data.table() %>% .[,`:=`(year_c = year-2001)] %>%
     .[,`:=`(ba_km2 = ba/(1000**2))] %>% 
     .[,.(beta = list(unname(fastLm(X = cbind(1,year_c), 
                                    y=ba_km2, data=.SD)$coefficients))), 
@@ -58,7 +58,7 @@ system.time(
 
 
 p_mab <- lt_ba %>% 
-  ggplot(data=.,aes(x,y,fill=b0))+
+  ggplot(data=.,aes(x,y,fill=b0+9*b1))+
   geom_sf(inherit.aes = F, data=oz_poly,fill='gray40',color='black')+
   geom_tile()+
   coord_sf(xlim = c(140,154),
@@ -79,13 +79,13 @@ p_mab <- lt_ba %>%
 
 # Relative trend in BA
 p_rt <- lt_ba %>% 
-  ggplot(data=.,aes(x,y,fill=100*b1/b0))+
+  ggplot(data=.,aes(x,y,fill=(b0+b1*17)/b0))+
   geom_sf(inherit.aes = F, data=oz_poly,fill='gray30',color='black')+
   geom_tile()+
   coord_sf(xlim = c(140,154),
            ylim = c(-45,-10), expand = FALSE)+
   scale_x_continuous(breaks=seq(140,155,by=5))+
-  khroma::scale_fill_sunset("Relative Annual Change (%)")+
+  khroma::scale_fill_sunset("Relative Change (%)")+
   # scale_fill_viridis_c('Burn Area Trend (km2 yr-1)', 
   #                      option='B')+
   labs(x=NULL,y=NULL,
@@ -107,7 +107,7 @@ p_at <- lt_ba %>%
   khroma::scale_fill_sunset(expression(paste("Burn Area (",km**2~yr**-1,")")), 
                             limits=c(-0.1,0.1),oob=scales::squish)+
   labs(x=NULL,y=NULL,
-       title='Relative Trend',subtitle = '2001-2019')+
+       title='Absolute Trend',subtitle = '2001-2019')+
   guides(fill = guide_colorbar(title.position = 'top'))+
   theme(panel.background = element_rect(fill='lightblue'),
         panel.grid = element_blank(), 
@@ -121,14 +121,29 @@ d_tmp <- inner_join({ba %>% mutate(hydro_year=year(date+months(1))) %>%
   group_by(hydro_year,zone) %>% 
   summarize(ba_km2 = sum(ba/1e6,na.rm=TRUE)) %>% 
   ungroup()}, 
-  {ba %>% group_by(zone) %>% 
-              summarize(mab=sum(ba/(1e6),na.rm=TRUE)/19) %>% 
+  {ba %>% filter(date<=ymd("2005-12-31")) %>% group_by(zone) %>% 
+              summarize(mab=sum(ba/(1e6),na.rm=TRUE)/5) %>% 
               ungroup()}, 
           by=c("zone")) %>% 
   mutate(val = ba_km2/mab)
-p_ts <- d_tmp %>% 
-  ggplot(data=.,aes(hydro_year, 100*(val-1),color=zone))+
-  # geom_line()+
+p_ts <- ba %>% 
+  mutate(hydro_year=year(date+months(1))) %>% 
+  group_by(hydro_year,zone) %>% 
+  summarize(ba_km2 = sum(ba/1e6,na.rm=TRUE)) %>% 
+  ungroup() %>% 
+  inner_join(.,   {ba %>% filter(date<=ymd("2005-12-31")) %>% group_by(zone) %>% 
+      summarize(mab=sum(ba/(1e6),na.rm=TRUE)/5) %>% 
+      ungroup()}, 
+      by=c("zone")) %>% 
+  mutate(val = ba_km2/mab) %>% 
+  ggplot(data=.,aes(hydro_year, 100*val,color=zone))+
+  geom_segment(aes(x=2001,xend=2005,y=50,yend=50), 
+               arrow = arrow(ends = 'both',length=unit(0.1,'cm')), 
+               inherit.aes = F)+
+  geom_text(aes(x=2003,y=57),
+            inherit.aes = F,
+            size=4,
+            label='reference period')+
   geom_smooth(method='lm',se=F)+
   scale_color_viridis_d("",
                         option='B',end=0.9, direction=-1,
@@ -139,17 +154,16 @@ p_ts <- d_tmp %>%
                                               "Subtrop.", "Grassland", "Arid", 
                                               "Temperate","Temp. Tasm.")),width = 10))+
   scale_x_continuous(expand=c(0,0))+
-  labs(y=expression(paste('Total Burn Area ',(km**2))), 
+  labs(y=expression(paste('Burn Area Change (%)')), 
        x=NULL)+
   theme_linedraw()+
-  theme(legend.position = c(0.1,0.01), 
+  theme(legend.position = c(0.01,0.01), 
         legend.justification = c(0.01,0.01), 
         legend.direction = 'horizontal', 
         legend.background = element_blank()); p_ts
   
 
-p_out <- p_mab+p_rt+p_at+plot_layout(guides='keep',ncol = 3)
-p_out/p_ts+plot_layout(heights=c(2,1))
-ggsave(p_out/p_ts+plot_layout(heights=c(2,1.25)), 
-       filename = 'figures/mcd64_burnArea_mean_trend.png', 
+p_out <- p_mab|p_at+plot_layout(guides='keep')
+ggsave(p_out/p_ts+plot_layout(heights=c(2.25,1)), 
+       filename = 'figures/mcd64_burnArea_mean_trend_v2.png', 
        width=16, height = 22, units='cm', dpi=350, type='cairo')
