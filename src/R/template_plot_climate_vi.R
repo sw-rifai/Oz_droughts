@@ -104,7 +104,7 @@ dat[,`:=`(year=year(date),month=month(date))] %>%
 dat[,`:=`(season = factor(season, levels = c('SON','DJF','MAM','JJA'),ordered = TRUE))]
 dat[,`:=`(hydro_year=year(date+months(1)))]
 
-# FILTER TO LON >= 140 !!! ----------
+# FILTER TO LON >= 140 !!! **********
 dat <- dat[x>=140]
 
 ldat <- dat %>% lazy_dt()
@@ -309,6 +309,23 @@ system.time(
     .[,.(b1 = fastLm(X = cbind(1,hydro_year-2000.5), y=val, data=.SD)$coefficients[2]), 
       by=.(x,y,season)]
 )
+
+# long-term trend of annual NDVI ----------------------------------------------
+lt_ndvi_annual <- dat[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>%
+  .[date>= ymd("1982-09-01") & date<= ymd("2019-09-30")] %>% 
+  # .[,.(val = mean(ndvi_3mo, na.rm=TRUE)), by=.(x,y,season,hydro_year)] %>% 
+  .[,`:=`(epoch=ifelse(hydro_year < 2001,0,1))] %>% 
+  .[is.na(ndvi_hyb)==F] %>% 
+  .[,.(beta = list(unname(fastLm(
+    X = cbind(1,hydro_year-1982,epoch), 
+    y=ndvi_hyb, data=.SD)$coefficients))), 
+    by=.(x,y)] %>% 
+  .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2],b2=unlist(beta)[3]#,b3=unlist(beta)[4]
+  ), by=.(x,y)]
+
+# fraction of grid cells experiencing positive NDVI trend
+sum(lt_ndvi_annual$b1>0)/length(lt_ndvi_annual$b1) 
+# end section ******************************************************************
 
 # Calc NDVI linear change by satellite epoch -----------------------------------------------------------
 c_year <- mean(seq(ymd("1982-01-01"),ymd("2000-12-31"),by='1 month')) %>% decimal_date();
