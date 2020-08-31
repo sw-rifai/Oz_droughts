@@ -476,6 +476,7 @@ system.time(
     .[,.(b1 = fastLm(X = cbind(1,hydro_year-2000.5), y=val, data=.SD)$coefficients[2]), 
       by=.(x,y)]
 )
+sum(lt_PPET_annual$b1<0)/length(lt_PPET_annual$b1) # fraction of grid cells with negative trend
 p_PPET <- lt_PPET_annual %>%
   ggplot(data=., aes(x,y,fill=b1))+
   geom_sf(inherit.aes = F, data=oz_poly,fill='gray70',color='gray10')+
