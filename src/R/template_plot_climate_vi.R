@@ -346,7 +346,7 @@ lt_ndvi_season_p2 <- dat[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>%
     .[,.(b1 = fastLm(X = cbind(1,hydro_year-c_year), y=val, data=.SD)$coefficients[2]), 
       by=.(x,y,season)]
 )
-lt_ndvi_season_p1$epoch <- "AVHRR NDVI 1981-2000"
+lt_ndvi_season_p1$epoch <- "AVHRR NDVI 1982-2000"
 lt_ndvi_season_p2$epoch <- "MODIS NDVI 2001-2019"
 
 
@@ -611,8 +611,11 @@ p_right <- bind_rows(lt_ndvi_season_p1, lt_ndvi_season_p2) %>%
         strip.text = element_text(face='bold'),
         axis.text = element_blank(), 
         axis.ticks = element_blank()); p_right
-ggsave(p_left+p_right+plot_layout(widths = c(1.25,2), guides = 'keep'),
-  filename = "figures/PPET_ndvi_seasonal_longtermTrends_prePost2000epochs_v2.png", 
+p_left+p_right+plot_layout(widths = c(1.25,2), guides = 'keep')+plot_annotation(tag_levels = 'A')
+ggsave(p_left+p_right+
+         plot_layout(widths = c(1.25,2), guides = 'keep')+
+         plot_annotation(tag_levels = 'A'),
+  filename = "figures/PPET_ndvi_seasonal_longtermTrends_prePost2000epochs_v3.png", 
        dpi=350, width=15,height=15,units='cm',type='cairo')
 # END **************************************************************************
 
@@ -1477,6 +1480,68 @@ p_lm <- o %>%
 ggsave(p_lm, filename = "figures/ndvi_lin_trend_10yr_segs_by_Koppen.png", 
        width=20, height=15, units='cm', dpi=350, type='cairo')
 
+#*******************************************************************************
+# VPD Linear Model time series by Koppen climate zone ------------------------------------
+#*******************************************************************************
+library(mgcv)
+exists('kop')
+dat <- merge(kop, 
+             dat,
+             by=c("x","y"), 
+             all=TRUE,allow.cartesian=TRUE)
+dat <- dat %>% as.data.table()
+gc()
+vec_ids <- unique(dat[,.(id,cz)]) %>% .[is.na(id)==F & is.na(cz)==F]
+vec_ids <- vec_ids[,.SD[sample(.N, min(10000,.N))],by=cz]
+o <- dat[is.na(season)==F] %>%
+  .[id %in% vec_ids$id] %>% 
+  .[date >= ymd('1982-01-01')] %>% 
+  .[date <= ymd('2019-09-30')] %>% 
+  .[,.(x,y,date,season,cz,id,ndvi_hyb,ndvi_3mo,ndvi_mcd,vpd15, vpd15_12mo)]
+vec_cols <- viridis::viridis(10, begin = 0.1,end=0.9)
+factor(o$season[1], levels=c("SON","DJF","MAM","JJA"),ordered = T)
+lut_kop <- c("Equatorial" = "Equat.",
+             "Tropical" = "Trop.", 
+             "Subtropical" = "Subtr.", 
+             "Grassland" = "Grass.",
+             "Desert" = "Arid",
+             "Temperate" = "Temp.",
+             "Temperate Tas." = "Tasm.")
+p_vpd_lm <- o %>%   
+  mutate(season=factor(o$season, levels=c("SON","DJF","MAM","JJA"),ordered = T)) %>% 
+  ggplot(data=., aes(date, vpd15))+
+  geom_smooth(method='lm', color='black',se=F)+
+  geom_smooth(method='lm',color=vec_cols[2],se=F, 
+              data=o[sample(.N,1e6)][date %between% c("1981-01-01","1991-01-01")])+
+  geom_smooth(method='lm',color=vec_cols[3],se=F, 
+              data=o[sample(.N,1e6)][date %between% c("1986-01-01","1996-01-01")])+
+  geom_smooth(method='lm',color=vec_cols[4],se=F, 
+              data=o[sample(.N,1e6)][date %between% c("1991-01-01","2001-01-01")])+
+  geom_smooth(method='lm',color=vec_cols[5],se=F, 
+              data=o[sample(.N,1e6)][date %between% c("1996-01-01","2006-01-01")])+
+  geom_smooth(method='lm',color=vec_cols[6],se=F, 
+              data=o[sample(.N,1e6)][date %between% c("2001-01-01","2011-01-01")])+
+  geom_smooth(method='lm',color=vec_cols[7],se=F, 
+              data=o[sample(.N,1e6)][date %between% c("2006-01-01","2016-01-01")])+
+  geom_smooth(method='lm',color=vec_cols[8],se=F, 
+              data=o[sample(.N,1e6)][date %between% c("2011-01-01","2019-09-01")])+
+  geom_smooth(method='lm',color='red',se=F, 
+              data=o[date %between% c("2001-01-01","2019-09-01")], 
+              aes(date, vpd15))+
+  geom_smooth(method='lm',color=scales::muted('red'),se=F, 
+              data=o[date %between% c("1981-01-01","2000-12-01")], 
+              aes(date, vpd15))+
+  scale_x_date(expand=c(0,0))+
+  labs(x=NULL, y="VPD (kPa)")+
+  facet_grid(cz~season, scales = 'free_y', 
+             # labeller = label_wrap_gen(width=10, multi_line = TRUE)
+             labeller = labeller(cz = lut_kop)
+  )+
+  theme_linedraw()+
+  theme(panel.grid = element_blank(), 
+        strip.text = element_text(face='bold'))
+ggsave(p_vpd_lm, filename = "figures/vpd_lin_trend_10yr_segs_by_Koppen.png", 
+       width=20, height=15, units='cm', dpi=350, type='cairo')
 
 
 
