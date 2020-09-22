@@ -3556,3 +3556,107 @@ dcast(out[x>=143.5782 & x<=144],
 out[x>=143.5782 & x<=144 & coverFraction=='soil']$coverFraction.1 %>% summary
 out$soil %>% hist
 
+
+dat <- merge(dat, kop, by=c("x","y"))
+
+dat %>% lazy_dt() %>% 
+  group_by(zone, season) %>% 
+  summarize(val = mean(precip,na.rm=TRUE)) %>% 
+  ungroup() %>% 
+  as_tibble() %>% 
+  ggplot(data=.,aes(season,val,color=zone))+
+  geom_point()+
+  facet_wrap(~zone)
+
+
+o <- dat %>% 
+  lazy_dt() %>% 
+  group_by(x,y) %>% 
+  summarize(val=mean(mape,na.rm=TRUE)) %>% 
+  ungroup() %>% 
+  as_tibble()
+sum(o$val<0.333,na.rm=TRUE)/length(o$val)
+
+
+
+curve(SSweibull(x, 1,0.9,-2,pwr = 5), 0,2)
+
+
+
+?mvnfast::rmvn
+
+d <- 5
+mu <- 1:d
+
+# Creating covariance matrix
+tmp <- matrix(rnorm(d^2), d, d)
+mcov <- tcrossprod(tmp, tmp)
+mcov %>% image
+
+set.seed(414)
+o1 <- rmvn(4, 1:d, mcov)
+o2 <- rmvn(4, 1:d, mcov)
+cov(o1)-cov(o2) %>% image
+cov(o1) %>% image
+
+cor(o1)-cor(o2) %>% image
+cor(o1) %>% image
+cor(o2) %>% image
+
+
+ldat %>% 
+  filter(date>=ymd("2009-01-01")) %>% 
+  group_by(date,hydro_year) %>% 
+  summarize(val=mean(precip_anom_12mo,na.rm=TRUE)) %>% 
+  ungroup() %>% 
+  as_tibble() %>% 
+  ggplot(data=.,aes(date,val))+
+  geom_label(aes(label=hydro_year))
+
+
+x <- rnorm(100)
+y <- 0.5 + 0.5*x + 0.25*x**2 + 0.125*x**3 + rnorm(100, mean=0,sd=sqrt(abs(x)))
+plot(y~x)
+tibble(x,y) %>% 
+  ggplot(data=.,aes(x,y))+
+  geom_point()+
+  geom_smooth(fill='navy')+ # LOESS default
+  geom_smooth(method='gam', # generalized additive model
+              formula=y~s(x,bs='cs'), # cubic regression spline; good at not getting too wiggly
+              method.args=list(method='REML', # restricted maximum likelihoo 
+                               select=TRUE),  # penalizes the wiggliness of the spline
+              color='orange',fill='orange')
+
+library(tidyverse); library(lubridate)
+dat <- read_csv("../data_general/Oz_misc_data/MCD43_OzFlux_subset_CCI_test.csv")
+dat %>% 
+   ggplot(data=.,aes(date, cci, color=site))+
+  geom_line()+
+  facet_wrap(~site)
+
+
+
+
+
+
+
+
+
+
+
+
+
+library(tidyverse)
+x <- rnorm(100)
+y <- 0.5 + 0.5*x + 0.25*x**2 + 0.125*x**3 + rnorm(100, mean=0,sd=1)
+plot(y~x)
+tibble(x,y) %>%
+  ggplot(data=.,aes(x,y))+
+  geom_point()+
+  geom_smooth(fill='navy')+ # LOESS default
+  geom_smooth(method='gam', # generalized additive model
+              formula=y~s(x,bs='cs'), # cubic regression spline; good at not getting too wiggly
+              method.args=list(method='REML', # restricted maximum likelihoo
+                               select=TRUE),  # penalizes the wiggliness of the spline
+              color='orange',fill='orange')
+
