@@ -31,7 +31,7 @@ lt <- lazy_dt(o)
 o_norms <- lt %>% 
   mutate(year=year(date), 
          month=month(date)) %>% 
-  group_by(x,y,year,month) %>% 
+  group_by(x,y,month) %>% 
   summarize(cci_u = mean(cci,na.rm=TRUE), 
             cci_sd = sd(cci,na.rm=TRUE)) %>% 
   ungroup() %>% 
@@ -45,6 +45,9 @@ o <- lt %>%
   mutate(cci_anom = cci-cci_u) %>% 
   mutate(cci_anom_sd = cci_anom/cci_sd) %>% 
   as.data.table()
+
+o <- o[order(x,y,date)][, cci_anom_sd_3mo := frollmean(cci_anom_sd,n = 3,fill = NA,align='right',na.rm=TRUE), by=.(x,y)]
+o <- o[order(x,y,date)][, cci_anom_sd_12mo := frollmean(cci_anom_sd,n = 12,fill = NA,align='right',na.rm=TRUE), by=.(x,y)]
 
 # Functions ---------------------------------------------------------------
 source("src/R/helper_funs_Oz_droughts.R")
@@ -67,31 +70,33 @@ fn_tsr <- function(vi, d_threshold, r_threshold){
 
 
 # Diagram Figure ----------------------------------------------------------
+lt <- lazy_dt(o)
 vec_xy <- lt %>% 
-  filter(cci > 0) %>% 
-  filter(cci_anom_sd <= -3 & date >= ymd("2019-01-01")) %>% 
+  # filter(cci > 0) %>% 
+  filter(cci_anom_sd_12mo <= -2.5 & date <= ymd("2019-09-01")) %>% 
   as_tibble() %>% 
   select(x,y) %>% 
   distinct() %>% 
   first()
-od <- o %>% filter(x==vec_xy$x, y==vec_xy$y) %>% as_tibble() %>% 
-  arrange(date) %>% 
-  mutate(cci_anom_sd_c3mo = roll_mean(cci_anom_sd,n=3,align='center',fill=NA))
+o %>% filter(x==vec_xy$x, y==vec_xy$y) %>% as_tibble() %>%
+  ggplot(data=., aes(date, cci_anom_sd_3mo))+
+  geom_line()
+od <- o %>% filter(x==vec_xy$x, y==vec_xy$y) %>% as_tibble()
 od <- od %>% 
   group_by(x,y) %>% 
   arrange(date) %>% 
-  mutate(tsr = fn_tsr(cci_anom_sd_c3mo, d_threshold = -1.5, r_threshold = 1.5)) %>% 
+  mutate(tsr = fn_tsr(cci_anom_sd_3mo, d_threshold = -1.5, r_threshold = 1.5)) %>% 
   ungroup() 
-p_top <- od %>% 
-  filter(date >= ymd('1983-01-01') & date <= ymd('2019-12-01')) %>% 
-  ggplot(data=., aes(date, cci_anom_sd_c3mo))+
+p_top <- od %>%
+  # filter(date >= ymd('1983-01-01') & date <= ymd('2019-12-01')) %>% 
+  ggplot(data=., aes(date, cci_anom_sd_3mo))+
   geom_hline(aes(yintercept=0))+
   geom_hline(aes(yintercept=-1.5),col='black',lty=3)+
   geom_hline(aes(yintercept=1.5),col='black',lty=3)+
-  geom_segment(aes(y=3,
-                   yend=3,
-                   x=ymd("1989-02-01"),
-                   xend=ymd("1993-06-01")),col='#AA0000',lty=1,lwd=2)+
+  # geom_segment(aes(y=3,
+  #                  yend=3,
+  #                  x=ymd("1989-02-01"),
+  #                  xend=ymd("1993-06-01")),col='#AA0000',lty=1,lwd=2)+
   geom_segment(aes(y=3,
                    yend=3,
                    x=ymd("2013-04-01"),
@@ -121,7 +126,7 @@ lt %>%
   geom_point()
 
 
-# Time Since Recovery using 5-km cci hybrid ------------------------------
+# Time Since Recovery using 1-km cci hybrid ------------------------------
 oc <- o %>% 
   filter(y< -35 & 
            y> -38 & 
