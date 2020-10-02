@@ -1,31 +1,377 @@
-dat_fit <- tmp[hydro_year %in% c(1983:2019)] %>% 
-  .[, `:=`(sc_co2_int = scale(co2_int, center=T, scale=F), 
-           pe_12mo = precip_12mo/pet_12mo)] %>% 
-  .[season=="DJF"] %>%
-  .[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>%
-  .[ndvi_m>0] %>%
-  .[!veg_class %in% c(6,10,12,13,30,31,32)] %>%
-  # .[veg_class %in% c(1,2)] %>% 
-  .[is.na(veg_class)==F] %>% 
-  # .[pe_3mo <= 2] %>% 
-  .[sample(.N,10000)]
+library(brms)
+library(mgcv); library(gratia); library(nls.multstart)
+library(tidyverse)
+library(data.table); setDTthreads(threads = 8)
+library(lubridate); 
+library(dtplyr);
+library(nls.multstart)
+options(mc.cores=parallel::detectCores()-3) 
+set.seed(333)
+# IMPORT ###################################################################
+frac <- stars::read_ncdf("../data_general/Oz_misc_data/csiro_FC.v310.MCD43A4_0p5_2001_2019.nc")
+frac[,,,1] %>% as_tibble() %>% filter(is.na(soil)==F)
+eoz <- stars::read_stars("../data_general/Oz_misc_data/MOD44BPercent_Tree_Cover_5000m_East_Oz_noMask_2000_2019.tif",
+                         RasterIO = list(bands=1))
+frac <- stars::st_warp(src=frac, dest=eoz, use_gdal = F)
+frac <- frac %>% as.data.table() %>% lazy_dt() %>% 
+  rename(date=time) %>%
+  mutate(date=as.Date(date)) %>% 
+  filter(is.na(npv)==F) %>% 
+  as.data.table()
+
+vi <- arrow::read_parquet("../data_general/MCD43/MCD43_AVHRR_NDVI_hybrid_2020-08-08.parquet", 
+                          col_select = c("x","y","date",
+                                         "ndvi_c","ndvi_mcd","ndvi_hyb", 
+                                         "nirv_c","nirv_mcd","nirv_hyb",
+                                         "evi2_mcd","evi2_hyb",
+                                         'fpar','fpar_hyb')) %>% 
+  as.data.table()
+vi <- frac[vi,on=.(x,y,date)]
+
+lvi <- lazy_dt(vi)
+
+lvi %>% group_by(x,y) %>% summarize(ndvi_u =mean(ndvi_hyb,na.rm=TRUE)) %>% show_query()
+
+norms_vi <- vi[,`:=`(month=month(date))] %>% 
+  .[,.(ndvi_u = mean(ndvi_hyb,na.rm=TRUE), 
+       ndvi_sd = sd(ndvi_hyb,na.rm=TRUE)),keyby=.(x,y,month)]
+
+vi <- norms_vi[vi,on=.(x,y,month)] %>% 
+  .[,`:=`(ndvi_anom = ndvi_hyb - ndvi_u)] %>% 
+  .[,`:=`(ndvi_anom_sd = ndvi_anom/ndvi_sd)]
+
+dat <- arrow::read_parquet("/home/sami/scratch/ARD_ndvi_aclim_anoms.parquet",
+                           col_select = c(
+                             "date", "hydro_year", "id","season",
+                             "precip",  
+                             "precip_anom",
+                             "precip_anom_3mo",
+                             "precip_anom_36mo",
+                             "precip_anom_12mo",
+                             "map", 
+                             "precip_12mo",
+                             # "precip_36mo",
+                             "tmax","tmax_u",
+                             "tmax_anom","tmax_anom_sd", "matmax",
+                             "tmin","tmin_anom",
+                             "vpd15","vpd15_anom","vpd15_anom_sd","mavpd15",
+                             # "vpd15_u",
+                             "pet","mapet",
+                             "pet_anom","pet_anom_3mo","pet_u","pet_sd",
+                             "pet_anom_sd",
+                             "pet_12mo",
+                             # "pet_36mo",
+                             "pe","mape",
+                             # "ndvi_u",
+                             # "ndvi_anom",
+                             # "ndvi_anom_12mo",
+                             # "ndvi_anom_sd",
+                             # "ndvi_mcd",
+                             'vc','veg_class',
+                             'month',
+                             "x", "y", "year")) %>% 
+  as.data.table() %>% 
+  .[is.infinite(mape)==F] %>% 
+  .[,`:=`(p_anom_12mo_frac = precip_anom_12mo/map)]
+
+
+# unique(dat[,.(vc,veg_class)]) %>% View
+# dat <- dat[order(x,y,date)][,tmean := (tmax+tmin)/2]
+dat <- dat[order(x,y,date)][, tmax_3mo := frollmean(tmax,n = 3,fill = NA,align='center'), by=.(x,y)]
+dat <- dat[order(x,y,date)][, tmax_u_3mo := frollmean(tmax_u,n = 3,fill = NA,align='center'), by=.(x,y)]
+dat <- dat[order(x,y,date)][, tmax_anom_3mo := frollmean(tmax_anom,n = 3,fill = NA,align='center'), by=.(x,y)]
+
+# dat <- dat[order(x,y,date)][, tmean_3mo := frollmean(tmean,n = 3,fill = NA,align='center'), by=.(x,y)]
+# dat <- dat[order(x,y,date)][, tmin_3mo := frollmean(tmin,n = 3,fill = NA,align='center'), by=.(x,y)]
+# dat <- dat[order(x,y,date)][, tmax_12mo := frollmean(tmax,n = 12,fill = NA,align='right'), by=.(x,y)]
+# dat <- dat[order(x,y,date)][, pet_3mo := frollmean(pet,n = 3,fill = NA,align='right'), by=.(x,y)]
+dat <- dat[order(x,y,date)][, precip_3mo := frollmean(precip,n = 3,fill = NA,align='right'), by=.(x,y)]
+dat <- dat[order(x,y,date)][, vpd15_3mo := frollmean(vpd15,n = 3,fill = NA,align='right'), by=.(x,y)]
+# dat <- dat[order(x,y,date)][, vpd15_anom_3mo := frollmean(vpd15_anom,n = 3,fill = NA,align='right'), by=.(x,y)]
+# dat <- dat[order(x,y,date)][, pet_24mo := frollmean(pet,n = 24,fill = NA,align='right'), by=.(x,y)]
+# dat <- dat[order(x,y,date)][, precip_24mo := frollmean(precip,n = 24,fill = NA,align='right'), by=.(x,y)]
+# dat <- dat[order(x,y,date)][, pet_48mo := frollmean(pet,n = 48,fill = NA,align='right'), by=.(x,y)]
+# dat <- dat[order(x,y,date)][, precip_48mo := frollmean(precip,n = 48,fill = NA,align='right'), by=.(x,y)]
+dat <- dat[order(x,y,date)][, tmax_anom_12mo := frollmean(tmax_anom,n = 12,fill = NA,align='right'), by=.(x,y)]
+
+dat <- dat[,`:=`(#pe_3mo = precip_3mo/pet_3mo, 
+  pe_12mo = precip_12mo/pet_12mo 
+  # pe_24mo = precip_24mo/pet_24mo, 
+  # pe_36mo = precip_36mo/pet_36mo, 
+  # pe_48mo = precip_48mo/pet_48mo
+)]
+dim(dat)
+dat <- merge(dat, 
+             vi,
+             by=c("x","y","date"), 
+             all=TRUE,allow.cartesian=TRUE)
+dat <- dat[order(x,y,date)][, ndvi_3mo := frollmean(ndvi_hyb,n = 3,fill = NA,align='center',na.rm=TRUE), by=.(x,y)]
+dat <- dat[order(x,y,date)][, evi2_3mo := frollmean(evi2_hyb,n = 3,fill = NA,align='center',na.rm=TRUE), by=.(x,y)]
+dat <- dat[order(x,y,date)][, nirv_3mo := frollmean(nirv_hyb,n = 3,fill = NA,align='center',na.rm=TRUE), by=.(x,y)]
+
+rm(vi); gc(full=TRUE)
+
+mlo <- readr::read_table("../data_general/CO2_growth_rate/co2_mm_mlo_20200405.txt", 
+                         skip = 72, col_names = F) %>% 
+  set_names(
+    c("year","month","ddate","co2_avg","co2_int","co2_trend","ndays")
+  ) %>% 
+  mutate(date = ymd(paste(year,month,1))) %>% 
+  select(date,co2_int,co2_trend) %>% 
+  as.data.table()
+dat <- merge(mlo,dat,by="date")
+dat <- dat[is.na(ndvi_3mo)==F & is.na(co2_int)==F]
+center_co2 <- mean(dat$co2_int)
+dat <- dat[,`:=`(cco2=co2_int-center_co2)]
+gc()
+dat <- dat[is.na(vc)==F]
+dat <- dat[str_detect(vc,"Forests") | 
+             str_detect(vc, "Eucalypt") |
+             str_detect(vc, "Rainforests")]
+dat <- dat[x>= 140] # FILTER TO LON >= 140
+dat <- dat[ndvi_hyb>0][ndvi_anom_sd > -3.5 & ndvi_anom_sd < 3.5]
+dat[,`:=`(pe_anom_12mo = pe_12mo - mape)]
+dat[,`:=`(epoch = ifelse(date<ymd("2000-12-31"),'avhrr','modis'))]
+dat <- dat %>% mutate(epoch = as_factor(epoch), 
+                      season = factor(season, levels=c("SON","DJF","MAM","JJA")))
+#*******************************************************************************
+
+#split test & train ------------------------------------------------------------
+train_dat <- dat[mape<1.5][is.na(ndvi_3mo)==F & is.na(pe_12mo)==F][sample(.N, 4e6)]
+test_dat <- dat[mape<1.5][is.na(ndvi_3mo)==F & is.na(pe_12mo)==F][sample(.N, 4e6)]
+gc(full = T)
+#*******************************************************************************
+
+# dat_fit <- dat[hydro_year %in% c(1983:2019)] %>% 
+#   .[, `:=`(sc_co2_int = scale(co2_int, center=T, scale=F), 
+#            pe_12mo = precip_12mo/pet_12mo)] %>% 
+#   .[season=="DJF"] %>%
+#   .[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>%
+#   .[ndvi_m>0] %>%
+#   .[!veg_class %in% c(6,10,12,13,30,31,32)] %>%
+#   # .[veg_class %in% c(1,2)] %>% 
+#   .[is.na(veg_class)==F] %>% 
+#   # .[pe_3mo <= 2] %>% 
+#   .[sample(.N,10000)]
+set.seed(3)
+dat_fit <- train_dat[sample(.N,10000)][season=='SON']
+dat_test <- train_dat[sample(.N,10000)][season=='SON']
+
+
+
+# Weibull Fit -------------------------------------------------------------
+w_son <- train_dat[season=='SON'] %>% 
+  nls.multstart::nls_multstart(ndvi_3mo ~ 
+                                 Asym-Drop*exp(-exp(lrc)*mape^pwr) + 
+                                 B1*(pe_anom_12mo/mape) + 
+                                 B2*(cco2*mape)+ 
+                                 B3*(cco2*pe_anom_12mo/mape) + 
+                                 B4*as.numeric(epoch),
+                               data = .,
+                               iter = 5,
+                               start_lower = c(Asym=0.0, Drop=0.6,lrc=0,pwr=0,B1=-0.5,B2=0,B3=0,B4=-0.1),
+                               start_upper = c(Asym=1, Drop=1,lrc=1,pwr=2,B1=0.5,B2=0.001,B3=0.001,B4=0.1),
+                               # supp_errors = 'Y',
+                               na.action = na.omit)
+w_djf <- train_dat[season=='DJF'] %>% 
+  nls.multstart::nls_multstart(ndvi_3mo ~ 
+                                 Asym-Drop*exp(-exp(lrc)*mape^pwr) + 
+                                 B1*(pe_anom_12mo/mape) + 
+                                 B2*(cco2*mape) + 
+                                 B3*(cco2*pe_anom_12mo/mape) + 
+                                 B4*as.numeric(epoch),
+                               data = .,
+                               iter = 5,
+                               start_lower = c(Asym=0.0, Drop=0.6,lrc=0,pwr=0,B1=-0.5,B2=0,B3=0,B4=-0.1),
+                               start_upper = c(Asym=1, Drop=1,lrc=1,pwr=2,B1=0.5,B2=0.001,B3=0.001,B4=0.1),
+                               # supp_errors = 'Y',
+                               na.action = na.omit)
+w_mam <- train_dat[season=='MAM'] %>% 
+  nls.multstart::nls_multstart(ndvi_3mo ~ 
+                                 Asym-Drop*exp(-exp(lrc)*mape^pwr) + 
+                                 B1*(pe_anom_12mo/mape) + 
+                                 B2*(cco2*mape) + 
+                                 B3*(cco2*pe_anom_12mo/mape) + 
+                                 B4*as.numeric(epoch),
+                               data = .,
+                               iter = 5,
+                               start_lower = c(Asym=0.0, Drop=0.6,lrc=0,pwr=0,B1=-0.5,B2=0,B3=0,B4=-0.1),
+                               start_upper = c(Asym=1, Drop=1,lrc=1,pwr=2,B1=0.5,B2=0.001,B3=0.001,B4=0.1),
+                               # supp_errors = 'Y',
+                               na.action = na.omit)
+w_jja <- train_dat[season=='JJA'] %>% 
+  nls.multstart::nls_multstart(ndvi_3mo ~ 
+                                 Asym-Drop*exp(-exp(lrc)*mape^pwr) + 
+                                 B1*(pe_anom_12mo/mape) + 
+                                 B2*(cco2*mape) + 
+                                 B3*(cco2*pe_anom_12mo/mape) + 
+                                 B4*as.numeric(epoch),
+                               data = .,
+                               iter = 5,
+                               start_lower = c(Asym=0.0, Drop=0.6,lrc=0,pwr=0,B1=-0.5,B2=0,B3=0,B4=-0.1),
+                               start_upper = c(Asym=1, Drop=1,lrc=1,pwr=2,B1=0.5,B2=0.001,B3=0.001,B4=0.1),
+                               # supp_errors = 'Y',
+                               na.action = na.omit)
+
+
+fit_w <- nls_multstart(ndvi_3mo ~ SSweibull(mape, Asym, Drop,lrc,pwr),
+                       data = dat_fit,
+                       iter = 10,
+                       start_lower = c(Asym=0.7, Drop=-1, lrc=-20, pwr=-1),
+                       start_upper = c(Asym=1, Drop=1, lrc=20, pwr=1),
+                       supp_errors = 'Y',
+                       na.action = na.omit)
+
+
+# Richards Fit ------------------------------------------------------------
+ric_x3_son <- nls_multstart(ndvi_3mo ~ 
+                              (Asym+Asym2*cco2+Asym3*I((pe_12mo-mape)/mape)) * 
+                              (1+exp(((xmid+xmid2*cco2+xmid3*I((pe_12mo-mape)/mape)) - mape)/
+                                       (scal+scal2*cco2+scal3*I((pe_12mo-mape)/mape))))^
+                              (-exp(-(lpow+lpow2*cco2+lpow3*I((pe_12mo-mape)/mape)))) + 
+                              B1*as.numeric(epoch), 
+                            data=train_son, 
+                            iter = 1, 
+                            supp_errors = 'N',
+                            control=nls.control(maxiter=100),
+                            start_lower = c(Asym=0.7561,Asym2=5e-4,Asym3=0,
+                                            xmid=0.27,xmid2=3e-4,xmid3=0,
+                                            scal=0.28,scal2=0,scal3=0,
+                                            lpow=-0.28,lpow2=0, lpow3=0, 
+                                            B3=0), 
+                            start_upper = c(Asym=0.7561,Asym2=5e-4,Asym3=0.0001,
+                                            xmid=0.27,xmid2=3e-4,xmid3=0.0001,
+                                            scal=0.28,scal2=0,scal3=0,
+                                            lpow=-0.28,lpow2=0, lpow3=0, 
+                                            B3=0))
+summary(ric_x3_son)
+yardstick::rsq_trad_vec(truth = train_son$ndvi_3mo, estimate = predict(ric_x3_son))
+yardstick::rmse_vec(truth = train_son$ndvi_3mo, estimate = predict(ric_x3_son))
+
+
+ric_x3_djf <- nls_multstart(ndvi_3mo ~ 
+                              (Asym+Asym2*cco2+Asym3*I((pe_12mo-mape)/mape)) * 
+                              (1+exp(((xmid+xmid2*cco2+xmid3*I((pe_12mo-mape)/mape)) - mape)/
+                                       (scal+scal2*cco2+scal3*I((pe_12mo-mape)/mape))))^
+                              (-exp(-(lpow+lpow2*cco2+lpow3*I((pe_12mo-mape)/mape)))) + 
+                              B1*as.numeric(epoch), 
+                            data=train_djf, 
+                            iter = 1, 
+                            supp_errors = 'N',
+                            control=nls.control(maxiter=100),
+                            start_lower = c(Asym=0.7561,Asym2=5e-4,Asym3=0,
+                                            xmid=0.27,xmid2=3e-4,xmid3=0,
+                                            scal=0.28,scal2=0,scal3=0,
+                                            lpow=-0.28,lpow2=0, lpow3=0, 
+                                            B3=0), 
+                            start_upper = c(Asym=0.7561,Asym2=5e-4,Asym3=0.0001,
+                                            xmid=0.27,xmid2=3e-4,xmid3=0.0001,
+                                            scal=0.28,scal2=0,scal3=0,
+                                            lpow=-0.28,lpow2=0, lpow3=0, 
+                                            B3=0))
+ric_x3_djf
+yardstick::rsq_trad_vec(truth = train_djf$ndvi_3mo, estimate = predict(ric_x3_djf))
+yardstick::rmse_vec(truth = train_djf$ndvi_3mo, estimate = predict(ric_x3_djf))
+
+ric_x3_mam <- nls_multstart(ndvi_3mo ~ 
+                              (Asym+Asym2*cco2+Asym3*I((pe_12mo-mape)/mape)) * 
+                              (1+exp(((xmid+xmid2*cco2+xmid3*I((pe_12mo-mape)/mape)) - mape)/
+                                       (scal+scal2*cco2+scal3*I((pe_12mo-mape)/mape))))^
+                              (-exp(-(lpow+lpow2*cco2+lpow3*I((pe_12mo-mape)/mape)))) + 
+                              B1*as.numeric(epoch), 
+                            data=train_mam, 
+                            iter = 1, 
+                            supp_errors = 'N',
+                            control=nls.control(maxiter=100),
+                            start_lower = c(Asym=0.7561,Asym2=5e-4,Asym3=0,
+                                            xmid=0.27,xmid2=3e-4,xmid3=0,
+                                            scal=0.28,scal2=0,scal3=0,
+                                            lpow=-0.28,lpow2=0, lpow3=0, 
+                                            B3=0), 
+                            start_upper = c(Asym=0.7561,Asym2=5e-4,Asym3=0.0001,
+                                            xmid=0.27,xmid2=3e-4,xmid3=0.0001,
+                                            scal=0.28,scal2=0,scal3=0,
+                                            lpow=-0.28,lpow2=0, lpow3=0, 
+                                            B3=0))
+ric_x3_mam
+yardstick::rsq_trad_vec(truth = train_mam$ndvi_3mo, estimate = predict(ric_x3_mam))
+yardstick::rmse_vec(truth = train_mam$ndvi_3mo, estimate = predict(ric_x3_mam))
+
+
+ric_x3_jja <- nls_multstart(ndvi_3mo ~ 
+                              (Asym+Asym2*cco2+Asym3*I((pe_12mo-mape)/mape)) * 
+                              (1+exp(((xmid+xmid2*cco2+xmid3*I((pe_12mo-mape)/mape)) - mape)/
+                                       (scal+scal2*cco2+scal3*I((pe_12mo-mape)/mape))))^
+                              (-exp(-(lpow+lpow2*cco2+lpow3*I((pe_12mo-mape)/mape)))) + 
+                              B1*as.numeric(epoch), 
+                            data=train_jja, 
+                            iter = 1, 
+                            supp_errors = 'N',
+                            control=nls.control(maxiter=100),
+                            start_lower = c(Asym=0.7561,Asym2=5e-4,Asym3=0,
+                                            xmid=0.27,xmid2=3e-4,xmid3=0,
+                                            scal=0.28,scal2=0,scal3=0,
+                                            lpow=-0.28,lpow2=0, lpow3=0, 
+                                            B3=0), 
+                            start_upper = c(Asym=0.7561,Asym2=5e-4,Asym3=0.0001,
+                                            xmid=0.27,xmid2=3e-4,xmid3=0.0001,
+                                            scal=0.28,scal2=0,scal3=0,
+                                            lpow=-0.28,lpow2=0, lpow3=0, 
+                                            B3=0))
+ric_x3_jja
+yardstick::rsq_trad_vec(truth = train_jja$ndvi_3mo, estimate = predict(ric_x3_jja))
+yardstick::rmse_vec(truth = train_jja$ndvi_3mo, estimate = predict(ric_x3_jja))
+
+fit_r <- nls.multstart::nls_multstart(ndvi_3mo ~ 
+                            nlraa::SSlogis5(mape,asym1,asym2,xmid,iscal,theta),
+                            data=dat_fit, 
+                            iter = 10,
+                            supp_errors = 'Y',
+                            control=nls.control(maxiter=100),
+                            start_lower = c(asym1=-1,asym2=-1,xmid=-0.5,iscal=-1,theta=-1), 
+                            start_upper = c(asym1=1,asym2=1,xmid=0.5,iscal=1,theta=1)) 
+
+# Four parameter logistic -------------------------------------------------
+fit_fpl <- nls.multstart::nls_multstart(ndvi_3mo ~ 
+                                        SSfpl(mape, A, B, xmid, scal),
+                                      data=dat_fit, 
+                                      iter = 10,
+                                      supp_errors = 'Y',
+                                      control=nls.control(maxiter=100),
+                                      start_lower = c(A=0,    B=0.5, xmid=0.1, scal=0), 
+                                      start_upper = c(A=0.25, B=1, xmid=1, scal=1)) 
+
+bbmle::AICtab(fit_w, fit_fpl, fit_r)
+yardstick::rsq_trad_vec(truth = dat_fit$ndvi_3mo, estimate = predict(fit_w))
+yardstick::rsq_trad_vec(truth = dat_fit$ndvi_3mo, estimate = predict(fit_r))
+yardstick::rsq_trad_vec(truth = dat_fit$ndvi_3mo, estimate = predict(fit_fpl))
+
+yardstick::rmse_vec(truth = test_dat$ndvi_3mo, estimate = predict(fit_w, newdata = test_dat))
+yardstick::rmse_vec(truth = test_dat$ndvi_3mo, estimate = predict(fit_r, newdata = test_dat))
+yardstick::rmse_vec(truth = test_dat$ndvi_3mo, estimate = predict(fit_fpl, newdata = test_dat))
+
+
+
+
+
+
 
 Asym-Drop*exp(-exp(lrc)*x^pwr)
 curve(-SSweibull(x, Asym = -1,Drop = -1,lrc = -10,pwr = 1),0,40)
+
 
 w_fit <- nls_multstart(ndvi_3mo ~ SSweibull(precip_12mo/pet_12mo, Asym, Drop,lrc,pwr),
                        data = dat_fit,
                        iter = 1000,
                        start_lower = c(Asym=0.7, Drop=-1, lrc=-20, pwr=-1),
                        start_upper = c(Asym=1, Drop=1, lrc=20, pwr=1),
-                       # supp_errors = 'Y',
+                       supp_errors = 'Y',
                        na.action = na.omit)
 # lower = c(kopt = 0.5, Ha=1, Hd=80, Topt=273.15+10))
 w_fit
 summary(w_fit)
 curve(SSweibull(x, Asym=coef(w_fit)["Asym"], Drop=coef(w_fit)["Drop"], 
-                lrc=coef(w_fit)["lrc"], pwr=coef(fit)['pwr']),0.1,3, ylim=c(0,1))
-
+                lrc=coef(w_fit)["lrc"], pwr=coef(w_fit)['pwr']),0.1,3, ylim=c(0,1))
 SSweibull(0.5, Asym=coef(w_fit)["Asym"], Drop=coef(w_fit)["Drop"], 
           lrc=coef(w_fit)["lrc"], pwr=coef(fit)['pwr'])
 

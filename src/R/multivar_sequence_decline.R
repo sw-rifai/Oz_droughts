@@ -53,6 +53,41 @@ o <- o[order(x,y,date)][, cci_anom_sd_12mo := frollmean(cci_anom_sd,n = 12,fill 
 o_cci <- o; rm(o)
 #*** END SECTION ***************************************************************
 
+# Import NDMI --------------------------------------------------------------
+o <- stars::read_stars("../data_general/Oz_misc_data/MOD_NDMI_1000m_SE_coastal_2001-01-01_to_2020-09-30.tif",
+                       proxy = F)
+o %>% st_get_dimension_values(3)
+o <- o %>% stars::st_set_dimensions(., 3, 
+                                    values=seq(ymd("2001-01-01"),ymd("2020-09-01"),by="1 month"),
+                                    names = 'date')
+
+o <- o %>% as_tibble() %>% as.data.table()
+o <- o %>% set_names(c("x","y","date","ndmi"))
+o <- o[is.na(ndmi)==F]
+o <- o %>% mutate(month=month(date), 
+                  year=year(date))
+lt <- lazy_dt(o)
+o_norms <- lt %>% 
+  mutate(year=year(date), 
+         month=month(date)) %>% 
+  group_by(x,y,month) %>% 
+  summarize(ndmi_u = mean(ndmi,na.rm=TRUE), 
+            ndmi_sd = sd(ndmi,na.rm=TRUE)) %>% 
+  ungroup() %>% 
+  as.data.table()
+o <- merge.data.table(x=o, 
+                      y=o_norms, 
+                      by=c("x","y","month"), 
+                      allow.cartesian = TRUE)
+lt <- lazy_dt(o)
+o <- lt %>% 
+  mutate(ndmi_anom = ndmi-ndmi_u) %>% 
+  mutate(ndmi_anom_sd = ndmi_anom/ndmi_sd) %>% 
+  as.data.table()
+o <- o[order(x,y,date)][, ndmi_anom_sd_3mo := frollmean(ndmi_anom_sd,n = 3,fill = NA,align='right',na.rm=TRUE), by=.(x,y)]
+o <- o[order(x,y,date)][, ndmi_anom_sd_12mo := frollmean(ndmi_anom_sd,n = 12,fill = NA,align='right',na.rm=TRUE), by=.(x,y)]
+o_ndmi <- o; rm(o)
+#*** END SECTION ***************************************************************
 
 # Import NDVI -------------------------------------------------------------
 o <- stars::read_stars("../data_general/Oz_misc_data/MOD_NDVI_1000m_SE_coastal_2001-01-01_to_2020-09-30.tif",
@@ -135,12 +170,12 @@ o <- o %>% stars::st_set_dimensions(., 3,
 o <- o %>% as_tibble() %>% as.data.table()
 o <- o %>% set_names(c("x","y","date","fire"))
 o <- o[is.na(fire)==F]
-
+o_fire <- o; rm(o)
 
 dat <- merge(o_cci, o_ndvi, by=c("x","y","year","month","date"))
+dat <- merge(dat, o_ndmi, by=c("x","y","year","month","date"))
 dat <- merge(dat, o_lst, by=c("x","y","year","month","date"))
-dat <- merge(dat, o, all.x=TRUE, all.y=FALSE, by=c("x","y","date"))
-rm(o)
+dat <- merge(dat, o_fire, all.x=TRUE, all.y=FALSE, by=c("x","y","date"))
 
 # dat <- dat[order(x,y,date)][, lst_max12mo := frollmean(lst_anom_sd,n = 12,fill = NA,align='right',na.rm=TRUE), by=.(x,y)]
 fire_xy <- dat %>% 
@@ -187,13 +222,14 @@ p_out <- od %>%
   coord_equal()+
   theme_linedraw()+
   facet_wrap(~id, ncol = 10)+
-  theme(legend.position = 'bottom')
+  theme(legend.position = 'bottom'); p_out
 ggsave(p_out, filename = "figures/codecline_ndvi_cci_lst.png", 
        width=15*4, height=9*4, units='cm', dpi=200)
 
 p_out <- od %>% 
   filter(id %in% sample(sample_vec_xy,8)) %>% 
-  select(date,id,ndvi_anom_sd_12mo, 
+  select(date,id,ndvi_anom_sd_12mo,
+                 ndmi_anom_sd_12mo, 
                  cci_anom_sd_12mo, 
                  lst_anom_sd_12mo) %>% 
   gather(-date,-id,key='key',value='value') %>% 
@@ -205,23 +241,170 @@ p_out <- od %>%
   # geom_point()+
   labs(x=NULL, 
        y=expression(paste(Anomaly["12 mo"]~(sigma))))+
-  scale_color_manual(values=c('ndvi_anom_sd_12mo'=colorspace::darken('green',amount = 0.5), 
+  scale_color_manual(values=c('ndvi_anom_sd_12mo'=colorspace::darken('purple',amount = 0.5),
+                              'ndmi_anom_sd_12mo'=colorspace::darken('blue',amount = 0.5),
                               'cci_anom_sd_12mo'=colorspace::darken('orange',amount = 0.2), 
-                              'lst_anom_sd_12mo'=colorspace::darken('blue',amount = 0.5)))+
+                              'lst_anom_sd_12mo'=colorspace::darken('red',amount = 0.5)))+
   # scale_color_viridis_d()+
   # coord_equal()+
   theme_linedraw()+
   facet_wrap(~id, ncol = 2)+
   theme(legend.position = 'bottom'); p_out
-ggsave(p_out, filename = "figures/co-decline_timeseries_ndvi_cci_lst.png", 
+ggsave(p_out, filename = "figures/co-decline_timeseries_ndvi_ndmi_cci_lst.png", 
        width=15*2, height=9*2, units='cm', dpi=200)
 
 
-dat[sample(.N, 1000)] %>% 
-  ggplot(data=.,aes(ndvi_anom_sd_12mo, cci_anom_sd_12mo,color=lst_anom_sd_12mo))+
+p_out <- od %>% 
+  filter(id %in% sample(sample_vec_xy,8)) %>% 
+  select(date,id,ndvi_anom_sd_3mo, 
+         cci_anom_sd_3mo, 
+         lst_anom_sd_3mo) %>% 
+  gather(-date,-id,key='key',value='value') %>% 
+  ggplot(data=.,aes(date,value,color=key))+
   geom_hline(aes(yintercept=0))+
-  geom_vline(aes(xintercept=0))+
-  geom_point()+
-  scale_color_gradient2(high='#cf0000',mid='gray',low='navy')+
-  theme_linedraw()
+  # geom_vline(aes(xintercept=0))+
+  # geom_point(alpha=0.5)+
+  geom_path()+
+  # geom_point()+
+  labs(x=NULL, 
+       y=expression(paste(Anomaly["3 mo"]~(sigma))))+
+  scale_color_manual(values=c('ndvi_anom_sd_3mo'=colorspace::darken('green',amount = 0.5), 
+                              'cci_anom_sd_3mo'=colorspace::darken('orange',amount = 0.2), 
+                              'lst_anom_sd_3mo'=colorspace::darken('blue',amount = 0.5)))+
+  # scale_color_viridis_d()+
+  # coord_equal()+
+  theme_linedraw()+
+  facet_wrap(~id, ncol = 2)+
+  theme(legend.position = 'bottom'); p_out
+ggsave(p_out, filename = "figures/co-decline_timeseries_anom3mo_ndvi_cci_lst.png", 
+       width=15*2, height=9*2, units='cm', dpi=200)
 
+
+p_l <- dat[date==ymd("2003-09-01")] %>% 
+  ggplot(data=.,aes(x,y,fill=cci_anom_sd_12mo))+
+  geom_sf(data=oz_poly, inherit.aes = F, 
+          fill='gray70', 
+          color='black')+
+  geom_tile()+
+  coord_sf(xlim = c(145,153),
+           ylim = c(-39,-31.5),
+           expand = FALSE)+
+  scico::scale_fill_scico(palette = 'roma', 
+                          limits=c(-1.5,1.5), 
+                          oob=scales::squish)+
+  labs(x=NULL,y=NULL,title='2003 September')+
+  guides(fill=guide_colorbar(title=
+                               expression(paste('CCI anom'[12*mo],(sigma)))))+
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(fill='lightblue'), 
+        legend.position = c(1,0), 
+        legend.justification = c(1,0)); p_l
+p_r <- dat[date==ymd("2019-09-01")] %>% 
+  ggplot(data=.,aes(x,y,fill=cci_anom_sd_12mo))+
+  geom_sf(data=oz_poly, inherit.aes = F, 
+          fill='gray70', 
+          color='black')+
+  geom_tile()+
+  coord_sf(xlim = c(145,153),
+           ylim = c(-39,-31.5),
+           expand = FALSE)+
+  scico::scale_fill_scico(palette = 'roma', 
+                          limits=c(-1.5,1.5), 
+                          oob=scales::squish)+
+  labs(x=NULL,y=NULL,title='2019 September')+
+  guides(fill=guide_colorbar(title=
+              expression(paste('CCI anom'[12*mo],(sigma)))))+
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(fill='lightblue'), 
+        legend.position = c(1,0), 
+        legend.justification = c(1,0)); p_r
+ggsave(p_l+p_r+plot_layout(ncol=2), 
+       filename='figures/map_cci_anom_compare_2003_2009Sep.png', 
+       width = 16*1.5, height = 9*1.5, units='cm')
+
+p_l <- dat[date==ymd("2003-09-01")] %>% 
+  ggplot(data=.,aes(x,y,fill=ndvi_anom_sd_12mo))+
+  geom_sf(data=oz_poly, inherit.aes = F, 
+          fill='gray70', 
+          color='black')+
+  geom_tile()+
+  coord_sf(xlim = c(145,153),
+           ylim = c(-39,-31.5),
+           expand = FALSE)+
+  scico::scale_fill_scico(palette = 'roma', 
+                          limits=c(-1.5,1.5), 
+                          oob=scales::squish)+
+  labs(x=NULL,y=NULL,title='2003 September')+
+  guides(fill=guide_colorbar(title=
+                               expression(paste('NDVI anom'[12*mo],(sigma)))))+
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(fill='lightblue'), 
+        legend.position = c(1,0), 
+        legend.justification = c(1,0))
+p_r <- dat[date==ymd("2019-09-01")] %>% 
+  ggplot(data=.,aes(x,y,fill=ndvi_anom_sd_12mo))+
+  geom_sf(data=oz_poly, inherit.aes = F, 
+          fill='gray70', 
+          color='black')+
+  geom_tile()+
+  coord_sf(xlim = c(145,153),
+           ylim = c(-39,-31.5),
+           expand = FALSE)+
+  scico::scale_fill_scico(palette = 'roma', 
+                          limits=c(-1.5,1.5), 
+                          oob=scales::squish)+
+  labs(x=NULL,y=NULL,title='2019 September')+
+  guides(fill=guide_colorbar(title=
+                               expression(paste('NDVI anom'[12*mo],(sigma)))))+
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(fill='lightblue'), 
+        legend.position = c(1,0), 
+        legend.justification = c(1,0))
+ggsave(p_l+p_r+plot_layout(ncol=2), 
+       filename='figures/map_ndvi_anom_compare_2003_2009Sep.png', 
+       width = 16*1.5, height = 9*1.5, units='cm')
+
+p_l <- dat[date==ymd("2003-09-01")] %>% 
+  ggplot(data=.,aes(x,y,fill=lst_anom_sd_12mo))+
+  geom_sf(data=oz_poly, inherit.aes = F, 
+          fill='gray70', 
+          color='black')+
+  geom_tile()+
+  coord_sf(xlim = c(145,153),
+           ylim = c(-39,-31.5),
+           expand = FALSE)+
+  scico::scale_fill_scico(palette = 'vik', 
+                          limits=c(-1.5,1.5), 
+                          oob=scales::squish)+
+  labs(x=NULL,y=NULL,title='2003 September')+
+  guides(fill=guide_colorbar(title=
+                               expression(paste('LST anom'[12*mo],(sigma)))))+
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(fill='lightblue'), 
+        legend.position = c(1,0), 
+        legend.justification = c(1,0))
+p_r <- dat[date==ymd("2019-09-01")] %>% 
+  ggplot(data=.,aes(x,y,fill=lst_anom_sd_12mo))+
+  geom_sf(data=oz_poly, inherit.aes = F, 
+          fill='gray70', 
+          color='black')+
+  geom_tile()+
+  coord_sf(xlim = c(145,153),
+           ylim = c(-39,-31.5),
+           expand = FALSE)+
+  scico::scale_fill_scico(palette = 'vik', 
+                          limits=c(-1.5,1.5), 
+                          oob=scales::squish)+
+  labs(x=NULL,y=NULL,title='2019 September')+
+  guides(fill=guide_colorbar(title=
+                               expression(paste('LST anom'[12*mo],(sigma)))))+
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(fill='lightblue'), 
+        legend.position = c(1,0), 
+        legend.justification = c(1,0))
+ggsave(p_l+p_r+plot_layout(ncol=2), 
+       filename='figures/map_lst_anom_compare_2003_2009Sep.png', 
+       width = 16*1.5, height = 9*1.5, units='cm')
+
+scico::scico_palette_show()
+colorspace::qualitative_hcl(6) %>% colorspace::show()

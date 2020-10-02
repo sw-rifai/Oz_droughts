@@ -142,7 +142,7 @@ inner_join(oc,  oc %>%
   summarize(val = mean(cci,na.rm=TRUE)) %>% 
   ungroup() %>% #pull(val) %>% is.na %>% table
   inner_join(., {.} %>% 
-               filter(year >= 1982 & year <= 2011) %>% 
+               filter(year >= 2001 & year <= 2011) %>% 
                group_by(x,y) %>% 
                summarize(val_sd = sd(val,na.rm=TRUE), 
                          val_u = mean(val,na.rm=TRUE)) %>% 
