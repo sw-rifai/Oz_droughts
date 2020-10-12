@@ -42,12 +42,18 @@ mcf <- mcf %>% as.data.table() %>% lazy_dt() %>%
 
 
 # vegetation index record
-vi <- arrow::read_parquet("../data_general/MCD43/MCD43_AVHRR_NDVI_hybrid_2020-07-01.parquet", 
-                          col_select = c("x","y","date",
-                                         "ndvi_c","ndvi_mcd","ndvi_hyb", 
-                                         "evi2_hyb","evi2_mcd","sz")) %>% 
-  as.data.table() %>% 
-  .[ndvi_hyb > 0]
+vi <- arrow::read_parquet("../data_general/MCD43/MCD43_AVHRR_NDVI_hybrid_2020-10-11.parquet" 
+                          # col_select = c("x","y","date",
+                          #                "ndvi_c","ndvi_mcd","ndvi_hyb", 
+                          #                "evi2_hyb","evi2_mcd","sz")
+                          ) %>% 
+  as.data.table()
+vi <- vi %>% lazy_dt() %>% 
+  mutate(ndvi_hyb_e1 = coalesce(ndvi_mcd_nm_pred, NA_real_),
+         ndvi_hyb_e2 = coalesce(ndvi_mcd, NA_real_)) %>% 
+  mutate(ndvi_hyb = coalesce(ndvi_hyb_e2, ndvi_hyb_e1)) %>% 
+  mutate(ndvi_hyb = ifelse(between(ndvi_hyb,0,1),ndvi_hyb,NA_real_)) %>% 
+  as.data.table()
 norms_vi <- vi[,`:=`(month=month(date))] %>% 
   .[,.(ndvi_u = mean(ndvi_hyb,na.rm=TRUE), 
        ndvi_sd = sd(ndvi_hyb,na.rm=TRUE)),keyby=.(x,y,month)]
@@ -107,6 +113,13 @@ dat[,`:=`(hydro_year=year(date+months(1)))]
 # FILTER TO LON >= 140 !!! **********
 dat <- dat[x>=140]
 
+coords_keep <- dat %>% lazy_dt() %>% 
+  group_by(x,y) %>% 
+  summarize(nobs_total = sum(is.na(ndvi_hyb)==F)) %>% 
+  ungroup() %>% 
+  as.data.table()
+dat <- merge(dat, coords_keep, by=c("x","y"))
+
 ldat <- dat %>% lazy_dt()
 # END Load awap clim dat *****************************************************************
 
@@ -140,12 +153,13 @@ kop <- left_join(coords, bom, by=c("x","y")) %>%
                           between(koppen, 35,40)~'Tropical', 
                           koppen >= 41 ~ 'Equatorial')) %>% 
   mutate(zone = ifelse(y < -40, 'Temperate Tas.', zone)) %>% #pull(zone) %>% table
-  mutate(zone = ifelse(zone == "GD_temp" & map < 500, 'Desert',zone)) %>%   
+  mutate(zone = ifelse(zone == "GD_temp" & map < 500, 'Arid',zone)) %>%   
   mutate(zone = ifelse(zone == "GD_temp" & map >= 500, 'Grassland',zone)) %>%   
   mutate(zone = factor(zone, levels = c("Equatorial","Tropical",
-                                        "Subtropical","Grassland","Desert",
+                                        "Subtropical","Grassland","Arid",
                                         "Temperate","Temperate Tas."), ordered = T))
 kop <- kop %>% mutate(cz=zone)
+kop <- as.data.table(kop)
 arrow::write_parquet(kop, sink='../data_general/Koppen_climate/BOM_Koppen_simplified7.parquet')
 #*** End Kop zone load ********************************************************
 
@@ -246,7 +260,8 @@ system.time(
 library(RcppArmadillo)
 system.time(
   lt_ndvi_season <- dat[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>%
-    .[date>= ymd("1982-01-01") & date<= ymd("2019-09-30")] %>% 
+    .[date>= ymd("1981-09-01") & date<= ymd("2019-08-30")] %>% 
+    .[nobs_total > 200] %>% 
     .[,.(val = mean(ndvi_3mo, na.rm=TRUE)), by=.(x,y,season,hydro_year)] %>% 
     .[is.na(val)==F] %>% 
     .[,.(b1 = fastLm(X = cbind(1,hydro_year-2000.5), y=val, data=.SD)$coefficients[2]), 
@@ -254,7 +269,8 @@ system.time(
 )
 system.time(
   lt_ndvi_season_wEpoch <- dat[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>%
-    .[date>= ymd("1982-01-01") & date<= ymd("2019-09-30")] %>% 
+    .[date>= ymd("1981-09-01") & date<= ymd("2019-08-30")] %>% 
+    .[nobs_total > 200] %>% 
     .[,.(val = mean(ndvi_3mo, na.rm=TRUE)), by=.(x,y,season,hydro_year)] %>% 
     .[,`:=`(epoch=ifelse(hydro_year < 2001,0,1))] %>% 
     .[is.na(val)==F] %>% 
@@ -299,20 +315,100 @@ vcf <- lt_tree %>% lazy_dt() %>%
 
 
 
-# Calc NDVI linear change -----------------------------------------------------------
+# NDVI 38 year seasonal trend -----------------------------------------------------------
 system.time(
   lt_ndvi_season <- dat[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>%
+    .[nobs_total > 200] %>% 
     .[ndvi_hyb > 0] %>% 
-    .[date>= ymd("1982-01-01") & date<= ymd("2019-09-30")] %>% 
+    .[date>= ymd("1981-09-01") & date<= ymd("2019-08-30")] %>% 
     .[,.(val = mean(ndvi_hyb, na.rm=TRUE)), by=.(x,y,season,hydro_year)] %>% 
     .[is.na(val)==F] %>% 
     .[,.(b1 = fastLm(X = cbind(1,hydro_year-2000.5), y=val, data=.SD)$coefficients[2]), 
       by=.(x,y,season)]
 )
 
-# long-term trend of annual NDVI ----------------------------------------------
+
+# NDVI trend using Theil-Sen --------------------------------------------------------
+sen_ndvi_annual <- dat %>% 
+  .[date >= ymd("1981-11-01") & date <= ymd("2019-08-31")] %>% 
+  .[hydro_year %in% c(1982:2019)] %>% 
+  .[,`:=`(hydro_year_c = hydro_year-1982)] %>% 
+  .[is.na(ndvi_hyb)==F] %>% 
+  .[,.(beta = list(coef(zyp.sen(ndvi_hyb~hydro_year_c)))),by=.(x,y)] %>%
+  .[,`:=`(b0=unlist(beta)[1], 
+          b1=unlist(beta)[2]), by=.(x,y)]
+)
+sen_ndvi_annual %>% 
+  filter(b0>0) %>% 
+  mutate(val = 100*b1*38/b0) %>% 
+  pull(val) %>% na.omit() %>% 
+  quantile(., c(0.05,0.5,0.95))
+
+sen_ndvi_season <- dat %>% 
+  .[date >= ymd("1981-11-01") & date <= ymd("2019-08-31")] %>% 
+  .[hydro_year %in% c(1982:2019)] %>% 
+  .[,`:=`(hydro_year_c = hydro_year-1982)] %>% 
+  .[is.na(ndvi_hyb)==F] %>% 
+  .[,.(beta = list(coef(zyp.sen(ndvi_hyb~hydro_year_c)))),by=.(x,y,season)] %>%
+  .[,`:=`(b0=unlist(beta)[1], 
+          b1=unlist(beta)[2]), by=.(x,y,season)]
+)
+sen_ndvi_annual_e1 <- dat %>% 
+  .[date >= ymd("1981-11-01") & date <= ymd("2000-12-31")] %>% 
+  .[hydro_year %in% c(1982:2000)] %>% 
+  .[,`:=`(hydro_year_c = hydro_year-1982)] %>% 
+  .[is.na(ndvi_hyb)==F] %>% 
+  .[,.(beta = list(coef(zyp.sen(ndvi_hyb~hydro_year_c)))),by=.(x,y)] %>%
+  .[,`:=`(b0=unlist(beta)[1], 
+          b1=unlist(beta)[2]), by=.(x,y)]
+)
+sen_ndvi_season_e1 <- dat %>% 
+  .[date >= ymd("1981-11-01") & date <= ymd("2000-12-31")] %>% 
+  .[hydro_year %in% c(1982:2000)] %>% 
+  .[,`:=`(hydro_year_c = hydro_year-1982)] %>% 
+  .[is.na(ndvi_hyb)==F] %>% 
+  .[,.(beta = list(coef(zyp.sen(ndvi_hyb~hydro_year_c)))),by=.(x,y,season)] %>%
+  .[,`:=`(b0=unlist(beta)[1], 
+          b1=unlist(beta)[2]), by=.(x,y,season)]
+)
+sen_ndvi_annual_e2 <- dat %>% 
+  .[date >= ymd("2001-01-01") & date <= ymd("2019-08-30")] %>% 
+  .[hydro_year %in% c(2001:2019)] %>% 
+  .[,`:=`(hydro_year_c = hydro_year-2001)] %>% 
+  .[is.na(ndvi_hyb)==F] %>% 
+  .[,.(beta = list(coef(zyp.sen(ndvi_hyb~hydro_year_c)))),by=.(x,y)] %>%
+  .[,`:=`(b0=unlist(beta)[1], 
+          b1=unlist(beta)[2]), by=.(x,y)]
+)
+sen_ndvi_season_e2 <- dat %>% 
+  .[date >= ymd("2001-01-01") & date <= ymd("2019-08-30")] %>% 
+  .[hydro_year %in% c(2001:2019)] %>% 
+  .[,`:=`(hydro_year_c = hydro_year-2001)] %>% 
+  .[is.na(ndvi_hyb)==F] %>% 
+  .[,.(beta = list(coef(zyp.sen(ndvi_hyb~hydro_year_c)))),by=.(x,y,season)] %>%
+  .[,`:=`(b0=unlist(beta)[1], 
+          b1=unlist(beta)[2]), by=.(x,y,season)]
+)
+
+sen_ndvi_season_e1$epoch <- "AVHRR NDVI 1982-2000"
+sen_ndvi_season_e2$epoch <- "MODIS NDVI 2001-2019"
+
+
+sen_ppet_annual <- dat %>% 
+  .[date >= ymd("1981-11-01") & date <= ymd("2019-08-31")] %>% 
+  .[hydro_year %in% c(1982:2019)] %>% 
+  .[,`:=`(hydro_year_c = hydro_year-1982)] %>% 
+  .[is.na(ndvi_hyb)==F] %>%
+  .[is.na(pe_12mo)==F] %>% 
+  .[,.(beta = list(coef(zyp.sen(pe_12mo~hydro_year_c)))),by=.(x,y)] %>%
+  .[,`:=`(b0=unlist(beta)[1], 
+          b1=unlist(beta)[2]), by=.(x,y)]
+
+
+# NDVI 38 year annual trend of ----------------------------------------------
 lt_ndvi_annual <- dat[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>%
-  .[date>= ymd("1982-09-01") & date<= ymd("2019-09-30")] %>% 
+  .[date>= ymd("1981-09-01") & date<= ymd("2019-08-30")] %>% 
+  .[nobs_total > 200] %>% 
   # .[,.(val = mean(ndvi_3mo, na.rm=TRUE)), by=.(x,y,season,hydro_year)] %>% 
   .[,`:=`(epoch=ifelse(hydro_year < 2001,0,1))] %>% 
   .[is.na(ndvi_hyb)==F] %>% 
@@ -323,29 +419,94 @@ lt_ndvi_annual <- dat[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>%
   .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2],b2=unlist(beta)[3]#,b3=unlist(beta)[4]
   ), by=.(x,y)]
 
-# fraction of grid cells experiencing positive NDVI trend
-sum(lt_ndvi_annual$b1>0)/length(lt_ndvi_annual$b1) 
+lt_ndvi_annual <- dat[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>%
+  .[nobs_total > 200] %>% 
+  .[date>= ymd("1981-09-01") & date<= ymd("2019-08-30")] %>% 
+  # .[,.(val = mean(ndvi_3mo, na.rm=TRUE)), by=.(x,y,season,hydro_year)] %>% 
+  .[is.na(ndvi_hyb)==F] %>% 
+  .[, .(val=mean(ndvi_hyb,na.rm=TRUE)), 
+      keyby=.(x,y,hydro_year)] %>% 
+  .[,`:=`(epoch=ifelse(hydro_year < 2001,0,1))] %>% 
+  .[,.(beta = list(unname(fastLm(
+  X = cbind(1,hydro_year-1982,epoch), 
+  y=val, data=.SD)$coefficients))), 
+  by=.(x,y)] %>% 
+  .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2],b2=unlist(beta)[3]), by=.(x,y)]
+
+lt_ndvi_annual_v2 <- dat[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>%
+  .[nobs_total > 200] %>% 
+  .[date>= ymd("1981-09-01") & date<= ymd("2019-08-30")] %>% 
+  # .[,.(val = mean(ndvi_3mo, na.rm=TRUE)), by=.(x,y,season,hydro_year)] %>% 
+  .[is.na(ndvi_hyb)==F] %>% 
+  .[, .(val=mean(ndvi_hyb,na.rm=TRUE)), 
+    keyby=.(x,y,hydro_year)] %>% 
+  .[,`:=`(epoch=ifelse(hydro_year < 2001,0,1))] %>% 
+  .[,.(beta = list(unname(fastLm(
+    X = cbind(1,hydro_year-1982), 
+    y=val, data=.SD)$coefficients))), 
+    by=.(x,y)] %>% 
+  .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2]), by=.(x,y)]
+
+# lt_ndvi_annual_v2$b1 %>% quantile(c(0.1,0.9))
+# 
+# dat %>% lazy_dt() %>% group_by(hydro_year) %>% summarize(val = mean(ndvi_hyb,na.rm=TRUE)) %>% 
+#   ungroup() %>% show_query()
+# 
+# # fraction of grid cells experiencing positive NDVI trend
+# sum(lt_ndvi_annual$b1>0)/length(lt_ndvi_annual$b1) 
+# lt_ndvi_annual_v2 %>% 
+#   rowwise() %>% 
+#   filter(b0>0.15 & b0 < 0.95) %>% 
+#   filter(between(b1, -0.01,0.01)) %>% 
+#   mutate(val = 100*(38*b1)/b0) %>% 
+#   pull(val) %>% mean
+#   pull(val) %>% quantile(., c(0.10,0.5,0.90))
+# lt_ndvi_annual %>% 
+#   rowwise() %>% 
+#   filter(b0>0.15 & b0 < 0.95) %>% 
+#   filter(between(b1, -0.01,0.01)) %>% 
+#   mutate(val = 100*(38*b1)/b0) %>% 
+#   pull(val) %>% sd
+# lt_ndvi_annual %>% 
+#   ggplot(data=.,aes(x,y,fill=b2))+
+#   geom_tile()+
+#   coord_equal()+
+#   scale_fill_gradient2(limits=c(-0.1,0.1))
+#   scale_fill_viridis_c(limits=c(-0.05,0.05), na.value = 'red')
+#   # scale_fill_viridis_b(#limits = seq(0.1,0.9,0.1),
+#   #                       limits=c(0.1,0.9),
+#   #                      oob=scales::squish)
+# 
+# lt_ndvi_annual %>% 
+#   filter(b1==max(b1))
+# dat[near(x,148.9631,tol = 0.001) & 
+#       near(y, -20.14472, tol=0.001)] %>% 
+#   ggplot(data=.,aes(date,ndvi_hyb))+
+#   geom_line()
+
 # end section ******************************************************************
 
 # Calc NDVI linear change by satellite epoch -----------------------------------------------------------
 c_year <- mean(seq(ymd("1982-01-01"),ymd("2000-12-31"),by='1 month')) %>% decimal_date();
 lt_ndvi_season_p1 <- dat[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>%
+    .[nobs_total > 200] %>% 
     .[ndvi_hyb > 0] %>% 
-    .[date>= ymd("1982-01-01") & date<= ymd("2000-12-31")] %>% 
+   .[date>= ymd("1981-01-01") & date<= ymd("2000-12-31")] %>% 
     .[,.(val = mean(ndvi_hyb, na.rm=TRUE)), by=.(x,y,season,hydro_year)] %>% 
     .[is.na(val)==F] %>% 
     .[,.(b1 = fastLm(X = cbind(1,hydro_year-c_year), y=val, data=.SD)$coefficients[2]), 
       by=.(x,y,season)]
 
-c_year <- mean(seq(ymd("2001-01-01"),ymd("2019-09-30"),by='1 month')) %>% decimal_date()
+c_year <- mean(seq(ymd("2001-07-01"),ymd("2019-08-30"),by='1 month')) %>% decimal_date()
 lt_ndvi_season_p2 <- dat[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>%
+    .[nobs_total > 200] %>% 
     .[ndvi_hyb > 0] %>% 
-    .[date>= ymd("2001-01-01") & date<= ymd("2019-09-30")] %>% 
+    .[date>= ymd("2001-07-01") & date<= ymd("2019-08-30")] %>% 
     .[,.(val = mean(ndvi_hyb, na.rm=TRUE)), by=.(x,y,season,hydro_year)] %>% 
     .[is.na(val)==F] %>% 
     .[,.(b1 = fastLm(X = cbind(1,hydro_year-c_year), y=val, data=.SD)$coefficients[2]), 
       by=.(x,y,season)]
-)
+
 lt_ndvi_season_p1$epoch <- "AVHRR NDVI 1982-2000"
 lt_ndvi_season_p2$epoch <- "MODIS NDVI 2001-2019"
 
@@ -358,9 +519,9 @@ lt_ndvi_season_wEpoch %>%
   geom_tile()+
   scale_fill_gradient2(expression(paste(Delta*NDVI~yr^-1)),
                        high=vec_col[7], mid=vec_col[4], low=vec_col[1],
-                       limits=c(-0.005,0.005),
-                       breaks=c(-0.004,-0.002,0,0.002,0.004),
-                       labels=c("<-0.0004",-0.002,0,0.002,">0.004"),
+                       limits=c(-0.008,0.008),
+                       breaks=c(-0.008,-0.004,0,0.004,0.008),
+                       labels=c("<-0.0008",-0.004,0,0.004,">0.008"),
                        oob=scales::squish,
                        na.value='gray')+
   # scale_fill_viridis_c(expression(paste(Delta*NDVI~yr^-1)),
@@ -380,11 +541,41 @@ lt_ndvi_season_wEpoch %>%
         strip.text = element_text(face='bold'),
         axis.text = element_blank(), 
         axis.ticks = element_blank())
-ggsave(filename = "figures/ndvi_f_of_timeANDsensor_seasonal_longtermTrend_1982_2019.png", 
+ggsave(filename = 
+         paste0("figures/ndvi_f_of_timeANDsensor_seasonal_longtermTrend_1982_2019_",Sys.Date(),".png"), 
        dpi=350, width=15,height=12,units='cm',type='cairo')
 
 
-
+# Thiel-Sen regression
+vec_col <- RColorBrewer::brewer.pal(n=7, name='BrBG')
+quantile(na.omit(sen_ndvi_season$b1),c(0.01,0.99))
+sen_ndvi_season %>% 
+  ggplot(data=., aes(x,y,fill=b1))+
+  geom_sf(inherit.aes = F, data=oz_poly,fill='gray60',color='black')+
+  geom_tile()+
+  scale_fill_gradient2(expression(paste(Delta*NDVI~yr^-1)),
+                       high=vec_col[7], mid=vec_col[4], low=vec_col[1],
+                       limits=c(-0.005,0.005),
+                       breaks=c(-0.005,-0.0025,0,0.0025,0.005),
+                       labels=c("<-0.0005",-0.0025,0,0.0025,">0.005"),
+                       oob=scales::squish,
+                       na.value='gray')+
+  labs(x=NULL,y=NULL)+
+  coord_sf(xlim = c(140,154),
+           ylim = c(-45,-10), expand = FALSE)+
+  facet_wrap(~season, nrow = 1)+
+  guides(fill = 
+           guide_colourbar(label = T)) +
+  theme(panel.background = element_rect(fill = '#99A3C4'), 
+        panel.grid = element_blank(), 
+        legend.position = 'bottom',
+        legend.key.width = unit(1.5,'cm'),
+        strip.text = element_text(face='bold'),
+        axis.text = element_blank(), 
+        axis.ticks = element_blank())
+ggsave(filename = 
+         paste0("figures/ndvi_f_of_timeANDsensor_seasonal_longterm_ThielSen_Trend_1982_2019_",Sys.Date(),".png"), 
+       dpi=350, width=15,height=12,units='cm',type='cairo')
 
 
 
@@ -449,6 +640,7 @@ p_PET <- lt_PET_season %>%
         axis.ticks = element_blank()); p_PET
 
 p_out <- cowplot::plot_grid(p_P,p_PET, ncol = 1)
+p_out
 ggsave(p_out, 
        filename = "figures/Map_EastOz_ltChange_seasonal_P_PET.png", 
        type='cairo', dpi=300,
@@ -521,7 +713,6 @@ ggsave(p_PPET,
        width=8, height=13, units='cm')
 
 # NDVI linear change by epoch --------------------------------------------------
-
 vec_col <- RColorBrewer::brewer.pal(n=7, name='BrBG')
 bind_rows(lt_ndvi_season_p1, lt_ndvi_season_p2) %>% 
   ggplot(data=., aes(x,y,fill=b1))+
@@ -529,9 +720,9 @@ bind_rows(lt_ndvi_season_p1, lt_ndvi_season_p2) %>%
   geom_tile()+
   scale_fill_gradient2(expression(paste(Delta*NDVI~yr^-1)),
                        high=vec_col[7], mid=vec_col[4], low=vec_col[1],
-                       limits=c(-0.005,0.005),
-                       breaks=c(-0.005,-0.003,0,0.003,0.005),
-                       labels=c("<-0.005",-0.003,0,0.003,">0.005"),
+                       limits=c(-0.008,0.008),
+                       breaks=c(-0.008,-0.004,0,0.004,0.008),
+                       labels=c("<-0.008",-0.004,0,0.004,">0.008"),
                        oob=scales::squish,
                        na.value='gray')+
   labs(x=NULL,y=NULL)+
@@ -547,8 +738,43 @@ bind_rows(lt_ndvi_season_p1, lt_ndvi_season_p2) %>%
         strip.text = element_text(face='bold'),
         axis.text = element_blank(), 
         axis.ticks = element_blank())
-ggsave(filename = "figures/ndvi_seasonal_longtermTrends_prePost2000epochs.png", 
+ggsave(filename = 
+       paste0("figures/ndvi_seasonal_longtermTrends_prePost2000epochs",Sys.Date(),".png"), 
        dpi=200, width=15,height=22,units='cm',type='cairo')
+
+
+
+vec_col <- RColorBrewer::brewer.pal(n=7, name='BrBG')
+sen_ndvi_season_e1$b1 %>% na.omit() %>% quantile(., c(0.01,0.99))
+sen_ndvi_season_e2$b1 %>% na.omit() %>% quantile(., c(0.01,0.99))
+bind_rows(sen_ndvi_season_e1,sen_ndvi_season_e2) %>% 
+  ggplot(data=., aes(x,y,fill=b1))+
+  geom_sf(inherit.aes = F, data=oz_poly,fill='gray70',color='gray10')+
+  geom_tile()+
+  scale_fill_gradient2(expression(paste(Delta*NDVI~yr^-1)),
+                       high=vec_col[7], mid=vec_col[4], low=vec_col[1],
+                       limits=c(-0.006,0.006),
+                       breaks=c(-0.006,-0.003,0,0.003,0.006),
+                       labels=c("<-0.006",-0.003,0,0.003,">0.006"),
+                       oob=scales::squish,
+                       na.value='gray')+
+  labs(x=NULL,y=NULL)+
+  coord_sf(xlim = c(140,154),
+           ylim = c(-45,-10), expand = FALSE)+
+  facet_grid(epoch~season)+
+  guides(fill = 
+           guide_colourbar(label = T)) +
+  theme(panel.background = element_rect(fill = '#99A3C4'), 
+        panel.grid = element_blank(), 
+        legend.position = 'bottom',
+        legend.key.width = unit(1.5,'cm'),
+        strip.text = element_text(face='bold'),
+        axis.text = element_blank(), 
+        axis.ticks = element_blank())
+ggsave(filename = 
+         paste0("figures/ndvi_seasonal_longterm_ThielSen_Trends_prePost2000epochs",Sys.Date(),".png"), 
+       dpi=200, width=15,height=22,units='cm',type='cairo')
+
 # END **************************************************************************
 
 # Join NDVI linear change by epoch & P:PET change -------------------------------
@@ -589,9 +815,9 @@ p_right <- bind_rows(lt_ndvi_season_p1, lt_ndvi_season_p2) %>%
                        # mid=vec_col[4],
                        mid="#ffffe3",
                        low=vec_col[1],
-                       limits=c(-0.005,0.005),
-                       breaks=c(-0.005,0,0.005),
-                       labels=c("<-0.005",0,">0.005"),
+                       limits=c(-0.006,0.006),
+                       breaks=c(-0.006,0,0.006),
+                       labels=c("<-0.006",0,">0.006"),
                        oob=scales::squish,
                        na.value='gray')+
   labs(x=NULL,y=NULL)+
@@ -615,7 +841,49 @@ p_left+p_right+plot_layout(widths = c(1.25,2), guides = 'keep')+plot_annotation(
 ggsave(p_left+p_right+
          plot_layout(widths = c(1.25,2), guides = 'keep')+
          plot_annotation(tag_levels = 'A'),
-  filename = "figures/PPET_ndvi_seasonal_longtermTrends_prePost2000epochs_v3.png", 
+  filename = "figures/PPET_ndvi_seasonal_longtermTrends_prePost2000epochs_v4.png", 
+       dpi=350, width=15,height=15,units='cm',type='cairo')
+
+
+# Thiel Sen version
+vec_col <- RColorBrewer::brewer.pal(n=7, name='BrBG')
+sen_ndvi_season_e1$b1 %>% na.omit() %>% quantile(., c(0.01,0.99))
+sen_ndvi_season_e2$b1 %>% na.omit() %>% quantile(., c(0.01,0.99))
+p_right_sen <- bind_rows(sen_ndvi_season_e1,sen_ndvi_season_e2) %>% 
+  ggplot(data=., aes(x,y,fill=b1))+
+  geom_sf(inherit.aes = F, data=oz_poly,fill='gray70',color='gray10')+
+  geom_tile()+
+  scale_fill_gradient2(expression(paste(frac(Delta*NDVI,yr))),
+                       high=vec_col[7], mid=vec_col[4], low=vec_col[1],
+                       limits=c(-0.006,0.006),
+                       breaks=c(-0.006,-0.003,0,0.003,0.006),
+                       labels=c("<-0.006",-0.003,0,0.003,">0.006"),
+                       oob=scales::squish,
+                       na.value='gray')+
+  labs(x=NULL,y=NULL)+
+  coord_sf(xlim = c(140,154),
+           ylim = c(-45,-10), expand = FALSE)+
+  facet_grid(epoch~season)+
+  guides(fill = 
+           guide_colourbar(label = T)) +
+  theme(panel.background = element_rect(fill = '#99A3C4'), 
+        panel.grid = element_blank(), 
+        legend.position = 'bottom',
+        legend.key.width = unit(0.8,'cm'),
+        legend.text = element_text(size=7),
+        legend.title = element_text(size=8),
+        legend.margin = margin(0,0,0,0),
+        legend.box.margin = margin(0,0,0,0),
+        strip.text = element_text(face='bold'),
+        axis.text = element_blank(), 
+        axis.ticks = element_blank()); p_right_sen
+
+p_out <- p_left+p_right_sen+
+  plot_layout(widths = c(1,2.2), guides = 'keep')+
+  plot_annotation(tag_levels = 'A') 
+p_out
+ggsave(p_out,
+       filename = "figures/PPET_ndvi_seasonal_longterm_ThielSen_Trends_prePost2000epochs_v4.png", 
        dpi=350, width=15,height=15,units='cm',type='cairo')
 # END **************************************************************************
 
@@ -705,7 +973,7 @@ lut_koppen <- c("Equatorial" = "Equatorial",
              "Tropical" = "Tropical", 
              "Subtropical" = "Subtropical", 
              "Grassland" = "Grassland", 
-             "Desert" = "Arid",
+             "Arid" = "Arid",
              "Temperate" = "Temperate",
              "Temperate Tas." = "Temperate Tasm.")
 p_left <- kop %>% 
@@ -775,15 +1043,15 @@ lut_kop <- c("Equatorial" = "Equat.",
              "Tropical" = "Trop.", 
              "Subtropical" = "Subtr.", 
              "Grassland" = "Grass.", 
-             "Desert" = "Arid",
+             "Arid" = "Arid",
              "Temperate" = "Temp.",
              "Temperate Tas." = "Tasm.")
-lt_ndvi_season_p1$epoch <- "AVHRR NDVI 1981-2000"
+lt_ndvi_season_p1$epoch <- "AVHRR NDVI 1982-2000"
 lt_ndvi_season_p2$epoch <- "MODIS NDVI 2001-2019"
 j <- bind_rows(lt_ndvi_season_p1, lt_ndvi_season_p2)
 p_bottom <- inner_join(kop,j,by=c("x","y")) %>% 
   rename(`Zone` = cz) %>% 
-  filter(between(b1,-0.004,0.005)) %>% 
+  filter(between(b1,-0.006,0.006)) %>% 
   mutate(season = factor(season, levels=c("SON","DJF","MAM","JJA"),ordered = T)) %>% 
   ggplot(data=., aes(b1,after_stat(density),
                      fill=as_factor(`Zone`),
@@ -799,7 +1067,7 @@ p_bottom <- inner_join(kop,j,by=c("x","y")) %>%
   scale_fill_viridis_d(option='B',direction = 1,end=0.925)+
   # scale_color_viridis_d(option='B',direction = 1,end=0.925)+
   scale_color_manual(values=c("black",NA),
-                     breaks=c("AVHRR NDVI 1981-2000","MODIS NDVI 2001-2019"))+
+                     breaks=c("AVHRR NDVI 1982-2000","MODIS NDVI 2001-2019"))+
   scale_x_continuous(expand=c(0,0), 
                      limits=c(-0.005,0.0055),
                      breaks=c(-0.003,0,0.003))+
@@ -842,7 +1110,7 @@ p_vcf <- vcf %>%
   scale_x_continuous(limits=c(-1,1))+
   scale_y_discrete(expand=c(0,0),
      limits=rev(c("Equatorial","Tropical", 
-              "Subtropical", "Grassland","Desert", 
+              "Subtropical", "Grassland","Arid", 
               "Temperate","Temperate Tas.")), 
      labels=str_wrap(rev(c("Equatorial","Tropical", 
                   "Subtropical", "Grassland", "Arid", 
@@ -868,8 +1136,59 @@ library(cowplot)
 cp_r <- cowplot::plot_grid(p_right,p_bottom,p_vcf,nrow = 3,rel_heights = c(2,3,3))
 cowplot::plot_grid(p_left,cp_r)
 ggsave(plot=cowplot::plot_grid(p_left,cp_r),
-       filename = "figures/map_7KoppenZones_PPET_change_VCF_v2.png", 
+       filename = "figures/map_7KoppenZones_PPET_change_VCF_v3.png", 
        width = 25, height=30, units='cm', dpi=350, type='cairo')
+
+
+lut_kop <- c("Equatorial" = "Equat.",
+             "Tropical" = "Trop.", 
+             "Subtropical" = "Subtr.", 
+             "Grassland" = "Grass.", 
+             "Arid" = "Arid",
+             "Temperate" = "Temp.",
+             "Temperate Tas." = "Tasm.")
+sen_ndvi_season_e1$epoch <- "AVHRR NDVI 1982-2000"
+sen_ndvi_season_e2$epoch <- "MODIS NDVI 2001-2019"
+j_sen <- bind_rows(lt_ndvi_season_p1, lt_ndvi_season_p2)
+p_bottom_sen <- inner_join(kop,j_sen,by=c("x","y")) %>% 
+  rename(`Zone` = cz) %>% 
+  filter(between(b1,-0.006,0.006)) %>% 
+  mutate(season = factor(season, levels=c("SON","DJF","MAM","JJA"),ordered = T)) %>% 
+  ggplot(data=., aes(b1,after_stat(density),
+                     fill=as_factor(`Zone`),
+                     color=epoch, #as_factor(`Zone`),
+                     alpha=epoch))+
+  # geom_histogram(bins = 30, position = 'identity')+
+  geom_density(position='identity')+
+  # geom_freqpoly()+
+  geom_vline(aes(xintercept=0),col='#cf0000',lwd=1)+
+  geom_vline(aes(xintercept=0),col='red',lwd=0.5)+
+  # scico::scale_fill_scico_d()+
+  scale_alpha_discrete(range=c(0.2,0.8))+
+  scale_fill_viridis_d(option='B',direction = 1,end=0.925)+
+  # scale_color_viridis_d(option='B',direction = 1,end=0.925)+
+  scale_color_manual(values=c("black",NA),
+                     breaks=c("AVHRR NDVI 1982-2000","MODIS NDVI 2001-2019"))+
+  scale_x_continuous(expand=c(0,0), 
+                     limits=c(-0.005,0.006),
+                     breaks=c(-0.003,0,0.003))+
+  scale_y_continuous(expand=c(0,0),position = 'left')+
+  facet_grid(`Zone`~season, scales = 'free_y', 
+             # labeller = label_wrap_gen(width=10, multi_line = TRUE)
+             labeller = labeller(`Zone` = lut_kop)
+  )+
+  labs(x=expression(paste(Delta~NDVI~yr**-1)))+
+  theme_linedraw()+
+  theme(panel.grid = element_blank(), 
+        strip.text = element_text(face='bold'), 
+        legend.position = 'none', 
+        axis.text = element_text(size=6)); p_bottom_sen
+
+cp_r <- cowplot::plot_grid(p_right,p_bottom_sen,p_vcf,nrow = 3,rel_heights = c(2,3,3))
+ggsave(plot=cowplot::plot_grid(p_left,cp_r),
+       filename = "figures/map_7KoppenZones_PPET_change_ThielSen_VCF_v3.png", 
+       width = 25, height=30, units='cm', dpi=350, type='cairo')
+
 
 # END SECTION ******************************************************************
 
@@ -1178,6 +1497,46 @@ ggsave(filename = 'figures/mcd43_ndvi_pvpd_2d_density.png',
 # END ********
 
 
+# NDVI GAM P:VPD density plot ---------------------------------------------
+library(viridisLite)
+library(mgcv)
+p_5 <- dat[mape <= 1.5][ndvi_mcd>0][sample(.N, 1e6)] %>% 
+  ggplot(data=., aes(vpd15_12mo-mavpd15,ndvi_3mo))+
+  # ggpointdensity::geom_pointdensity(size=0.5)+
+  stat_density_2d(geom='raster',
+                  aes(fill=after_stat(density)),
+                  contour = F)+
+  geom_smooth(se=F,color='white', method='gam',
+              formula=y~s(x,bs='cs'),
+              method.args=list(select=TRUE, 
+                               method='REML'), 
+              lwd=1.5)+
+  geom_smooth(se=F,color='#cf0000', method='gam',
+              formula=y~s(x,bs='cs'),
+              method.args=list(select=TRUE, 
+                               method='REML'), 
+              lwd=1)+
+  # scale_color_viridis_c()+
+  scale_fill_gradientn(colors=c('black', inferno(99)), 
+                       trans='identity')+
+  # khroma::scale_fill_land()+
+  scale_x_continuous(expand=c(0,0), limits=c(-0.5,0.5))+
+  scale_y_continuous(expand=c(0,0))+
+  labs(x=expression(paste(VPD~anom["12 mo"])),
+       y=expression(paste(NDVI)))+
+  guides(fill=guide_colorbar(title.position = 'top', 
+                             title = 'density'))+
+  theme(legend.direction = 'horizontal',
+        legend.position = c(0.025,0),
+        legend.justification = c(0,0),
+        legend.background = element_rect(fill='black'), 
+        legend.text = element_text(color='gray90'), 
+        legend.title = element_text(color='gray90'), 
+        legend.key.width = unit(0.5,'cm'))
+ggsave(p_5, filename = 'figures/vpdanom12mo_ndvi_2d_density.png',
+       width=16, height = 10, units='cm',type='cairo')
+# END ********
+
 
 # Arrow Vector Field P:PET & NDVI Shift {MAPPET 0-2) -------------------------------------------------------------
 epoch1 <- ldat %>% 
@@ -1233,10 +1592,67 @@ p_vector <- o %>%
         legend.position = c(0.75,0.15), 
         panel.grid = element_blank()); p_vector
 p_out <- ggExtra::ggMarginal(p_vector, type='histogram')
+p_out
 ggsave(p_out, 
-       filename = 'figures/ndvi_ppet_1981_1985_shift_2015_2019_wMarginDistribution.png',
+       filename = 'figures/ndvi_ppet_1981_1985_shift_2015_2019_wMarginDistribution_v2.png',
        width=16, height = 10, units='cm',type='cairo')
 
+
+# Arrow Vector Field P:PET & NDVI Shift Thiel Sen trend & INSET{MAPPET 0-0.75} -------------------------------------------------------------
+set.seed(321)
+ma_ppet <- unique(dat[,.(x,y,mape)]) %>% 
+  .[is.na(mape)==F]
+p_vector_sen <- inner_join(sen_ppet_annual, sen_ndvi_annual, 
+           by=c('x','y'),suffix=c("_ppet","_ndvi")) %>% 
+  inner_join(., ma_ppet, by=c("x","y")) %>% 
+  as_tibble() %>% 
+  mutate(ndvi_1 = b0_ndvi, 
+         ndvi_2 = b0_ndvi+38*b1_ndvi, 
+         ppet_1 = b0_ppet, 
+         ppet_2 = b0_ppet+38*b1_ppet) %>% 
+  mutate(delta_x = ppet_2 - ppet_1) %>% 
+  filter(between(delta_x,-0.5,0.5)) %>% 
+  filter(ndvi_1 >0) %>% 
+  filter(ndvi_2 >0) %>% 
+  filter(ppet_1 >0) %>% 
+  filter(ppet_1 >0) %>% 
+  filter(mape <= 2.0) %>%
+  filter(near(ppet_1, mape, tol=0.75)) %>% 
+  mutate(mape_d = cut_interval(mape,n=20)) %>% 
+  group_by(mape_d) %>%
+  sample_n(30) %>% 
+  ungroup() %>%
+  # sample_n(1000) %>% 
+  ggplot(data=., aes(ppet_1, ndvi_1,color=delta_x))+
+  geom_point(aes(ppet_1, ndvi_1), color=NA)+
+  geom_segment(aes(xend=ppet_2,yend=ndvi_2),
+               arrow=arrow(length=unit(0.1,'cm')))+
+  scale_color_gradientn(colours = c("#cf0000","#b87b7b",
+                                    "#7b81b8","navy"), 
+                        limits=c(-0.2,0.2), oob=scales::squish)+
+  # scale_color_gradient2(
+  #   low='#cf0000',
+  #   mid='gray50', 
+  #   high='navy',
+  #   limits=c(-0.2,0.2), 
+  #   oob=scales::squish)+
+  labs(x='Annual P:PET',y='NDVI')+
+  scale_x_continuous(limits=c(0,2.25),expand=c(0,0))+
+  scale_y_continuous(expand=c(0,0))+
+  theme_linedraw()+
+  guides(color=guide_colorbar(title.position = 'top', 
+                              title = expression(paste(Delta~P*":"*PET))))+
+  theme(legend.direction = 'vertical',
+        legend.justification = c(0, 1), 
+        legend.position = c(0, 1),
+        legend.background = element_rect(fill=NA),
+        legend.key.width = unit(0.2,units = 'cm'),
+        legend.key.height = unit(0.7,units = 'cm'),
+        # legend.position = c(0.05,0.75),
+        axis.text = element_text(size=12),
+        panel.grid = element_blank()); p_vector_sen
+p_out <- ggExtra::ggMarginal(p_vector_sen, type='histogram')
+p_out
 
 
 # Arrow Vector Field P:PET & NDVI Shift WITH INSET{MAPPET 0-0.75} -------------------------------------------------------------
@@ -1244,14 +1660,16 @@ set.seed(321)
 epoch1 <- ldat %>% 
   filter(ndvi_anom_sd > -3.5) %>% 
   filter(ndvi_anom_sd < 3.5) %>% 
-  filter(hydro_year %in% c(1981:1985)) %>% 
+  filter(hydro_year %in% c(1982:1986)) %>% 
   group_by(x,y) %>% 
   summarize(ppet = mean(pe_12mo,na.rm=TRUE), 
             ndvi_u = mean(ndvi_hyb,na.rm=TRUE), 
-            nobs = n()) %>%
+            nobs = n(), 
+            mape = mean(mape)) %>%
   ungroup() %>% 
   as_tibble()
 epoch2 <- ldat %>% 
+  filter(date<=ymd("2019-08-30")) %>% 
   filter(ndvi_anom_sd > -3.5) %>% 
   filter(ndvi_anom_sd < 3.5) %>% 
   filter(hydro_year %in% c(2015:2019)) %>% 
@@ -1263,7 +1681,8 @@ epoch2 <- ldat %>%
   as_tibble()
 
 o <- inner_join(epoch1,epoch2,by=c("x","y"),suffix=c("_1","_2")) %>% 
-  filter(ppet_1 <= 2) %>% 
+  # filter(ppet_1 <= 1.5) %>% 
+  # filter(mape<=2) %>% 
   filter(ndvi_u_1 > 0 & ndvi_u_2 > 0) %>% 
   mutate(delta_x = ppet_2 - ppet_1) %>% 
   mutate(id = cur_group_rows())
@@ -1272,12 +1691,16 @@ o <- o %>% filter(nobs_1 >= 25 &
 vec_ids <- sample(o$id, 1500)
 
 p_vector <- o %>% 
-  mutate(mape_d = cut_interval(sqrt(ppet_1),n=15)) %>%
+  filter(mape <= 2.0) %>%
+  mutate(mape_d = cut_interval(mape,n=20)) %>% 
+  # mutate(mape_d = cut_interval(sqrt(ppet_1),n=15)) %>%
   group_by(mape_d) %>%
-  sample_n(30) %>%
+  # summarize(nobs=n())
+  # sample_frac(0.05) %>%
+  sample_n(20) %>% 
   ungroup() %>%
   # filter(id %in% vec_ids) %>%
-  arrange(abs(delta_x)) %>% 
+  # arrange(abs(delta_x)) %>% 
   ggplot(data=., aes(ppet_1, ndvi_u_2,color=delta_x))+
   geom_point(data=epoch2 %>% filter(ndvi_u>0), 
              aes(ppet, ndvi_u), color=NA)+
@@ -1313,7 +1736,9 @@ p_out
 p_vector_inset <- o %>% 
   # filter(id %in% vec_ids) %>% 
   # filter(ppet_1 < 0.6) %>%
-  # sample_frac(0.5) %>%
+  filter(mape < 0.4) %>% 
+  sample_frac(0.02) %>%
+  # sample_n(10) %>% 
   mutate(ord = abs(delta_x)) %>% 
   arrange(ord) %>% 
   ggplot(data=., aes(ppet_1, ndvi_u_2,color=delta_x))+
@@ -1327,8 +1752,9 @@ p_vector_inset <- o %>%
   scale_x_continuous(limits=c(0.1,0.4),
                      expand=c(0,0.01))+
   scale_y_continuous(expand=c(0,0.01), 
-                     limits=c(0.2,0.6)
+                     limits=c(0.2,0.5)
                      )+
+  coord_equal()+
   theme_linedraw()+
   guides(color=guide_colorbar(title.position = 'top' 
                 # title = expression(paste(Delta~P*":"*PET))
@@ -1432,8 +1858,8 @@ vec_ids <- unique(dat[,.(id,cz)]) %>% .[is.na(id)==F & is.na(cz)==F]
 vec_ids <- vec_ids[,.SD[sample(.N, min(10000,.N))],by=cz]
 o <- dat[is.na(season)==F] %>%
   .[id %in% vec_ids$id] %>% 
-  .[date >= ymd('1982-01-01')] %>% 
-  .[date <= ymd('2019-09-30')] %>% 
+  .[date >= ymd('1981-09-01')] %>% 
+  .[date <= ymd('2019-08-30')] %>% 
   .[,.(x,y,date,season,cz,id,ndvi_hyb,ndvi_3mo,ndvi_mcd)]
 vec_cols <- viridis::viridis(10, begin = 0.1,end=0.9)
 factor(o$season[1], levels=c("SON","DJF","MAM","JJA"),ordered = T)
@@ -1441,32 +1867,32 @@ lut_kop <- c("Equatorial" = "Equat.",
              "Tropical" = "Trop.", 
              "Subtropical" = "Subtr.", 
              "Grassland" = "Grass.",
-             "Desert" = "Arid",
+             "Arid" = "Arid",
              "Temperate" = "Temp.",
              "Temperate Tas." = "Tasm.")
 p_lm <- o %>%   
-  mutate(season=factor(o$season, levels=c("SON","DJF","MAM","JJA"),ordered = T)) %>% 
+  # mutate(season=factor(o$season, levels=c("SON","DJF","MAM","JJA"),ordered = T)) %>% 
   ggplot(data=., aes(date, ndvi_hyb))+
   geom_smooth(method='lm', color='black',se=F)+
-  geom_smooth(method='lm',color=vec_cols[2],se=F, 
+  geom_smooth(method='lm',color=vec_cols[2],se=F,
               data=o[sample(.N,1e6)][date %between% c("1981-01-01","1991-01-01")])+
-  geom_smooth(method='lm',color=vec_cols[3],se=F, 
+  geom_smooth(method='lm',color=vec_cols[3],se=F,
               data=o[sample(.N,1e6)][date %between% c("1986-01-01","1996-01-01")])+
-  geom_smooth(method='lm',color=vec_cols[4],se=F, 
+  geom_smooth(method='lm',color=vec_cols[4],se=F,
               data=o[sample(.N,1e6)][date %between% c("1991-01-01","2001-01-01")])+
-  geom_smooth(method='lm',color=vec_cols[5],se=F, 
+  geom_smooth(method='lm',color=vec_cols[5],se=F,
               data=o[sample(.N,1e6)][date %between% c("1996-01-01","2006-01-01")])+
-  geom_smooth(method='lm',color=vec_cols[6],se=F, 
+  geom_smooth(method='lm',color=vec_cols[6],se=F,
               data=o[sample(.N,1e6)][date %between% c("2001-01-01","2011-01-01")])+
-  geom_smooth(method='lm',color=vec_cols[7],se=F, 
+  geom_smooth(method='lm',color=vec_cols[7],se=F,
               data=o[sample(.N,1e6)][date %between% c("2006-01-01","2016-01-01")])+
-  geom_smooth(method='lm',color=vec_cols[8],se=F, 
+  geom_smooth(method='lm',color=vec_cols[8],se=F,
               data=o[sample(.N,1e6)][date %between% c("2011-01-01","2019-09-01")])+
-  geom_smooth(method='lm',color='red',se=F, 
-              data=o[date %between% c("2001-01-01","2019-09-01")], 
+  geom_smooth(method='lm',color='red',se=F,
+              data=o[date %between% c("2001-01-01","2019-08-30")],
               aes(date, ndvi_mcd))+
-  geom_smooth(method='lm',color=scales::muted('red'),se=F, 
-              data=o[date %between% c("1981-01-01","2000-12-01")], 
+  geom_smooth(method='lm',color=scales::muted('red'),se=F,
+              data=o[date %between% c("1982-01-01","2000-12-01")],
               aes(date, ndvi_hyb))+
   scale_x_date(expand=c(0,0))+
   labs(x=NULL, y="NDVI")+
@@ -1478,6 +1904,65 @@ p_lm <- o %>%
   theme(panel.grid = element_blank(), 
         strip.text = element_text(face='bold'))
 ggsave(p_lm, filename = "figures/ndvi_lin_trend_10yr_segs_by_Koppen.png", 
+       width=20, height=15, units='cm', dpi=350, type='cairo')
+
+#*******************************************************************************
+# NDVI Linear Model time series by Koppen climate zone ------------------------------------
+#*******************************************************************************
+library(mgcv)
+
+vec_ids <- unique(dat[,.(id,cz)]) %>% .[is.na(id)==F & is.na(cz)==F]
+vec_ids <- vec_ids[,.SD[sample(.N, min(10000,.N))],by=cz]
+o <- dat[is.na(season)==F] %>%
+  .[id %in% vec_ids$id] %>% 
+  .[date >= ymd('1981-09-01')] %>% 
+  .[date <= ymd('2019-08-30')] %>% 
+  .[,.(x,y,date,season,cz,id,ndvi_hyb,ndvi_3mo,ndvi_mcd)]
+vec_cols <- viridis::viridis(10, begin = 0.1,end=0.9)
+factor(o$season[1], levels=c("SON","DJF","MAM","JJA"),ordered = T)
+lut_kop <- c("Equatorial" = "Equat.",
+             "Tropical" = "Trop.", 
+             "Subtropical" = "Subtr.", 
+             "Grassland" = "Grass.",
+             "Arid" = "Arid",
+             "Temperate" = "Temp.",
+             "Temperate Tas." = "Tasm.")
+
+
+p_rlm <- o %>%   
+  # mutate(season=factor(o$season, levels=c("SON","DJF","MAM","JJA"),ordered = T)) %>% 
+  ggplot(data=., aes(date, ndvi_hyb))+
+  geom_smooth(method=MASS::rlm, color='black',se=F)+
+  geom_smooth(method=MASS::rlm,color=vec_cols[2],se=F,
+              data=o[sample(.N,1e6)][date %between% c("1981-01-01","1991-01-01")])+
+  geom_smooth(method=MASS::rlm,color=vec_cols[3],se=F,
+              data=o[sample(.N,1e6)][date %between% c("1986-01-01","1996-01-01")])+
+  geom_smooth(method=MASS::rlm,color=vec_cols[4],se=F,
+              data=o[sample(.N,1e6)][date %between% c("1991-01-01","2001-01-01")])+
+  geom_smooth(method=MASS::rlm,color=vec_cols[5],se=F,
+              data=o[sample(.N,1e6)][date %between% c("1996-01-01","2006-01-01")])+
+  geom_smooth(method=MASS::rlm,color=vec_cols[6],se=F,
+              data=o[sample(.N,1e6)][date %between% c("2001-01-01","2011-01-01")])+
+  geom_smooth(method=MASS::rlm,color=vec_cols[7],se=F,
+              data=o[sample(.N,1e6)][date %between% c("2006-01-01","2016-01-01")])+
+  geom_smooth(method=MASS::rlm,color=vec_cols[8],se=F,
+              data=o[sample(.N,1e6)][date %between% c("2011-01-01","2019-09-01")])+
+  geom_smooth(method=MASS::rlm,color='red',se=F,
+              data=o[date %between% c("2001-01-01","2019-08-30")],
+              aes(date, ndvi_mcd))+
+  geom_smooth(method=MASS::rlm,color=scales::muted('red'),se=F,
+              data=o[date %between% c("1982-01-01","2000-12-01")],
+              aes(date, ndvi_hyb))+
+  scale_x_date(expand=c(0,0))+
+  labs(x=NULL, y="NDVI")+
+  facet_grid(cz~season, scales = 'free_y', 
+             # labeller = label_wrap_gen(width=10, multi_line = TRUE)
+             labeller = labeller(cz = lut_kop)
+  )+
+  theme_linedraw()+
+  theme(panel.grid = element_blank(), 
+        strip.text = element_text(face='bold'))
+ggsave(p_rlm, filename = "figures/ndvi_lin_rlm_trend_10yr_segs_by_Koppen.png", 
        width=20, height=15, units='cm', dpi=350, type='cairo')
 
 #*******************************************************************************
@@ -1495,8 +1980,8 @@ vec_ids <- unique(dat[,.(id,cz)]) %>% .[is.na(id)==F & is.na(cz)==F]
 vec_ids <- vec_ids[,.SD[sample(.N, min(10000,.N))],by=cz]
 o <- dat[is.na(season)==F] %>%
   .[id %in% vec_ids$id] %>% 
-  .[date >= ymd('1982-01-01')] %>% 
-  .[date <= ymd('2019-09-30')] %>% 
+  .[date >= ymd('1981-09-01')] %>% 
+  .[date <= ymd('2019-08-30')] %>% 
   .[,.(x,y,date,season,cz,id,ndvi_hyb,ndvi_3mo,ndvi_mcd,vpd15, vpd15_12mo)]
 vec_cols <- viridis::viridis(10, begin = 0.1,end=0.9)
 factor(o$season[1], levels=c("SON","DJF","MAM","JJA"),ordered = T)
@@ -1504,7 +1989,7 @@ lut_kop <- c("Equatorial" = "Equat.",
              "Tropical" = "Trop.", 
              "Subtropical" = "Subtr.", 
              "Grassland" = "Grass.",
-             "Desert" = "Arid",
+             "Arid" = "Arid",
              "Temperate" = "Temp.",
              "Temperate Tas." = "Tasm.")
 p_vpd_lm <- o %>%   

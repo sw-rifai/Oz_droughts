@@ -2,11 +2,13 @@ library(stars); library(tidyverse); library(data.table); library(lubridate)
 library(dtplyr, warn.conflicts = FALSE)
 setDTthreads(threads=0)
 # AVHRR SR ----------------------------------------------------------------
-dat_s <- stars::read_stars("../data_general/AVHRR_CDRv5_VI/AVHRR_longTermSdNDVI_EastOz_2007_2014.tif",proxy = F) %>% 
+dat_s <- stars::read_stars("../data_general/AVHRR_CDRv5_VI/AVHRR_longTermSdNDVI_EastOz_2007_2014.tif",
+                           proxy = F) %>% 
   as_tibble() %>% 
   as.data.table() %>% 
   set_names(c("x","y","sd"))
-dat_red <- stars::read_stars("../data_general/AVHRR_CDRv5_VI/AVHRR_SR_median_EastOz_1982_2019.tif",proxy=F) %>%
+dat_red <- stars::read_stars("../data_general/AVHRR_CDRv5_VI/AVHRR_SR_median_EastOz_1982_2019.tif",
+                             proxy=F) %>%
   slice('band', seq(1,by=2,length.out = 456)) %>% 
   st_set_dimensions(., 3, 
                     values=seq(ymd("1982-01-01"),ymd("2019-12-01"),by="1 month"), 
@@ -291,7 +293,8 @@ train <- hyb %>% lazy_dt() %>%
            str_detect(vc,"Rainforests")==T |
            str_detect(vc,"Forest")==T | 
            str_detect(vc,"Woodlands")) %>% 
-  filter(ndvi_mcd>0 & date<=ymd("2016-12-01") & is.na(ndvi_c)==F) %>% 
+  filter(ndvi_mcd>0 & date<=ymd("2016-12-01") & 
+           date>=ymd("2001-12-01") & is.na(ndvi_c)==F) %>% 
   sample_n(3e5) %>% 
   as.data.table()
 test <- hyb %>% lazy_dt() %>% 
@@ -299,7 +302,8 @@ test <- hyb %>% lazy_dt() %>%
            str_detect(vc,"Rainforests")==T |
            str_detect(vc,"Forest")==T | 
            str_detect(vc,"Woodlands")) %>% 
-  filter(ndvi_mcd>0 & date<=ymd("2016-12-01") & is.na(ndvi_c)==F) %>% 
+  filter(ndvi_mcd>0 & date<=ymd("2016-12-01") & 
+           date>=ymd("2001-12-01") & is.na(ndvi_c)==F) %>% 
   sample_n(3e5) %>% 
   as.data.table()
 
