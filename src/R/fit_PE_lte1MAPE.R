@@ -1,4 +1,4 @@
-library(brms)
+# library(brms)
 library(mgcv); library(gratia); library(nls.multstart)
 library(tidyverse)
 library(data.table); setDTthreads(threads = 8)
@@ -19,26 +19,29 @@ frac <- frac %>% as.data.table() %>% lazy_dt() %>%
   filter(is.na(npv)==F) %>% 
   as.data.table()
 
-vi <- arrow::read_parquet("../data_general/MCD43/MCD43_AVHRR_NDVI_hybrid_2020-08-08.parquet", 
-                          col_select = c("x","y","date",
-                                         "ndvi_c","ndvi_mcd","ndvi_hyb", 
-                                         "nirv_c","nirv_mcd","nirv_hyb",
-                                         "evi2_mcd","evi2_hyb",
-                                         'fpar','fpar_hyb')) %>% 
+vi <- arrow::read_parquet("../data_general/MCD43/MCD43_AVHRR_NDVI_hybrid_2020-10-11.parquet" 
+                          # col_select = c("x","y","date",
+                          #                "ndvi_c","ndvi_mcd","ndvi_hyb", 
+                          #                "evi2_hyb","evi2_mcd","sz")
+) %>% 
   as.data.table()
-vi <- frac[vi,on=.(x,y,date)]
+vi <- vi %>% lazy_dt() %>% 
+  mutate(ndvi_hyb_e1 = coalesce(ndvi_mcd_nm_pred, NA_real_),
+         ndvi_hyb_e2 = coalesce(ndvi_mcd, NA_real_)) %>% 
+  mutate(ndvi_hyb = coalesce(ndvi_hyb_e2, ndvi_hyb_e1)) %>% 
+  mutate(ndvi_hyb = ifelse(between(ndvi_hyb,0,1),ndvi_hyb,NA_real_)) %>% 
+  as.data.table()
+norms_vi <- vi[,`:=`(month=month(date))] %>% 
+  .[,.(ndvi_u = mean(ndvi_hyb,na.rm=TRUE), 
+       ndvi_sd = sd(ndvi_hyb,na.rm=TRUE)),keyby=.(x,y,month)]
+vi <- norms_vi[vi,on=.(x,y,month)] %>% 
+  .[,`:=`(ndvi_anom = ndvi_hyb - ndvi_u)] %>% 
+  .[,`:=`(ndvi_anom_sd = ndvi_anom/ndvi_sd)]
 
 lvi <- lazy_dt(vi)
 
 lvi %>% group_by(x,y) %>% summarize(ndvi_u =mean(ndvi_hyb,na.rm=TRUE)) %>% show_query()
 
-norms_vi <- vi[,`:=`(month=month(date))] %>% 
-  .[,.(ndvi_u = mean(ndvi_hyb,na.rm=TRUE), 
-       ndvi_sd = sd(ndvi_hyb,na.rm=TRUE)),keyby=.(x,y,month)]
-
-vi <- norms_vi[vi,on=.(x,y,month)] %>% 
-  .[,`:=`(ndvi_anom = ndvi_hyb - ndvi_u)] %>% 
-  .[,`:=`(ndvi_anom_sd = ndvi_anom/ndvi_sd)]
 
 dat <- arrow::read_parquet("/home/sami/scratch/ARD_ndvi_aclim_anoms.parquet",
                            col_select = c(
@@ -111,6 +114,19 @@ dat <- dat[order(x,y,date)][, nirv_3mo := frollmean(nirv_hyb,n = 3,fill = NA,ali
 
 rm(vi); gc(full=TRUE)
 
+# Attach season
+dat[,`:=`(year=year(date),month=month(date))] %>%
+  .[,`:=`(season = case_when(month%in%c(3:5)~'MAM',
+                             month%in%c(6:8)~'JJA',
+                             month%in%c(9:11)~'SON',
+                             month%in%c(12,1,2)~'DJF'))]
+dat[,`:=`(season = factor(season, levels = c('SON','DJF','MAM','JJA'),ordered = TRUE))]
+dat[,`:=`(hydro_year=year(date+months(1)))]
+
+# FILTER TO LON >= 140 !!! **********
+dat <- dat[x>=140]
+
+
 mlo <- readr::read_table("../data_general/CO2_growth_rate/co2_mm_mlo_20200405.txt", 
                          skip = 72, col_names = F) %>% 
   set_names(
@@ -143,15 +159,15 @@ gc(full = T)
 #*******************************************************************************
 
 # Epoch 1 AVHRR -----------------------------------------------------------------
-l_ndvi <- lm(ndvi_3mo~scale(cco2)*I(pe_anom_12mo/mape)+scale(cco2)*scale(mape), 
+l_ndvi <- MASS::rlm(ndvi_3mo~scale(cco2)*I(pe_anom_12mo/mape)+scale(cco2)*scale(mape), 
              data=dat[season=="SON"][mape<1][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5][date<=ymd("2000-12-31")])
 summary(l_ndvi)
-l_evi2 <- lm(evi2_3mo~scale(cco2)*I(pe_anom_12mo/mape)+scale(cco2)*scale(mape), 
-             data=dat[season=="SON"][mape<1][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5][date<=ymd("2000-12-31")])
-summary(l_evi2)
-l_nirv <- lm(nirv_3mo~scale(cco2)*I(pe_anom_12mo/mape)+scale(cco2)*scale(mape), 
-             data=dat[season=="SON"][mape<1][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5][date<=ymd("2000-12-31")])
-summary(l_nirv)
+# l_evi2 <- MASS::rlm(evi2_3mo~scale(cco2)*I(pe_anom_12mo/mape)+scale(cco2)*scale(mape), 
+#              data=dat[season=="SON"][mape<1][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5][date<=ymd("2000-12-31")])
+# summary(l_evi2)
+# l_nirv <- MASS::rlm(nirv_3mo~scale(cco2)*I(pe_anom_12mo/mape)+scale(cco2)*scale(mape), 
+#              data=dat[season=="SON"][mape<1][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5][date<=ymd("2000-12-31")])
+# summary(l_nirv)
 
 p_1 <- expand_grid(mape = seq(0.0837,1,length.out = 100), 
             co2_trend = seq(340,370,length.out = 100), 

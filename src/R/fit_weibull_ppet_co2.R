@@ -8,59 +8,71 @@ library(nls.multstart)
 options(mc.cores=parallel::detectCores()-3) 
 set.seed(333)
 # IMPORT ###################################################################
-frac <- stars::read_ncdf("../data_general/Oz_misc_data/csiro_FC.v310.MCD43A4_0p5_2001_2019.nc")
-frac[,,,1] %>% as_tibble() %>% filter(is.na(soil)==F)
+
+# load("data/gridCell_lm_ndvi_clim.Rdata") # grid cell linear regressions
+oz_poly <- sf::read_sf("../data_general/GADM/gadm36_AUS.gpkg", 
+                       layer="gadm36_AUS_1")
+oz_poly <- st_as_sf(oz_poly)
+oz_poly <- st_simplify(oz_poly, dTolerance = 0.05)
+
+mcf <- stars::read_ncdf("../data_general/Oz_misc_data/csiro_FC.v310.MCD43A4_0p5_2001_2019.nc")
+mcf[,,,1] %>% as_tibble() %>% filter(is.na(soil)==F)
 eoz <- stars::read_stars("../data_general/Oz_misc_data/MOD44BPercent_Tree_Cover_5000m_East_Oz_noMask_2000_2019.tif",
                          RasterIO = list(bands=1))
-frac <- stars::st_warp(src=frac, dest=eoz, use_gdal = F)
-frac <- frac %>% as.data.table() %>% lazy_dt() %>% 
+mcf <- stars::st_warp(src=mcf, dest=eoz, use_gdal = F)
+mcf <- mcf %>% as.data.table() %>% lazy_dt() %>% 
   rename(date=time) %>%
   mutate(date=as.Date(date)) %>% 
   filter(is.na(npv)==F) %>% 
   as.data.table()
+# mcf[,`:=`(year=year(date),month=month(date))] %>% 
+#   .[,`:=`(season = case_when(month%in%c(3:5)~'MAM',
+#                              month%in%c(6:8)~'JJA',
+#                              month%in%c(9:11)~'SON',
+#                              month%in%c(12,1,2)~'DJF'))]
+# mcf[,`:=`(season = factor(season, levels = c('SON','DJF','MAM','JJA'),ordered = TRUE))]
 
-vi <- arrow::read_parquet("../data_general/MCD43/MCD43_AVHRR_NDVI_hybrid_2020-08-08.parquet", 
-                          col_select = c("x","y","date",
-                                         "ndvi_c","ndvi_mcd","ndvi_hyb", 
-                                         "nirv_c","nirv_mcd","nirv_hyb",
-                                         "evi2_mcd","evi2_hyb",
-                                         'fpar','fpar_hyb')) %>% 
+
+
+# vegetation index record
+vi <- arrow::read_parquet("../data_general/MCD43/MCD43_AVHRR_NDVI_hybrid_2020-10-11.parquet" 
+                          # col_select = c("x","y","date",
+                          #                "ndvi_c","ndvi_mcd","ndvi_hyb", 
+                          #                "evi2_hyb","evi2_mcd","sz")
+) %>% 
   as.data.table()
-vi <- frac[vi,on=.(x,y,date)]
-
-lvi <- lazy_dt(vi)
-
-lvi %>% group_by(x,y) %>% summarize(ndvi_u =mean(ndvi_hyb,na.rm=TRUE)) %>% show_query()
-
+vi <- vi %>% lazy_dt() %>% 
+  mutate(ndvi_hyb_e1 = coalesce(ndvi_mcd_nm_pred, NA_real_),
+         ndvi_hyb_e2 = coalesce(ndvi_mcd, NA_real_)) %>% 
+  mutate(ndvi_hyb = coalesce(ndvi_hyb_e2, ndvi_hyb_e1)) %>% 
+  mutate(ndvi_hyb = ifelse(between(ndvi_hyb,0,1),ndvi_hyb,NA_real_)) %>% 
+  as.data.table()
 norms_vi <- vi[,`:=`(month=month(date))] %>% 
   .[,.(ndvi_u = mean(ndvi_hyb,na.rm=TRUE), 
        ndvi_sd = sd(ndvi_hyb,na.rm=TRUE)),keyby=.(x,y,month)]
-
 vi <- norms_vi[vi,on=.(x,y,month)] %>% 
   .[,`:=`(ndvi_anom = ndvi_hyb - ndvi_u)] %>% 
   .[,`:=`(ndvi_anom_sd = ndvi_anom/ndvi_sd)]
 
+vi <- mcf[,.(x,y,date,soil,gv,npv)][vi,on=.(x,y,date)]
+
+# Load climate data 
 dat <- arrow::read_parquet("/home/sami/scratch/ARD_ndvi_aclim_anoms.parquet",
                            col_select = c(
-                             "date", "hydro_year", "id","season",
-                             "precip",  
-                             "precip_anom",
-                             "precip_anom_3mo",
-                             "precip_anom_36mo",
+                             "date", "hydro_year", "id",
+                             # "season",
+                             "precip",  "precip_anom", 
+                             "precip_anom_3mo","precip_anom_36mo",
                              "precip_anom_12mo",
-                             "map", 
-                             "precip_12mo",
-                             # "precip_36mo",
-                             "tmax","tmax_u",
-                             "tmax_anom","tmax_anom_sd", "matmax",
+                             "map",
+                             "precip_12mo","precip_36mo",
+                             "tmax","tmax_anom","tmax_anom_sd", "matmax",
                              "tmin","tmin_anom",
                              "vpd15","vpd15_anom","vpd15_anom_sd","mavpd15",
-                             # "vpd15_u",
-                             "pet","mapet",
-                             "pet_anom","pet_anom_3mo","pet_u","pet_sd",
-                             "pet_anom_sd",
-                             "pet_12mo",
-                             # "pet_36mo",
+                             "vpd15_12mo",
+                             "vpd15_u",
+                             "pet","mapet","pet_anom","pet_anom_3mo","pet_u","pet_sd",
+                             "pet_anom_sd", "pet_12mo","pet_36mo",
                              "pe","mape",
                              # "ndvi_u",
                              # "ndvi_anom",
@@ -71,46 +83,38 @@ dat <- arrow::read_parquet("/home/sami/scratch/ARD_ndvi_aclim_anoms.parquet",
                              'month',
                              "x", "y", "year")) %>% 
   as.data.table() %>% 
-  .[is.infinite(mape)==F] %>% 
-  .[,`:=`(p_anom_12mo_frac = precip_anom_12mo/map)]
-
-
-# unique(dat[,.(vc,veg_class)]) %>% View
-# dat <- dat[order(x,y,date)][,tmean := (tmax+tmin)/2]
-dat <- dat[order(x,y,date)][, tmax_3mo := frollmean(tmax,n = 3,fill = NA,align='center'), by=.(x,y)]
-dat <- dat[order(x,y,date)][, tmax_u_3mo := frollmean(tmax_u,n = 3,fill = NA,align='center'), by=.(x,y)]
-dat <- dat[order(x,y,date)][, tmax_anom_3mo := frollmean(tmax_anom,n = 3,fill = NA,align='center'), by=.(x,y)]
-
-# dat <- dat[order(x,y,date)][, tmean_3mo := frollmean(tmean,n = 3,fill = NA,align='center'), by=.(x,y)]
-# dat <- dat[order(x,y,date)][, tmin_3mo := frollmean(tmin,n = 3,fill = NA,align='center'), by=.(x,y)]
-# dat <- dat[order(x,y,date)][, tmax_12mo := frollmean(tmax,n = 12,fill = NA,align='right'), by=.(x,y)]
-# dat <- dat[order(x,y,date)][, pet_3mo := frollmean(pet,n = 3,fill = NA,align='right'), by=.(x,y)]
-dat <- dat[order(x,y,date)][, precip_3mo := frollmean(precip,n = 3,fill = NA,align='right'), by=.(x,y)]
-dat <- dat[order(x,y,date)][, vpd15_3mo := frollmean(vpd15,n = 3,fill = NA,align='right'), by=.(x,y)]
-# dat <- dat[order(x,y,date)][, vpd15_anom_3mo := frollmean(vpd15_anom,n = 3,fill = NA,align='right'), by=.(x,y)]
-# dat <- dat[order(x,y,date)][, pet_24mo := frollmean(pet,n = 24,fill = NA,align='right'), by=.(x,y)]
-# dat <- dat[order(x,y,date)][, precip_24mo := frollmean(precip,n = 24,fill = NA,align='right'), by=.(x,y)]
-# dat <- dat[order(x,y,date)][, pet_48mo := frollmean(pet,n = 48,fill = NA,align='right'), by=.(x,y)]
-# dat <- dat[order(x,y,date)][, precip_48mo := frollmean(precip,n = 48,fill = NA,align='right'), by=.(x,y)]
-dat <- dat[order(x,y,date)][, tmax_anom_12mo := frollmean(tmax_anom,n = 12,fill = NA,align='right'), by=.(x,y)]
-
-dat <- dat[,`:=`(#pe_3mo = precip_3mo/pet_3mo, 
-  pe_12mo = precip_12mo/pet_12mo 
-  # pe_24mo = precip_24mo/pet_24mo, 
-  # pe_36mo = precip_36mo/pet_36mo, 
-  # pe_48mo = precip_48mo/pet_48mo
-)]
-dim(dat)
+  .[is.infinite(mape)==F]
+dat <- dat[order(x,y,date)][, vpd15_12mo := frollmean(vpd15,n = 12,fill = NA,align='right',na.rm=TRUE), by=.(x,y)]
+dat <- dat[,`:=`(pe = precip/pet, 
+                 pe_12mo = precip_12mo/pet_12mo)]
 dat <- merge(dat, 
              vi,
              by=c("x","y","date"), 
              all=TRUE,allow.cartesian=TRUE)
 dat <- dat[order(x,y,date)][, ndvi_3mo := frollmean(ndvi_hyb,n = 3,fill = NA,align='center',na.rm=TRUE), by=.(x,y)]
-dat <- dat[order(x,y,date)][, evi2_3mo := frollmean(evi2_hyb,n = 3,fill = NA,align='center',na.rm=TRUE), by=.(x,y)]
-dat <- dat[order(x,y,date)][, nirv_3mo := frollmean(nirv_hyb,n = 3,fill = NA,align='center',na.rm=TRUE), by=.(x,y)]
-
 rm(vi); gc(full=TRUE)
 
+# Attach season
+dat[,`:=`(year=year(date),month=month(date))] %>%
+  .[,`:=`(season = case_when(month%in%c(3:5)~'MAM',
+                             month%in%c(6:8)~'JJA',
+                             month%in%c(9:11)~'SON',
+                             month%in%c(12,1,2)~'DJF'))]
+dat[,`:=`(season = factor(season, levels = c('SON','DJF','MAM','JJA'),ordered = TRUE))]
+dat[,`:=`(hydro_year=year(date+months(1)))]
+dat[,`:=`(epoch=ifelse(date>=ymd("2001-01-01"),1,0))]
+
+# FILTER TO LON >= 140 !!! **********
+dat <- dat[x>=140]
+
+coords_keep <- dat %>% lazy_dt() %>% 
+  group_by(x,y) %>% 
+  summarize(nobs_total = sum(is.na(ndvi_hyb)==F)) %>% 
+  ungroup() %>% 
+  as.data.table()
+dat <- merge(dat, coords_keep, by=c("x","y"))
+
+# attach CO2
 mlo <- readr::read_table("../data_general/CO2_growth_rate/co2_mm_mlo_20200405.txt", 
                          skip = 72, col_names = F) %>% 
   set_names(
@@ -134,6 +138,10 @@ dat[,`:=`(pe_anom_12mo = pe_12mo - mape)]
 dat[,`:=`(epoch = ifelse(date<ymd("2000-12-31"),'avhrr','modis'))]
 dat <- dat %>% mutate(epoch = as_factor(epoch), 
                       season = factor(season, levels=c("SON","DJF","MAM","JJA")))
+
+#Filter out the black summer
+dat <- dat[date<=ymd("2019-08-01")]
+ldat <- dat %>% lazy_dt()
 #*******************************************************************************
 
 #split test & train ------------------------------------------------------------
@@ -196,7 +204,6 @@ n4_jja <- train_dat[season=='JJA'] %>%
                                na.action = na.omit)
 
 
-
 yardstick::rsq_trad_vec(test_dat[season=='SON']$ndvi_3mo,
                         estimate=predict(n4_son,newdata=test_dat[season=="SON"]))
 yardstick::rsq_trad_vec(test_dat[season=='DJF']$ndvi_3mo,
@@ -217,7 +224,7 @@ yardstick::rmse_vec(test_dat[season=='JJA']$ndvi_3mo,
 
 
 
-# n4 seaonal NDVI ----------------------------------------------------------------
+# n4 seasonal NDVI ----------------------------------------------------------------
 n4_preds <- expand_grid(season=unique(train_dat$season),
                         co2 = seq(min(dat$co2_int),max(dat$co2_int),length.out=100),
                         mape = seq(0.05,1.5,length.out = 200), 
@@ -267,6 +274,340 @@ p4_ndvi <- n4_preds %>%
 ggsave(p4_ndvi, filename = 'figures/n4_ndvi_season_weibull_ppet_x_co2_v2.png',
        width = 16, height = 7, units='cm', dpi=350, type='cairo')
 #_______________________***______________****____________****_____*****____**_*_*
+
+
+
+
+
+e1_n4_son <- train_dat[season=='SON'][date<=ymd("2000-12-31")] %>% 
+  nls.multstart::nls_multstart(ndvi_3mo ~ 
+                                 Asym-Drop*exp(-exp(lrc)*mape^pwr) + 
+                                 B1*(pe_anom_12mo/mape) + 
+                                 B2*(cco2*mape)+ 
+                                 B3*(cco2*pe_anom_12mo/mape),
+                               data = .,
+                               iter = 1,
+                               start_lower = c(Asym=0.0, Drop=0.6,lrc=0,pwr=0,B1=-0.5,B2=0,B3=0),
+                               start_upper = c(Asym=1, Drop=1,lrc=1,pwr=2,B1=0.5,B2=0.001,B3=0.001),
+                               # supp_errors = 'Y',
+                               na.action = na.omit)
+e1_n4_djf <- train_dat[season=='DJF'][date<=ymd("2000-12-31")] %>% 
+  nls.multstart::nls_multstart(ndvi_3mo ~ 
+                                 Asym-Drop*exp(-exp(lrc)*mape^pwr) + 
+                                 B1*(pe_anom_12mo/mape) + 
+                                 B2*(cco2*mape) + 
+                                 B3*(cco2*pe_anom_12mo/mape),
+                               data = .,
+                               iter = 1,
+                               start_lower = c(Asym=0.0, Drop=0.6,lrc=0,pwr=0,B1=-0.5,B2=0,B3=0),
+                               start_upper = c(Asym=1, Drop=1,lrc=1,pwr=2,B1=0.5,B2=0.001,B3=0.001),
+                               # supp_errors = 'Y',
+                               na.action = na.omit)
+e1_n4_mam <- train_dat[season=='MAM'][date<=ymd("2000-12-31")] %>% 
+  nls.multstart::nls_multstart(ndvi_3mo ~ 
+                                 Asym-Drop*exp(-exp(lrc)*mape^pwr) + 
+                                 B1*(pe_anom_12mo/mape) + 
+                                 B2*(cco2*mape) + 
+                                 B3*(cco2*pe_anom_12mo/mape),
+                               data = .,
+                               iter = 1,
+                               start_lower = c(Asym=0.0, Drop=0.6,lrc=0,pwr=0,B1=-0.5,B2=0,B3=0),
+                               start_upper = c(Asym=1, Drop=1,lrc=1,pwr=2,B1=0.5,B2=0.001,B3=0.001),
+                               # supp_errors = 'Y',
+                               na.action = na.omit)
+e1_n4_jja <- train_dat[season=='JJA'][date<=ymd("2000-12-31")] %>% 
+  nls.multstart::nls_multstart(ndvi_3mo ~ 
+                                 Asym-Drop*exp(-exp(lrc)*mape^pwr) + 
+                                 B1*(pe_anom_12mo/mape) + 
+                                 B2*(cco2*mape) + 
+                                 B3*(cco2*pe_anom_12mo/mape),
+                               data = .,
+                               iter = 1,
+                               start_lower = c(Asym=0.0, Drop=0.6,lrc=0,pwr=0,B1=-0.5,B2=0,B3=0),
+                               start_upper = c(Asym=1, Drop=1,lrc=1,pwr=2,B1=0.5,B2=0.001,B3=0.001),
+                               # supp_errors = 'Y',
+                               na.action = na.omit)
+
+e2_n4_son <- train_dat[season=='SON'][date>ymd("2000-12-31")] %>% 
+  nls.multstart::nls_multstart(ndvi_3mo ~ 
+                                 Asym-Drop*exp(-exp(lrc)*mape^pwr) + 
+                                 B1*(pe_anom_12mo/mape) + 
+                                 B2*(cco2*mape)+ 
+                                 B3*(cco2*pe_anom_12mo/mape),
+                               data = .,
+                               iter = 1,
+                               start_lower = c(Asym=0.0, Drop=0.6,lrc=0,pwr=0,B1=-0.5,B2=0,B3=0),
+                               start_upper = c(Asym=1, Drop=1,lrc=1,pwr=2,B1=0.5,B2=0.001,B3=0.001),
+                               # supp_errors = 'Y',
+                               na.action = na.omit)
+e2_n4_djf <- train_dat[season=='DJF'][date>ymd("2000-12-31")] %>% 
+  nls.multstart::nls_multstart(ndvi_3mo ~ 
+                                 Asym-Drop*exp(-exp(lrc)*mape^pwr) + 
+                                 B1*(pe_anom_12mo/mape) + 
+                                 B2*(cco2*mape) + 
+                                 B3*(cco2*pe_anom_12mo/mape),
+                               data = .,
+                               iter = 1,
+                               start_lower = c(Asym=0.0, Drop=0.6,lrc=0,pwr=0,B1=-0.5,B2=0,B3=0),
+                               start_upper = c(Asym=1, Drop=1,lrc=1,pwr=2,B1=0.5,B2=0.001,B3=0.001),
+                               # supp_errors = 'Y',
+                               na.action = na.omit)
+e2_n4_mam <- train_dat[season=='MAM'][date>ymd("2000-12-31")] %>% 
+  nls.multstart::nls_multstart(ndvi_3mo ~ 
+                                 Asym-Drop*exp(-exp(lrc)*mape^pwr) + 
+                                 B1*(pe_anom_12mo/mape) + 
+                                 B2*(cco2*mape) + 
+                                 B3*(cco2*pe_anom_12mo/mape),
+                               data = .,
+                               iter = 1,
+                               start_lower = c(Asym=0.0, Drop=0.6,lrc=0,pwr=0,B1=-0.5,B2=0,B3=0),
+                               start_upper = c(Asym=1, Drop=1,lrc=1,pwr=2,B1=0.5,B2=0.001,B3=0.001),
+                               # supp_errors = 'Y',
+                               na.action = na.omit)
+e2_n4_jja <- train_dat[season=='JJA'][date>ymd("2000-12-31")] %>% 
+  nls.multstart::nls_multstart(ndvi_3mo ~ 
+                                 Asym-Drop*exp(-exp(lrc)*mape^pwr) + 
+                                 B1*(pe_anom_12mo/mape) + 
+                                 B2*(cco2*mape) + 
+                                 B3*(cco2*pe_anom_12mo/mape),
+                               data = .,
+                               iter = 1,
+                               start_lower = c(Asym=0.0, Drop=0.6,lrc=0,pwr=0,B1=-0.5,B2=0,B3=0),
+                               start_upper = c(Asym=1, Drop=1,lrc=1,pwr=2,B1=0.5,B2=0.001,B3=0.001),
+                               # supp_errors = 'Y',
+                               na.action = na.omit)
+
+
+n4_preds <- expand_grid(season=unique(train_dat$season),
+                        co2 = seq(min(dat$co2_int),max(dat$co2_int),length.out=100),
+                        mape = seq(0.05,1.5,length.out = 200), 
+                        pct_anom = c(0), 
+                        epoch = 2) %>% 
+  mutate(pe_anom_12mo = 0.01*pct_anom*mape) %>%
+  # mutate(pe_12mo = pe_anom_12mo+mape) %>% 
+  mutate(cco2 = co2-center_co2)
+
+
+e1_n4_preds <- expand_grid(season=unique(train_dat$season),
+                        co2 = seq(min(dat$co2_int),
+                                  unique(train_dat[date==ymd("2000-12-01")]$co2_int),
+                                  length.out=100),
+                        mape = seq(0.05,1.5,length.out = 200), 
+                        pct_anom = c(0), 
+                        epoch = 2) %>% 
+  mutate(pe_anom_12mo = 0.01*pct_anom*mape) %>%
+  # mutate(pe_12mo = pe_anom_12mo+mape) %>% 
+  mutate(cco2 = co2-center_co2)
+e2_n4_preds <- expand_grid(season=unique(train_dat$season),
+                        co2 = seq(unique(train_dat[date==ymd("2001-01-01")]$co2_int),
+                                  max(dat$co2_int),length.out=100),
+                        mape = seq(0.05,1.5,length.out = 200), 
+                        pct_anom = c(0), 
+                        epoch = 2) %>% 
+  mutate(pe_anom_12mo = 0.01*pct_anom*mape) %>%
+  # mutate(pe_12mo = pe_anom_12mo+mape) %>% 
+  mutate(cco2 = co2-center_co2)
+
+n4_preds <- bind_rows(
+  n4_preds %>% filter(season=='SON') %>% mutate(pred = predict(n4_son, newdata=.)),
+  n4_preds %>% filter(season=='DJF') %>% mutate(pred = predict(n4_djf, newdata=.)),
+  n4_preds %>% filter(season=='MAM') %>% mutate(pred = predict(n4_mam, newdata=.)),
+  n4_preds %>% filter(season=='JJA') %>% mutate(pred = predict(n4_jja, newdata=.))) %>% 
+  mutate(epoch = "1982-2019")
+e1_n4_preds <- bind_rows(
+  e1_n4_preds %>% filter(season=='SON') %>% mutate(pred = predict(e1_n4_son, newdata=.)),
+  e1_n4_preds %>% filter(season=='DJF') %>% mutate(pred = predict(e1_n4_djf, newdata=.)),
+  e1_n4_preds %>% filter(season=='MAM') %>% mutate(pred = predict(e1_n4_mam, newdata=.)),
+  e1_n4_preds %>% filter(season=='JJA') %>% mutate(pred = predict(e1_n4_jja, newdata=.))) %>% 
+  mutate(epoch = "AVHRR 1982-2000")
+e2_n4_preds <- bind_rows(
+  e2_n4_preds %>% filter(season=='SON') %>% mutate(pred = predict(e2_n4_son, newdata=.)),
+  e2_n4_preds %>% filter(season=='DJF') %>% mutate(pred = predict(e2_n4_djf, newdata=.)),
+  e2_n4_preds %>% filter(season=='MAM') %>% mutate(pred = predict(e2_n4_mam, newdata=.)),
+  e2_n4_preds %>% filter(season=='JJA') %>% mutate(pred = predict(e2_n4_jja, newdata=.))) %>% 
+  mutate(epoch = "MODIS 2001-2019")
+
+
+p4_ndvi_epoch <- bind_rows(n4_preds, e1_n4_preds, e2_n4_preds) %>% 
+  mutate(epoch=factor(epoch,levels=c("AVHRR 1982-2000","MODIS 2001-2019","1982-2019"), 
+                         ordered=T)) %>% 
+  ggplot(data=., aes(mape,pred,color=(co2), group=co2))+
+  geom_line(alpha=1)+
+  scale_color_viridis_c(expression(paste(CO[2]~ppm)), option='B',end=0.85)+
+  scale_x_continuous(limits=c(0.08,1.5),
+                     breaks=c(0,0.5,1,1.5),
+                     labels = c(0,0.5,1,1.5),
+                     expand=c(0,0),
+                     guide = guide_axis(n.dodge=1, angle=0,check.overlap = TRUE)
+  )+
+  scale_y_continuous(limits=c(0,0.9),expand=c(0,0.01))+
+  labs(x=expression(paste("Mean Annual P:PET")),
+       y=expression(paste(NDVI["3 mo"])))+
+  facet_grid(season~epoch, labeller = labeller(pct_anom=vec_labels))+
+  theme_linedraw()+
+  # guides(color=guide_colorbar(title.position = 'top'))+
+  theme(#panel.grid = element_blank(),
+    # panel.spacing.x = unit(6, "mm"),
+    axis.text = element_text(size=10),
+    # axis.text.x = element_text(angle=45, vjust=-0.5),
+    plot.margin = margin(t = 0.1,r = 0.4,b = 0.1,l = 0.4,'cm'),
+    # legend.position = c(0.525,0.175), 
+    legend.position = 'bottom',
+    legend.key.width = unit(1,'cm'),
+    legend.key.height = unit(0.2,'cm'),
+    legend.direction = 'horizontal', 
+    legend.background = element_rect(fill=NA)); p4_ndvi_epoch
+ggsave(p4_ndvi_epoch, 
+       filename = 'figures/n4_ndvi_season_by_epoch_weibull_ppet_x_co2.png',
+       width = 16, height = 16, units='cm', dpi=350, type='cairo')
+# End Section ******************************************************************
+
+p4_ndvi_epoch_overlay <- bind_rows(e1_n4_preds, e2_n4_preds) %>% 
+  mutate(epoch=factor(epoch,
+                      levels=c("MODIS 2001-2019","AVHRR 1982-2000","1982-2019"), 
+                      ordered=T)) %>% 
+  ggplot(data=., aes(mape,pred,color=(co2), group=co2,
+                     alpha=epoch))+
+  geom_line()+
+  scale_alpha_discrete("epoch", range=c(0.2,0.6))+
+  scale_color_viridis_c(expression(paste(CO[2]~ppm)), option='B',end=0.85)+
+  scale_x_continuous(limits=c(0.08,1.5),
+                     breaks=c(0,0.5,1,1.5),
+                     labels = c(0,0.5,1,1.5),
+                     expand=c(0,0),
+                     guide = guide_axis(n.dodge=1, angle=0,check.overlap = TRUE)
+  )+
+  scale_y_continuous(limits=c(0,0.9),expand=c(0,0.01))+
+  labs(x=expression(paste("Mean Annual P:PET")),
+       y=expression(paste(NDVI["3 mo"])))+
+  facet_grid(~season, labeller = labeller(pct_anom=vec_labels))+
+  theme_linedraw()+
+  # guides(color=guide_colorbar(title.position = 'top'))+
+  theme(#panel.grid = element_blank(),
+    # panel.spacing.x = unit(6, "mm"),
+    axis.text = element_text(size=10),
+    # axis.text.x = element_text(angle=45, vjust=-0.5),
+    plot.margin = margin(t = 0.1,r = 0.4,b = 0.1,l = 0.4,'cm'),
+    # legend.position = c(0.525,0.175), 
+    legend.position = 'bottom',
+    legend.key.width = unit(1,'cm'),
+    legend.key.height = unit(0.2,'cm'),
+    legend.direction = 'horizontal', 
+    legend.background = element_rect(fill=NA)); p4_ndvi_epoch_overlay
+ggsave(p4_ndvi_epoch_overlay, 
+       filename = 'figures/n4_ndvi_season_by_epoch_overlay_weibull_ppet_x_co2.png',
+       width = 16, height = 8, units='cm', dpi=350, type='cairo')
+# End Section ******************************************************************
+
+
+
+
+
+
+library(patchwork)
+(n4_preds %>% 
+    ggplot(data=., aes(mape,pred,color=(co2), group=co2))+
+    geom_line(alpha=0.5)+
+    scale_alpha_discrete("epoch", range=c(0.2,0.6))+
+    scale_color_viridis_c(expression(paste(CO[2]~ppm)), option='B',end=0.85, 
+                          limits=c(335,420))+
+    scale_x_continuous(limits=c(0.08,1.5),
+                       breaks=c(0,0.5,1,1.5),
+                       labels = c(0,0.5,1,1.5),
+                       expand=c(0,0),
+                       guide = guide_axis(n.dodge=1, angle=0,check.overlap = TRUE)
+    )+
+    scale_y_continuous(limits=c(0,0.9),expand=c(0,0.01))+
+    labs(x=NULL, #expression(paste("Mean Annual P:PET")),
+         y=expression(paste(NDVI["3 mo"])), 
+         subtitle="Merged 1982-2019")+
+    facet_grid(~season, labeller = labeller(pct_anom=vec_labels))+
+    theme_linedraw()+
+    # guides(color=guide_colorbar(title.position = 'top'))+
+    theme(#panel.grid = element_blank(),
+      # panel.spacing.x = unit(6, "mm"),
+      axis.text = element_text(size=10),
+      panel.grid.minor = element_blank(),
+      # axis.text.x = element_text(angle=45, vjust=-0.5),
+      plot.margin = margin(t = 0.1,r = 0.4,b = 0.1,l = 0.4,'cm'),
+      # legend.position = c(0.525,0.175), 
+      legend.position = 'none', #c(0.99,0.01),
+      # legend.justification = c(0.99,0.01),
+      # legend.key.width = unit(0.5,'cm'),
+      # legend.key.height = unit(0.2,'cm'),
+      # legend.direction = 'vertical', 
+      legend.background = element_rect(fill=NA)))/(e2_n4_preds %>% 
+     ggplot(data=., aes(mape,pred,color=(co2), group=co2))+
+     geom_line(data=e1_n4_preds, aes(mape, pred, group=co2), col='gray70',alpha=0.05)+
+     geom_line(alpha=0.25)+
+     scale_alpha_discrete("epoch", range=c(0.2,0.6))+
+     scale_color_viridis_c(expression(paste(CO[2]~ppm)), option='B',end=0.85, 
+                           limits=c(335,420))+
+     scale_x_continuous(limits=c(0.08,1.5),
+                        breaks=c(0,0.5,1,1.5),
+                        labels = c(0,0.5,1,1.5),
+                        expand=c(0,0),
+                        guide = guide_axis(n.dodge=1, angle=0,check.overlap = TRUE)
+     )+
+     scale_y_continuous(limits=c(0,0.9),expand=c(0,0.01))+
+     labs(x=NULL, #expression(paste("Mean Annual P:PET")),
+          y=expression(paste(NDVI["3 mo"])), 
+          subtitle="MODIS 2001-2019")+
+     facet_grid(~season, labeller = labeller(pct_anom=vec_labels))+
+     theme_linedraw()+
+     # guides(color=guide_colorbar(title.position = 'top'))+
+     theme(#panel.grid = element_blank(),
+       # panel.spacing.x = unit(6, "mm"),
+       axis.text = element_text(size=10),
+       panel.grid.minor = element_blank(),
+       # axis.text.x = element_text(angle=45, vjust=-0.5),
+       plot.margin = margin(t = 0.1,r = 0.4,b = 0.1,l = 0.4,'cm'),
+       # legend.position = c(0.525,0.175), 
+       legend.position = 'right',
+       # legend.position = c(0.99,0.01),
+       # legend.justification = c(0.99,0.01),
+       legend.key.width = unit(0.25,'cm'),
+       legend.key.height = unit(2,'cm'),
+       # legend.direction = 'horizontal', 
+       legend.background = element_rect(fill=NA)))/(e1_n4_preds %>% 
+  ggplot(data=., aes(mape,pred,color=(co2), group=co2))+
+  geom_line(data=e2_n4_preds, aes(mape, pred, group=co2), col='gray70',alpha=0.05)+
+  geom_line(alpha=0.25)+
+  scale_alpha_discrete("epoch", range=c(0.2,0.6))+
+  scale_color_viridis_c(expression(paste(CO[2]~ppm)), option='B',end=0.85, 
+                        limits=c(335,420))+
+  scale_x_continuous(limits=c(0.08,1.5),
+                     breaks=c(0,0.5,1,1.5),
+                     labels = c(0,0.5,1,1.5),
+                     expand=c(0,0),
+                     guide = guide_axis(n.dodge=1, angle=0,check.overlap = TRUE)
+  )+
+  scale_y_continuous(limits=c(0,0.9),expand=c(0,0.01))+
+  labs(x=expression(paste("Mean Annual P:PET")),
+       y=expression(paste(NDVI["3 mo"])), 
+       subtitle="AVHRR 1982-2000")+
+  facet_grid(~season, labeller = labeller(pct_anom=vec_labels))+
+  theme_linedraw()+
+  # guides(color=guide_colorbar(title.position = 'top'))+
+  theme(#panel.grid = element_blank(),
+    # panel.spacing.x = unit(6, "mm"),
+    axis.text = element_text(size=10),
+    panel.grid.minor = element_blank(),
+    # axis.text.x = element_text(angle=45, vjust=-0.5),
+    plot.margin = margin(t = 0.1,r = 0.4,b = 0.1,l = 0.4,'cm'),
+    # legend.position = c(0.525,0.175), 
+    # legend.position = c(0.99,0.01),
+    # legend.justification = c(0.99,0.01),
+    legend.position = 'none',
+    # legend.key.width = unit(0.5,'cm'),
+    # legend.key.height = unit(0.2,'cm'),
+    # legend.direction = 'horizontal', 
+    legend.background = element_rect(fill=NA)))+
+  plot_layout(guides='collect')+
+  plot_annotation(tag_levels = 'A')
+ggsave(filename = 'figures/n4_ndvi_season_by_epoch_gray_overlay_weibull_ppet_x_co2.png',
+       width = 16, height = 16, units='cm', dpi=350, type='cairo')
+
 
 
 
@@ -522,7 +863,7 @@ p4_evi2 <- n4_preds_evi2 %>%
     legend.direction = 'horizontal', 
     legend.background = element_rect(fill=NA)); p4_evi2
 ggsave(filename = 'figures/n4_evi2_weibull_ppet_x_co2.png',
-       width = 16, height = 8, units='cm', dpi=350, type='cairo')
+       width = 16, height = 16, units='cm', dpi=350, type='cairo')
 
 # n4_preds NIRV ----------------------------------------------------------------
 n4_preds_nirv <- expand_grid(season=unique(train_dat$season),

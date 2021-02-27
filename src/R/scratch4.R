@@ -721,3 +721,104 @@ o %>%
         legend.position = 'bottom',
         strip.text = element_text(face='bold'))
 
+
+  
+dat <- merge(dat,kop[,.(x,y,zone)],by=c("x","y"))
+tmp1 <- dat %>% lazy_dt() %>% 
+  group_by(zone,date) %>% 
+  summarize(vpd_yr = mean(vpd15_12mo,na.rm=TRUE)) %>% 
+  ungroup() %>% 
+  mutate(epoch = ifelse(date<=ymd("2000-12-31"),'AVHRR 1982-2000','MODIS 2001-2019')) %>% 
+  as.data.table()
+tmp1 %>% 
+  ggplot(data=.,aes(date,vpd_yr,group=epoch))+
+  geom_smooth(method='lm')+
+  facet_wrap(~zone,scales = 'free')
+  
+dat %>% 
+  lazy_dt() %>% 
+  mutate(epoch = ifelse(date<=ymd("2000-12-31"),'AVHRR 1982-2000','MODIS 2001-2019')) %>% 
+  as.data.table() %>% 
+  ggplot(data=.,aes(date,vpd15_12mo,group=epoch))+
+  geom_smooth(method='lm')+
+  facet_wrap(~zone,scales = 'free')
+
+
+
+
+
+# Zonal VPD trend
+aa <- dat %>%
+  lazy_dt() %>% 
+  filter(hydro_year %in% 1982:2019) %>% 
+  group_by(x,y,hydro_year) %>% 
+  summarize(
+    vpd = mean(vpd15_12mo, na.rm=TRUE)) %>% 
+  ungroup() %>% 
+  filter(is.na(vpd)==F) %>% 
+  as_tibble()
+aa <- aa %>% 
+  inner_join(., kop %>% select(x,y,cz), by=c("x","y"))
+aa_mavpd <- aa %>% filter(hydro_year %in% c(1982:2010)) %>% 
+  group_by(x,y) %>% 
+  summarize(mavpd = mean(vpd,na.rm=TRUE)) %>% 
+  ungroup()
+p_vpd <- aa %>% 
+  inner_join(aa_mavpd,by=c("x","y")) %>%
+  mutate(vpd_pct = 100*vpd/mavpd - 100) %>% 
+  sample_frac(0.5) %>% 
+  rename(`Climate Zone` = cz) %>% 
+  mutate(epoch = ifelse(hydro_year<=2000,'AVHRR 1982-2000','MODIS 2001-2019')) %>% 
+  ggplot(data=., aes(hydro_year, vpd_pct,
+                     color=`Climate Zone`,
+                     group=paste(epoch,`Climate Zone`)))+
+  # geom_point(alpha=0.05,color='gray')+
+  geom_smooth(method=MASS::rlm)+
+  # geom_smooth(inherit.aes = F, 
+  #             aes(hydro_year, vpd_pct,
+  #                    color=`Climate Zone`), 
+  #             method=MASS::rlm, lty=3)+
+  scale_x_continuous(expand=c(0,0), breaks = c(1982,1990,2000,2010,2019))+
+  scale_y_continuous(expand=c(0,0), labels = scales::format_format(3))+
+  scale_color_viridis_d(option='B')+
+  # facet_wrap(~`Climate Zone`,scales = 'free',labeller = label_value, 
+  #            ncol = 2)+
+  labs(x=NULL, y="% Change of Annual VPD")+
+  theme_linedraw()+
+  theme(strip.text = element_text(face='bold'), 
+        panel.grid = element_blank(), 
+        axis.text.x = element_text(size=7), 
+        legend.position = c(0,1), 
+        legend.justification = c(0,1)); p_vpd
+
+
+
+test <- aa %>% 
+  inner_join(aa_mavpd,by=c("x","y")) %>%
+  mutate(vpd_pct = 100*vpd/mavpd - 100) %>% 
+  sample_frac(0.2) %>% 
+  rename(`Climate Zone` = cz) %>% 
+  mutate(epoch = ifelse(hydro_year<=2000,'AVHRR 1982-2000','MODIS 2001-2019')) %>% 
+  ggplot(data=., aes(hydro_year, vpd_pct,
+                     color=`Climate Zone`))+
+  # geom_point(alpha=0.05,color='gray')+
+  # geom_smooth(method=MASS::rlm)+
+  geom_smooth()+
+  # geom_smooth(inherit.aes = F, 
+  #             aes(hydro_year, vpd_pct,
+  #                    color=`Climate Zone`), 
+  #             method=MASS::rlm, lty=3)+
+  scale_x_continuous(expand=c(0,0), breaks = c(1982,1990,2000,2010,2019))+
+  scale_y_continuous(expand=c(0,0), labels = scales::format_format(3))+
+  scale_color_viridis_d(option='B')+
+  # facet_wrap(~`Climate Zone`,scales = 'free',labeller = label_value, 
+  #            ncol = 2)+
+  labs(x=NULL, y="% Change of Annual VPD")+
+  theme_linedraw()+
+  theme(strip.text = element_text(face='bold'), 
+        panel.grid = element_blank(), 
+        axis.text.x = element_text(size=7), 
+        legend.position = c(0.01,0.99), 
+        legend.justification = c(0.01,0.99)); test
+
+  

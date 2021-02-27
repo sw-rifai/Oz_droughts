@@ -303,6 +303,28 @@ system.time(
     .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2]), by=.(x,y)]  
 )
 
+system.time(
+  lt_tree_sen <- mod[year<=2018][,`:=`(year_c = year-2009.5)] %>% 
+    .[,.(beta = list(unname(zyp.sen(tree_cover~year_c, 
+                                    data=.SD)$coefficients))), 
+      by=.(x,y)] %>% 
+    .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2]), by=.(x,y)]  
+)
+system.time(
+  lt_nontree_sen <- mod[year<=2018][,`:=`(year_c = year-2009.5)] %>% 
+    .[,.(beta = list(unname(zyp.sen(nontree_cover~year_c, 
+                                    data=.SD)$coefficients))), 
+      by=.(x,y)] %>% 
+    .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2]), by=.(x,y)]  
+)
+system.time(
+  lt_nonveg_sen <- mod[year<=2018][,`:=`(year_c = year-2009.5)] %>% 
+    .[,.(beta = list(unname(zyp.sen(nonveg_cover~year_c, 
+                                    data=.SD)$coefficients))), 
+      by=.(x,y)] %>% 
+    .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2]), by=.(x,y)]  
+)
+
 
 vcf <- inner_join(lt_nontree %>% rename(grass_u=b0, grass_b=b1) %>% select(-beta), 
                   lt_nonveg %>% rename(nonveg_u=b0, nonveg_b=b1) %>% select(-beta))
@@ -312,6 +334,15 @@ vcf <- lt_tree %>% lazy_dt() %>%
          tree_b=b1) %>% 
   as.data.table() %>% 
   inner_join(., vcf)
+
+vcf_sen <- inner_join(lt_nontree_sen %>% rename(grass_u=b0, grass_b=b1) %>% select(-beta), 
+                  lt_nonveg_sen %>% rename(nonveg_u=b0, nonveg_b=b1) %>% select(-beta))
+vcf_sen <- lt_tree %>% lazy_dt() %>% 
+  select(-beta) %>% 
+  rename(tree_u=b0, 
+         tree_b=b1) %>% 
+  as.data.table() %>% 
+  inner_join(., vcf_sen)
 
 
 
@@ -1189,6 +1220,13 @@ ggsave(plot=cowplot::plot_grid(p_left,cp_r),
        filename = "figures/map_7KoppenZones_PPET_change_ThielSen_VCF_v3.png", 
        width = 25, height=30, units='cm', dpi=350, type='cairo')
 
+library(magick)
+tmp_i <- magick::image_read("figures/map_7KoppenZones_PPET_change_ThielSen_VCF_v3.png")
+tmp_i <- magick::image_annotate(tmp_i,text='A',size=90,location = "+15+90")
+tmp_i <- magick::image_annotate(tmp_i,text='B',size=90,location = "+1695+70")
+tmp_i <- magick::image_annotate(tmp_i,text='C',size=90,location = "+1695+1180")
+tmp_i <- magick::image_annotate(tmp_i,text='D',size=90,location = "+1695+2180")
+
 
 # END SECTION ******************************************************************
 
@@ -1567,17 +1605,25 @@ o <- inner_join(epoch1,epoch2,by=c("x","y"),suffix=c("_1","_2")) %>%
   mutate(delta_x = ppet_2 - ppet_1) %>% 
   mutate(id = cur_group_rows())
 vec_ids <- sample(o$id, 1500)
+
+o %>% filter(id %in% vec_ids) %>% 
+  ggplot(data=., aes(ppet_1, ndvi_u_1))+
+  geom_point(color='blue')+
+  geom_segment(aes(xend=ppet_2,yend=ndvi_u_2), 
+               arrow=arrow(length=unit(0.1,'cm')))+
+  theme_linedraw()
+
 p_vector <- o %>% 
   filter(id %in% vec_ids) %>% 
   # mutate(bobo = cut_interval(ppet_1,n=10)) %>% 
   # group_by(bobo) %>% 
   # sample_n(1000) %>% 
-  ggplot(data=., aes(ppet_1, ndvi_u_2,color=delta_x))+
+  ggplot(data=., aes(ppet_1, ndvi_u_1,color=delta_x))+
   # geom_point(color='navy')+
   # geom_point(color='red',aes(ppet_2,ndvi_u_2))+
-  geom_point(data=epoch2 %>% filter(ndvi_u>0), 
-             aes(ppet, ndvi_u), color=NA)+
-  geom_segment(aes(xend=ppet_2,yend=ndvi_u_1),
+  # geom_point(data=epoch2 %>% filter(ndvi_u>0), 
+  #            aes(ppet, ndvi_u), color=NA)+
+  geom_segment(aes(xend=ppet_2,yend=ndvi_u_2),
                arrow=arrow(length=unit(0.1,'cm')))+
   scale_color_gradient2(
     mid='gray', limits=c(-0.25,0.25), 
@@ -1596,6 +1642,8 @@ p_out
 ggsave(p_out, 
        filename = 'figures/ndvi_ppet_1981_1985_shift_2015_2019_wMarginDistribution_v2.png',
        width=16, height = 10, units='cm',type='cairo')
+
+
 
 
 # Arrow Vector Field P:PET & NDVI Shift Thiel Sen trend & INSET{MAPPET 0-0.75} -------------------------------------------------------------
@@ -1688,33 +1736,21 @@ o <- inner_join(epoch1,epoch2,by=c("x","y"),suffix=c("_1","_2")) %>%
   mutate(id = cur_group_rows())
 o <- o %>% filter(nobs_1 >= 25 & 
                   nobs_2 >= 25)
-vec_ids <- sample(o$id, 1500)
 
+set.seed(321)
+vec_ids <- sample(o$id, 1000)
 p_vector <- o %>% 
-  filter(mape <= 2.0) %>%
-  mutate(mape_d = cut_interval(mape,n=20)) %>% 
-  # mutate(mape_d = cut_interval(sqrt(ppet_1),n=15)) %>%
-  group_by(mape_d) %>%
-  # summarize(nobs=n())
-  # sample_frac(0.05) %>%
-  sample_n(20) %>% 
-  ungroup() %>%
-  # filter(id %in% vec_ids) %>%
-  # arrange(abs(delta_x)) %>% 
-  ggplot(data=., aes(ppet_1, ndvi_u_2,color=delta_x))+
+  filter(id %in% vec_ids) %>% 
+  ggplot(data=., aes(ppet_1, ndvi_u_1,color=delta_x))+
   geom_point(data=epoch2 %>% filter(ndvi_u>0), 
              aes(ppet, ndvi_u), color=NA)+
-  geom_segment(aes(xend=ppet_2,yend=ndvi_u_1),
-               arrow=arrow(length=unit(0.1,'cm')))+
-  scale_color_gradientn(colours = c("#cf0000","#b87b7b",
+  geom_segment(aes(xend=ppet_2,yend=ndvi_u_2),
+               arrow=arrow(length=unit(0.1,'cm')), 
+               lwd=0.25)+
+  scale_color_gradientn(colours = c("#cf0000",
+                                    "#b87b7b",
                                     "#7b81b8","navy"), 
-                        limits=c(-0.2,0.2), oob=scales::squish)+
-  # scale_color_gradient2(
-  #   low='#cf0000',
-  #   mid='gray50', 
-  #   high='navy',
-  #   limits=c(-0.2,0.2), 
-  #   oob=scales::squish)+
+                        limits=c(-0.15,0.15), oob=scales::squish)+
   labs(x='Annual P:PET',y='NDVI')+
   scale_x_continuous(limits=c(0,2.25),expand=c(0,0))+
   scale_y_continuous(expand=c(0,0))+
@@ -1734,19 +1770,20 @@ p_out <- ggExtra::ggMarginal(p_vector, type='histogram')
 p_out
 
 p_vector_inset <- o %>% 
-  # filter(id %in% vec_ids) %>% 
+  filter(id %in% vec_ids) %>%
   # filter(ppet_1 < 0.6) %>%
   filter(mape < 0.4) %>% 
-  sample_frac(0.02) %>%
+  # sample_frac(0.02) %>%
   # sample_n(10) %>% 
   mutate(ord = abs(delta_x)) %>% 
   arrange(ord) %>% 
   ggplot(data=., aes(ppet_1, ndvi_u_2,color=delta_x))+
   geom_segment(aes(xend=ppet_2,yend=ndvi_u_1),
-               arrow=arrow(length=unit(0.1,'cm')))+
+               arrow=arrow(length=unit(0.1,'cm')), 
+               lwd=0.4)+
   scale_color_gradientn(colours = c("#cf0000","#b87b7b",
                                     "#7b81b8","navy"), 
-                        limits=c(-0.2,0.2), oob=scales::squish)+
+                        limits=c(-0.15,0.15), oob=scales::squish)+
   labs(x=NULL,y=NULL)+
   # labs(x='P:PET',y='NDVI')+
   scale_x_continuous(limits=c(0.1,0.4),
