@@ -42,7 +42,7 @@ mcf <- mcf %>% as.data.table() %>% lazy_dt() %>%
 
 
 # vegetation index record
-vi <- arrow::read_parquet("../data_general/MCD43/MCD43_AVHRR_NDVI_hybrid_2020-10-11.parquet" 
+vi <- arrow::read_parquet("../data_general/MCD43/MCD43_AVHRR_NDVI_hybrid_2020-10-12.parquet" 
                           # col_select = c("x","y","date",
                           #                "ndvi_c","ndvi_mcd","ndvi_hyb", 
                           #                "evi2_hyb","evi2_mcd","sz")
@@ -281,6 +281,7 @@ lut_kop <- c("Equatorial" = "Equat.",
 
 p_kop <- kop %>% 
   # mutate(zone = fct_recode(zone, zone="Desert",zone="Arid")) %>% 
+  filter(is.na(zone)==F) %>% 
   ggplot(data=., aes(x,y,fill=zone))+
   geom_sf(inherit.aes = F, data=oz_poly,
           fill='gray40',color='gray10')+
@@ -289,7 +290,7 @@ p_kop <- kop %>%
            ylim = c(-45,-10), 
            expand = FALSE)+
   scale_x_continuous(breaks=seq(140,155,by=5))+
-  scale_fill_viridis_d(option='B',direction = 1,end=0.95, label = lut_kop)+
+  scale_fill_viridis_d(option='B',direction = 1,end=0.95, label = lut_kop,na.translate=F)+
   # scico::scale_fill_scico_d(end=0.9,direction = 1)+
   labs(x=NULL,y=NULL)+
   theme_linedraw()+
@@ -302,7 +303,7 @@ p_kop <- kop %>%
     legend.title = element_text(size=18),
     legend.direction = 'vertical',
     panel.grid = element_blank(), 
-    panel.background = element_rect(fill='lightblue')); p_left
+    panel.background = element_rect(fill='lightblue')); p_kop
 
 # Zonal P:PET trend
 aa <- ldat %>% 
@@ -322,7 +323,8 @@ aa_mappet <- aa %>% filter(hydro_year %in% c(1982:2010)) %>%
 p_ppet <- aa %>% 
   inner_join(aa_mappet,by=c("x","y")) %>% 
   mutate(ppet_pct = 100*ppet/mappet - 100) %>% 
-  sample_frac(0.5) %>% 
+  # sample_frac(0.5) %>% 
+  filter(is.na(cz)==FALSE) %>% 
   rename(`Climate Zone` = cz) %>% 
   ggplot(data=., aes(hydro_year, ppet_pct,color=`Climate Zone`,group=`Climate Zone`))+
   # geom_point(alpha=0.05,color='gray')+
@@ -345,6 +347,7 @@ sen_ndvi_season_e1$epoch <- "AVHRR NDVI 1982-2000"
 sen_ndvi_season_e2$epoch <- "MODIS NDVI 2001-2019"
 j_sen <- bind_rows(sen_ndvi_season_e1, sen_ndvi_season_e2)
 p_ndvi_sen <- inner_join(kop,j_sen,by=c("x","y")) %>% 
+  filter(is.na(cz)==FALSE) %>% 
   rename(`Zone` = cz) %>% 
   filter(between(b1,-0.006,0.006)) %>% 
   mutate(season = factor(season, levels=c("SON","DJF","MAM","JJA"),ordered = T)) %>% 
@@ -391,6 +394,7 @@ p_vcf <- vcf_sen %>%
   gather(-cz, key = 'measure', value='estimate') %>% 
   mutate(measure = as_factor(measure)) %>% 
   filter(is.na(estimate)==F) %>% 
+  filter(is.na(cz)==F) %>% 
   ggplot(data=., aes(x=estimate,
                      y=cz,
                      fill=cz,
@@ -402,16 +406,16 @@ p_vcf <- vcf_sen %>%
     alpha=0.5, 
     scale=1, 
     color='black')+
-  scale_fill_viridis_d(option='B',direction = 1,end=0.9)+
+  scale_fill_viridis_d(option='B',direction = 1,end=0.9,na.translate=F)+
   geom_vline(aes(xintercept=0),color='red',lwd=0.75)+
   scale_x_continuous(limits=c(-1,1))+
   scale_y_discrete(expand=c(0,0),
-                   limits=rev(c("Equatorial","Tropical", 
-                                "Subtropical", "Grassland","Arid", 
-                                "Temperate","Temperate Tas.")), 
-                   labels=str_wrap(rev(c("Equatorial","Tropical", 
-                                         "Subtropical", "Grassland", "Arid", 
-                                         "Temperate","Temperate Tasmania")),width = 10), 
+                   limits=rev(c("Equatorial","Tropical",
+                                "Subtropical", "Grassland","Arid",
+                                "Temperate","Temperate Tas.")),
+                   labels=str_wrap(rev(c("Equatorial","Tropical",
+                                         "Subtropical", "Grassland", "Arid",
+                                         "Temperate","Temperate Tasmania")),width = 10),
                    position = 'left')+
   labs(x=expression(paste(Cover~Trend~('%'~yr**-1))), 
        y=NULL)+
@@ -425,10 +429,11 @@ p_vcf <- vcf_sen %>%
 
 
 library(cowplot)
-p_left <- p_kop+draw_label(label='A', x=140.75,y=-11,size = 30)
-p_top <- ggdraw(p_ppet)+draw_label(label='B',x=0.03,y=0.93,size=30)
-p_mid <- ggdraw(p_ndvi_sen)+draw_label(label='C', x=0,y=0.94, size=30,hjust=0,vjust = 0)
-p_bot <- ggdraw(p_vcf)+draw_label(label = 'D', x=0.035,y=0.94,size=30)
+p_left <- p_kop+draw_label(label='(a)', x=140.75,y=-11,size = 25)
+p_top <- ggdraw(p_ppet)+draw_label(label='(b)',x=0.03,y=0.93,size=25)
+p_mid <- ggdraw(p_ndvi_sen)+draw_label(label='(c)', x=0,y=0.96, size=25,hjust=0.1,vjust=0.1)
+                                       #hjust=0,vjust = 0)
+p_bot <- ggdraw(p_vcf)+draw_label(label = '(d)', x=0.035,y=0.94,size=25)
 
 cp_r <- cowplot::plot_grid(p_top,p_mid,p_bot,
                            nrow = 3,
@@ -436,9 +441,9 @@ cp_r <- cowplot::plot_grid(p_top,p_mid,p_bot,
 ggsave(plot=cowplot::plot_grid(p_left,cp_r),
        filename = "figures/Fig5_map_7KoppenZones_PPET_change_ThielSen_VCF.png", 
        width = 25, height=30, units='cm', dpi=350, type='cairo')
-ggsave(plot=cowplot::plot_grid(p_left,cp_r),
-       filename = "doc/submission_pnas_1/Fig5_map_7KoppenZones_PPET_change_ThielSen_VCF.pdf", 
-       width = 25, height=30, units='cm', dpi=350)
-ggsave(plot=cowplot::plot_grid(p_left,cp_r),
-       filename = "doc/submission_pnas_1/Fig5_map_7KoppenZones_PPET_change_ThielSen_VCF.tiff", 
-       width = 25, height=30, units='cm', dpi=350)
+# ggsave(plot=cowplot::plot_grid(p_left,cp_r),
+#        filename = "doc/submission_pnas_1/Fig5_map_7KoppenZones_PPET_change_ThielSen_VCF.pdf", 
+#        width = 25, height=30, units='cm', dpi=350)
+# ggsave(plot=cowplot::plot_grid(p_left,cp_r),
+#        filename = "doc/submission_pnas_1/Fig5_map_7KoppenZones_PPET_change_ThielSen_VCF.tiff", 
+#        width = 25, height=30, units='cm', dpi=350)

@@ -24,7 +24,7 @@ oz_poly <- st_as_sf(oz_poly)
 oz_poly <- st_simplify(oz_poly, dTolerance = 0.05)
 
 # vegetation index record
-vi <- arrow::read_parquet("../data_general/MCD43/MCD43_AVHRR_NDVI_hybrid_2020-10-11.parquet" 
+vi <- arrow::read_parquet("../data_general/MCD43/MCD43_AVHRR_NDVI_hybrid_2020-10-12.parquet" 
                           # col_select = c("x","y","date",
                           #                "ndvi_c","ndvi_mcd","ndvi_hyb", 
                           #                "evi2_hyb","evi2_mcd","sz")
@@ -878,7 +878,7 @@ p_mappet <- mape %>%
         legend.direction = 'horizontal',
         legend.background = element_rect(fill='white'),
         panel.grid = element_blank())
-p_mappet+p_vc+plot_annotation(tag_levels = 'a')
+p_mappet+p_vc+plot_annotation(tag_levels = 'a',tag_prefix = '(',tag_suffix = ')')
 ggsave(
   filename = 'figures/SM_Fig1_map_eastOz_MAPPET_NVIS.png', 
   width=20, height = 20, units='cm', dpi = 'retina', type='cairo')
@@ -998,62 +998,62 @@ ggsave(filename =
 # END **************************************************************************
 
 
-#*******************************************************************************
-# SM Fig 4: NDVI Linear Model time series by Koppen climate zone ------------------------------------
-#*******************************************************************************
-library(mgcv)
-vec_ids <- unique(dat[,.(id,cz)]) %>% .[is.na(id)==F & is.na(cz)==F]
-vec_ids <- vec_ids[,.SD[sample(.N, min(10000,.N))],by=cz]
-o <- dat[is.na(season)==F] %>%
-  .[id %in% vec_ids$id] %>% 
-  .[date >= ymd('1981-09-01')] %>% 
-  .[date <= ymd('2019-08-30')] %>% 
-  .[,.(x,y,date,season,cz,id,ndvi_hyb,ndvi_3mo,ndvi_mcd)]
-vec_cols <- viridis::viridis(10, begin = 0.1,end=0.9)
-factor(o$season[1], levels=c("SON","DJF","MAM","JJA"),ordered = T)
-lut_kop <- c("Equatorial" = "Equat.",
-             "Tropical" = "Trop.", 
-             "Subtropical" = "Subtr.", 
-             "Grassland" = "Grass.",
-             "Arid" = "Arid",
-             "Temperate" = "Temp.",
-             "Temperate Tas." = "Tasm.")
-p_rlm <- o %>%   
-  # mutate(season=factor(o$season, levels=c("SON","DJF","MAM","JJA"),ordered = T)) %>% 
-  ggplot(data=., aes(date, ndvi_hyb))+
-  geom_smooth(method=MASS::rlm, color='black',se=F)+
-  geom_smooth(method=MASS::rlm,color=vec_cols[2],se=F,
-              data=o[sample(.N,1e6)][date %between% c("1981-01-01","1991-01-01")])+
-  geom_smooth(method=MASS::rlm,color=vec_cols[3],se=F,
-              data=o[sample(.N,1e6)][date %between% c("1986-01-01","1996-01-01")])+
-  geom_smooth(method=MASS::rlm,color=vec_cols[4],se=F,
-              data=o[sample(.N,1e6)][date %between% c("1991-01-01","2001-01-01")])+
-  geom_smooth(method=MASS::rlm,color=vec_cols[5],se=F,
-              data=o[sample(.N,1e6)][date %between% c("1996-01-01","2006-01-01")])+
-  geom_smooth(method=MASS::rlm,color=vec_cols[6],se=F,
-              data=o[sample(.N,1e6)][date %between% c("2001-01-01","2011-01-01")])+
-  geom_smooth(method=MASS::rlm,color=vec_cols[7],se=F,
-              data=o[sample(.N,1e6)][date %between% c("2006-01-01","2016-01-01")])+
-  geom_smooth(method=MASS::rlm,color=vec_cols[8],se=F,
-              data=o[sample(.N,1e6)][date %between% c("2011-01-01","2019-09-01")])+
-  geom_smooth(method=MASS::rlm,color='red',se=F,
-              data=o[date %between% c("2001-01-01","2019-08-30")],
-              aes(date, ndvi_mcd))+
-  geom_smooth(method=MASS::rlm,color=scales::muted('red'),se=F,
-              data=o[date %between% c("1982-01-01","2000-12-01")],
-              aes(date, ndvi_hyb))+
-  scale_x_date(expand=c(0,0))+
-  labs(x=NULL, y="NDVI")+
-  facet_grid(cz~season, scales = 'free_y', 
-             # labeller = label_wrap_gen(width=10, multi_line = TRUE)
-             labeller = labeller(cz = lut_kop)
-  )+
-  theme_linedraw()+
-  theme(panel.grid = element_blank(), 
-        strip.text = element_text(face='bold'))
-ggsave(p_rlm, filename = "figures/SM_fig4_ndvi_lin_rlm_trend_10yr_segs_by_Koppen.png", 
-       width=20, height=15, units='cm', dpi=350, type='cairo')
-# END **************************************************************************
+# #*******************************************************************************
+# # SM Fig 4: NDVI Linear Model time series by Koppen climate zone ------------------------------------
+# #*******************************************************************************
+# library(mgcv)
+# vec_ids <- unique(dat[,.(id,cz)]) %>% .[is.na(id)==F & is.na(cz)==F]
+# vec_ids <- vec_ids[,.SD[sample(.N, min(10000,.N))],by=cz]
+# o <- dat[is.na(season)==F] %>%
+#   .[id %in% vec_ids$id] %>% 
+#   .[date >= ymd('1981-09-01')] %>% 
+#   .[date <= ymd('2019-08-30')] %>% 
+#   .[,.(x,y,date,season,cz,id,ndvi_hyb,ndvi_3mo,ndvi_mcd)]
+# vec_cols <- viridis::viridis(10, begin = 0.1,end=0.9)
+# factor(o$season[1], levels=c("SON","DJF","MAM","JJA"),ordered = T)
+# lut_kop <- c("Equatorial" = "Equat.",
+#              "Tropical" = "Trop.", 
+#              "Subtropical" = "Subtr.", 
+#              "Grassland" = "Grass.",
+#              "Arid" = "Arid",
+#              "Temperate" = "Temp.",
+#              "Temperate Tas." = "Tasm.")
+# p_rlm <- o %>%   
+#   # mutate(season=factor(o$season, levels=c("SON","DJF","MAM","JJA"),ordered = T)) %>% 
+#   ggplot(data=., aes(date, ndvi_hyb))+
+#   geom_smooth(method=MASS::rlm, color='black',se=F)+
+#   geom_smooth(method=MASS::rlm,color=vec_cols[2],se=F,
+#               data=o[sample(.N,1e6)][date %between% c("1981-01-01","1991-01-01")])+
+#   geom_smooth(method=MASS::rlm,color=vec_cols[3],se=F,
+#               data=o[sample(.N,1e6)][date %between% c("1986-01-01","1996-01-01")])+
+#   geom_smooth(method=MASS::rlm,color=vec_cols[4],se=F,
+#               data=o[sample(.N,1e6)][date %between% c("1991-01-01","2001-01-01")])+
+#   geom_smooth(method=MASS::rlm,color=vec_cols[5],se=F,
+#               data=o[sample(.N,1e6)][date %between% c("1996-01-01","2006-01-01")])+
+#   geom_smooth(method=MASS::rlm,color=vec_cols[6],se=F,
+#               data=o[sample(.N,1e6)][date %between% c("2001-01-01","2011-01-01")])+
+#   geom_smooth(method=MASS::rlm,color=vec_cols[7],se=F,
+#               data=o[sample(.N,1e6)][date %between% c("2006-01-01","2016-01-01")])+
+#   geom_smooth(method=MASS::rlm,color=vec_cols[8],se=F,
+#               data=o[sample(.N,1e6)][date %between% c("2011-01-01","2019-09-01")])+
+#   geom_smooth(method=MASS::rlm,color='red',se=F,
+#               data=o[date %between% c("2001-01-01","2019-08-30")],
+#               aes(date, ndvi_mcd))+
+#   geom_smooth(method=MASS::rlm,color=scales::muted('red'),se=F,
+#               data=o[date %between% c("1982-01-01","2000-12-01")],
+#               aes(date, ndvi_hyb))+
+#   scale_x_date(expand=c(0,0))+
+#   labs(x=NULL, y="NDVI")+
+#   facet_grid(cz~season, scales = 'free_y', 
+#              # labeller = label_wrap_gen(width=10, multi_line = TRUE)
+#              labeller = labeller(cz = lut_kop)
+#   )+
+#   theme_linedraw()+
+#   theme(panel.grid = element_blank(), 
+#         strip.text = element_text(face='bold'))
+# ggsave(p_rlm, filename = "figures/SM_fig4_ndvi_lin_rlm_trend_10yr_segs_by_Koppen.png", 
+#        width=20, height=15, units='cm', dpi=350, type='cairo')
+# # END **************************************************************************
 
 
 # ******************************************************************************
@@ -1074,7 +1074,7 @@ dat[is.na(season)==FALSE][mape<2][ndvi_anom_sd>-3.5&ndvi_anom_sd<3.5] %>%
   mutate(mape_dc= mean(mape,na.rm=TRUE)) %>% 
   ungroup() %>% 
   mutate(season = factor(season, levels=c("SON","DJF","MAM","JJA"),ordered = T)) %>% 
-  nest(data = c(-mape_d,-mape_dc,-season)) %>% 
+  nest(data = c(-mape_d,-mape_dc,-season)) %>% View
   mutate(fit = map(data, 
                    ~MASS::rlm(ndvi_3mo~scale(co2_trend)+scale(I(pe_anom_12mo/mape))+vc+epoch, 
                        # ~lm(ndvi_3mo~scale(co2_trend)+scale(I(pe_anom_12mo/mape)), 
@@ -1584,6 +1584,109 @@ ggsave(p_vpd, filename = "figures/SM_fig_zonal_vpd_trend_by_epoch.png",
        width=12, height=10, units='cm', dpi=350, type='cairo')
 # END # ******************************************************************************
 
+
+#*******************************************************************************
+# SM Fig:  Zonal P:PET Trends  ---------------------------------------------
+#*******************************************************************************
+aa <- dat %>%
+  lazy_dt() %>% 
+  filter(hydro_year %in% 1982:2019) %>% 
+  group_by(x,y,hydro_year) %>% 
+  summarize(
+    ppet = mean(pe_12mo, na.rm=TRUE)) %>% 
+  ungroup() %>% 
+  filter(is.na(ppet)==F) %>% 
+  as_tibble()
+aa <- aa %>% 
+  inner_join(., kop %>% select(x,y,cz), by=c("x","y"))
+aa_mappet <- aa %>% filter(hydro_year %in% c(1982:2010)) %>% 
+  group_by(x,y) %>% 
+  summarize(mappet = mean(ppet,na.rm=TRUE)) %>% 
+  ungroup()
+p_ppet <- aa %>% 
+  inner_join(aa_mappet,by=c("x","y")) %>%
+  mutate(ppet_pct = 100*ppet/mappet - 100) %>% 
+  sample_frac(0.5) %>% 
+  rename(`Climate Zone` = cz) %>% 
+  mutate(epoch = ifelse(hydro_year<=2000,'AVHRR 1982-2000','MODIS 2001-2019')) %>% 
+  ggplot(data=., aes(hydro_year, ppet,
+                     color=`Climate Zone`,
+                     group=paste(epoch,`Climate Zone`)))+
+  # geom_point(alpha=0.05,color='gray')+
+  geom_smooth(method=MASS::rlm)+
+  # geom_smooth(inherit.aes = F, 
+  #             aes(hydro_year, vpd_pct,
+  #                    color=`Climate Zone`), 
+  #             method=MASS::rlm, lty=3)+
+  scale_x_continuous(expand=c(0,0), breaks = c(1982,1990,2000,2010,2019))+
+  scale_y_continuous(expand=c(0,0), labels = scales::format_format(3))+
+  scale_color_viridis_d(option='B')+
+  # facet_wrap(~`Climate Zone`,scales = 'free',labeller = label_value, 
+  #            ncol = 2)+
+  labs(x=NULL, y="% Change of Annual P:PET")+
+  facet_wrap(~`Climate Zone`,ncol = 1,scales = 'free')+
+  theme_linedraw()+
+  theme(strip.text = element_text(face='bold'), 
+        panel.grid = element_blank(), 
+        axis.text.x = element_text(size=7), 
+        legend.position = c(0.01,0.99), 
+        legend.justification = c(0.01,0.99)); p_ppet
+ggsave(p_ppet, filename = "figures/SM_fig_zonal_P:PET_trend_by_epoch.png", 
+       width=12, height=10, units='cm', dpi=350, type='cairo')
+# END # ******************************************************************************
+
+
+#*******************************************************************************
+# SM Fig:  Zonal P:PET Trends  ---------------------------------------------
+#*******************************************************************************
+aa <- dat %>%
+  lazy_dt() %>% 
+  filter(hydro_year %in% 1982:2019) %>% 
+  group_by(x,y,hydro_year) %>% 
+  summarize(
+    precip = mean(precip_12mo, na.rm=TRUE)) %>% 
+  ungroup() %>% 
+  filter(is.na(precip)==F) %>% 
+  as_tibble()
+aa <- aa %>% 
+  inner_join(., kop %>% select(x,y,cz), by=c("x","y"))
+aa_maprecip <- aa %>% filter(hydro_year %in% c(1982:2010)) %>% 
+  group_by(x,y) %>% 
+  summarize(maprecip = mean(precip,na.rm=TRUE)) %>% 
+  ungroup()
+p_precip <- aa %>% 
+  inner_join(aa_maprecip,by=c("x","y")) %>%
+  mutate(precip_pct = 100*precip/maprecip - 100) %>% 
+  sample_frac(0.5) %>% 
+  rename(`Climate Zone` = cz) %>% 
+  mutate(epoch = ifelse(hydro_year<=2000,'AVHRR 1982-2000','MODIS 2001-2019')) %>% 
+  ggplot(data=., aes(hydro_year, precip,
+                     color=`Climate Zone`,
+                     group=paste(epoch,`Climate Zone`)))+
+  # geom_point(alpha=0.05,color='gray')+
+  geom_smooth(method=MASS::rlm)+
+  geom_smooth(method='lm',lty=3)+
+  geom_smooth()+
+  # geom_smooth(inherit.aes = F, 
+  #             aes(hydro_year, vpd_pct,
+  #                    color=`Climate Zone`), 
+  #             method=MASS::rlm, lty=3)+
+  scale_x_continuous(expand=c(0,0), breaks = c(1982,1990,2000,2010,2019))+
+  scale_y_continuous(expand=c(0,0), labels = scales::format_format(3))+
+  scale_color_viridis_d(option='B')+
+  # facet_wrap(~`Climate Zone`,scales = 'free',labeller = label_value, 
+  #            ncol = 2)+
+  labs(x=NULL, y="Annual Precip")+
+  facet_wrap(~`Climate Zone`,ncol = 1,scales = 'free')+
+  theme_linedraw()+
+  theme(strip.text = element_text(face='bold'), 
+        panel.grid = element_blank(), 
+        legend.position = 'none',# c(0.01,0.99), 
+        # legend.justification = c(0.01,0.99), 
+        axis.text.x = element_text(size=7)); p_precip
+ggsave(p_precip, filename = "figures/SM_fig_zonal_Precip_trend_by_epoch.png", 
+       width=12, height=10, units='cm', dpi=350, type='cairo')
+# END # ******************************************************************************
 
 #*******************************************************************************
 # SM Fig: 10 Burn Area Trends  ---------------------------------------------

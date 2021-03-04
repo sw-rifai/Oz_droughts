@@ -24,7 +24,7 @@ oz_poly <- st_as_sf(oz_poly)
 oz_poly <- st_simplify(oz_poly, dTolerance = 0.05)
 
 # vegetation index record
-vi <- arrow::read_parquet("../data_general/MCD43/MCD43_AVHRR_NDVI_hybrid_2020-10-11.parquet" 
+vi <- arrow::read_parquet("../data_general/MCD43/MCD43_AVHRR_NDVI_hybrid_2020-10-12.parquet" 
                           # col_select = c("x","y","date",
                           #                "ndvi_c","ndvi_mcd","ndvi_hyb", 
                           #                "evi2_hyb","evi2_mcd","sz")

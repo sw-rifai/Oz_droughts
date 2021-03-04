@@ -14,7 +14,7 @@ options(pillar.sigfig = 5)
 # IMPORT DATA ###################################################################
 
 # vegetation index record
-vi <- arrow::read_parquet("../data_general/MCD43/MCD43_AVHRR_NDVI_hybrid_2020-10-11.parquet" 
+vi <- arrow::read_parquet("../data_general/MCD43/MCD43_AVHRR_NDVI_hybrid_2020-10-12.parquet" 
                           # col_select = c("x","y","date",
                           #                "ndvi_c","ndvi_mcd","ndvi_hyb", 
                           #                "evi2_hyb","evi2_mcd","sz")

@@ -5,6 +5,7 @@
 #*
 #*
 #*
+library(testthat)
 library(tidyverse); library(sf)
 library(data.table); setDTthreads(threads = 0)
 library(lubridate); 
@@ -24,7 +25,7 @@ oz_poly <- st_as_sf(oz_poly)
 oz_poly <- st_simplify(oz_poly, dTolerance = 0.05)
 
 # vegetation index record
-vi <- arrow::read_parquet("../data_general/MCD43/MCD43_AVHRR_NDVI_hybrid_2020-10-11.parquet" 
+vi <- arrow::read_parquet("../data_general/MCD43/MCD43_AVHRR_NDVI_hybrid_2020-10-12.parquet" 
                           # col_select = c("x","y","date",
                           #                "ndvi_c","ndvi_mcd","ndvi_hyb", 
                           #                "evi2_hyb","evi2_mcd","sz")
@@ -154,8 +155,8 @@ kop <- left_join(coords, bom, by=c("x","y")) %>%
                                         "Temperate","Temperate Tas."), ordered = T))
 kop <- kop %>% mutate(cz=zone)
 kop <- as.data.table(kop)
-arrow::write_parquet(kop, sink='../data_general/Koppen_climate/BOM_Koppen_simplified7.parquet')
 #*** End Kop zone load ********************************************************
+
 
 
 
@@ -385,6 +386,26 @@ bind_rows(as_tibble(rlm_ndvi_annual_co2_ppet_epoch) %>% mutate(epoch='Merged 198
        x=expression(paste(Delta,"NDVI"~CO[2]~'ppm'**-1)))+
   theme_linedraw()+
   theme(panel.grid.minor = element_blank())
-ggsave(filename = 'figures/SM_fig_14_rlm_CO2_effect_by_epoch.png',
+ggsave(filename = 'figures/fig_5_rlm_CO2_effect_by_epoch.png',
        width=16, height = 12, units='cm',type='cairo')
 # End section ******************************************************************
+
+
+# Calculate pixel level goodness of fit ----------------------------------------
+fn_gof_rlm <- function(din){
+  fit <- MASS::rlm(ndvi_hyb~co2_start+scale(ppet_anom)+scale(p_anom)+scale(pet_anom)+jitter(epoch),data=din)
+  out_r2 <- yardstick::rsq_vec(truth=din$ndvi_hyb, estimate=predict(fit,type='response'))
+  out_rmse <- yardstick::rmse_vec(truth=din$ndvi_hyb, estimate=predict(fit,type='response'))
+  out_df <- data.frame(r2=out_r2, rmse=out_rmse)
+  return(out_df)
+}
+gof_rlm_ndvi_annual_co2_ppet_epoch <- tmp_ndvi[id%in%vec_ids] %>% # filter out pixels that only have data for one satellite epoch
+  as.data.table() %>% 
+  .[is.na(ndvi_hyb)==F & is.na(frac_p_anom)==F] %>% 
+  .[,`:=`(co2_start = co2 - min_co2)] %>% 
+  .[,fn_gof_rlm(.SD), by=.(x,y)]
+
+gof_rlm_ndvi_annual_co2_ppet_epoch$r2 %>% summary
+
+gof_rlm_ndvi_annual_co2_ppet_epoch$rmse %>% summary
+

@@ -20,7 +20,7 @@ oz_poly <- st_as_sf(oz_poly)
 oz_poly <- st_simplify(oz_poly, dTolerance = 0.05)
 
 # vegetation index record
-vi <- arrow::read_parquet("../data_general/MCD43/MCD43_AVHRR_NDVI_hybrid_2020-10-11.parquet" 
+vi <- arrow::read_parquet("../data_general/MCD43/MCD43_AVHRR_NDVI_hybrid_2020-10-12.parquet" 
                           # col_select = c("x","y","date",
                           #                "ndvi_c","ndvi_mcd","ndvi_hyb", 
                           #                "evi2_hyb","evi2_mcd","sz")
@@ -214,12 +214,12 @@ p_right <- bind_rows(sen_ndvi_season_e1, sen_ndvi_season_e2) %>%
 #        filename = "figures/Fig2_PPET_ndvi_seasonal_TheilSen_trend_by_epoch.png", 
 #        dpi=350, width=15,height=15,units='cm',type='cairo')
 
-ggsave(cowplot::plot_grid(p_left,p_right,ncol=2,labels='AUTO', 
+ggsave(cowplot::plot_grid(p_left,p_right,ncol=2,labels=c('(a)','(b)'), 
                           rel_widths = c(1,2)),
        filename = "figures/Fig2_PPET_ndvi_seasonal_TheilSen_trend_by_epoch.png", 
        dpi=350, width=15,height=15.5,units='cm',type='cairo')
-ggsave(cowplot::plot_grid(p_left,p_right,ncol=2,labels='AUTO', 
-                          rel_widths = c(1,2)),
-       filename = "doc/submission_pnas_1/Fig2_PPET_ndvi_seasonal_TheilSen_trend_by_epoch.pdf", 
-       dpi=350, width=15,height=15.5,units='cm')
+# ggsave(cowplot::plot_grid(p_left,p_right,ncol=2,labels=c('(a)','(b)'), 
+#                           rel_widths = c(1,2)),
+#        filename = "doc/submission_pnas_1/Fig2_PPET_ndvi_seasonal_TheilSen_trend_by_epoch.pdf", 
+#        dpi=350, width=15,height=15.5,units='cm')
 

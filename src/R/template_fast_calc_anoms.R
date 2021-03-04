@@ -9,12 +9,12 @@ setDTthreads(threads=parallel::detectCores()-3)
 #*******************************************************************************
 # Get data  ---------------------------------------------------------
 #*******************************************************************************
-tmp <- arrow::read_parquet("/home/sami/srifai@gmail.com/work/research/data_general/Oz_misc_data/ARD_ndvi_aclim_2020-05-31.parquet")
+tmp <- arrow::read_parquet("/home/sami/srifai@gmail.com/work/research/data_general/Oz_misc_data/ARD_ndvi_aclim_2021-02-28.parquet")
 
 # data.table 
 tmp <- setDT(tmp) # OR: tmp <- as.data.table(tmp)
 tmp <- tmp %>% select(-x.x,-x.y,-y.x,-y.y) %>% rename(x=x_vi, y=y_vi)
-tmp <- tmp[, pet:=ifelse(pet<0,0,pet)]
+tmp <- tmp[, pet:=ifelse(pet<10,10,pet)]
 tmp <- tmp[, id := .GRP, by=.(x,y)]
 
 # Subsetting to just one type of vegetation class
@@ -33,10 +33,10 @@ tmp <- tmp[, id := .GRP, by=.(x,y)]
 tmp <- tmp[, `:=`(month = month(date))] # create month
 tmp <- tmp[, `:=`(year = year(date))]   # create year
 tmp <- tmp[,`:=`("pe" = precip/pet)]
-norms_ndvi <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
-                  .("ndvi_u" = mean(ndvi_mcd,na.rm=TRUE), 
-                    "ndvi_sd" = sd(ndvi_mcd,na.rm=TRUE)),
-                  by=.(x,y,month)] # joining on x,y,month
+# norms_ndvi <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
+#                   .("ndvi_u" = mean(ndvi_mcd,na.rm=TRUE), 
+#                     "ndvi_sd" = sd(ndvi_mcd,na.rm=TRUE)),
+#                   by=.(x,y,month)] # joining on x,y,month
 norms_p <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
                .("precip_u" = mean(precip,na.rm=TRUE), 
                  "precip_sd" = sd(precip,na.rm=TRUE)),
@@ -100,7 +100,7 @@ norms <- norms[norms_matmax, on=.(x,y)]
 norms <- norms[norms_matmin, on=.(x,y)]
 norms <- norms[norms_mavpd, on=.(x,y)]
 
-norms <- norms[norms_ndvi, on=.(x,y,month)]
+# norms <- norms[norms_ndvi, on=.(x,y,month)]
 tmp <- norms[tmp, on=.(x,y,month)]
 rm(norms); 
 gc(verbose = T, reset = T, full = T)
@@ -111,14 +111,14 @@ gc(verbose = T, reset = T, full = T)
 #*******************************************************************************
 # Calculate the anomalies ------
 #*******************************************************************************
-tmp <- tmp[, `:=`(ndvi_anom = ndvi_mcd - ndvi_u, 
+tmp <- tmp[, `:=`(#ndvi_anom = ndvi_mcd - ndvi_u, 
                   precip_anom = precip-precip_u,  # calc raw anomaly 
                   pet_anom = pet-pet_u, 
                   pe_anom = pe-pe_u, 
                   tmax_anom = tmax-tmax_u, 
                   tmin_anom = tmin-tmin_u, 
                   vpd15_anom = vpd15 - vpd15_u)]
-tmp <- tmp[, `:=`(ndvi_anom_sd = ndvi_anom/ndvi_sd,
+tmp <- tmp[, `:=`(#ndvi_anom_sd = ndvi_anom/ndvi_sd,
                   precip_anom_sd = precip_anom/precip_sd,  # calc sd anomaly 
                   pet_anom_sd = pet_anom/pet_sd, 
                   pe_anom_sd = pe_anom/pe_sd, 
@@ -133,10 +133,10 @@ tmp <- tmp[, `:=`(ndvi_anom_sd = ndvi_anom/ndvi_sd,
 # Calculate the multi-year anomalies ------
 #*******************************************************************************
 # calculate the rolling 12-month sums 
-tmp <- tmp[order(x,y,date)][, ndvi_12mo := frollmean(ndvi_mcd,n = 12,fill = NA,align='right'), by=.(x,y)]
+# tmp <- tmp[order(x,y,date)][, ndvi_12mo := frollmean(ndvi_mcd,n = 12,fill = NA,align='right'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, precip_12mo := frollsum(precip,n = 12,fill = NA,align='right'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, pet_12mo := frollsum(pet,n = 12,fill = NA,align='right'), by=.(x,y)]
-tmp <- tmp[order(x,y,date)][, pe_12mo := frollsum(pe,n = 12,fill = NA,align='right'), by=.(x,y)]
+tmp <- tmp[order(x,y,date)][, pe_12mo := frollmean(pe,n = 12,fill = NA,align='right'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, tmax_anom_12mo := frollapply(tmax_anom,FUN=max,
                                                            n = 12,fill = NA,align='right'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, tmin_anom_12mo := frollapply(tmin_anom,FUN=max,
@@ -145,7 +145,7 @@ tmp <- tmp[order(x,y,date)][, vpd15_12mo := frollapply(vpd15_anom,FUN=mean,
                                                           n = 12,fill = NA,align='right'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, vpd15_anom_12mo := frollapply(vpd15_anom,FUN=mean,
                                                            n = 12,fill = NA,align='right'), by=.(x,y)]
-tmp <- tmp[order(x,y,date)][, ndvi_anom_12mo := frollmean(ndvi_anom,n = 12,fill = NA,align='right'), by=.(x,y)]
+# tmp <- tmp[order(x,y,date)][, ndvi_anom_12mo := frollmean(ndvi_anom,n = 12,fill = NA,align='right'), by=.(x,y)]
 
 gc(verbose = T, reset = T, full = T)
 
@@ -176,7 +176,7 @@ gc()
 # rolling 3 year sums
 tmp <- tmp[order(x,y,date)][, precip_36mo := frollsum(precip,n = 36,fill = NA,align='right'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, pet_36mo := frollsum(pet,n = 36,fill = NA,align='right'), by=.(x,y)]
-tmp <- tmp[order(x,y,date)][, pe_36mo := frollsum(pe,n = 36,fill = NA,align='right'), by=.(x,y)]
+tmp <- tmp[order(x,y,date)][, pe_36mo := frollmean(pe,n = 36,fill = NA,align='right'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, vpd15_36mo := frollmean(vpd15,n = 36,fill = NA,align='right'), by=.(x,y)]
 gc()
 
@@ -241,6 +241,36 @@ gc(verbose = T, reset = T, full = T)
 #* END SECTION
 #*******************************************************************************
 
-write_parquet(tmp, sink="/home/sami/scratch/ARD_ndvi_aclim_anoms.parquet",
+
+
+#*******************************************************************************
+# ATTACH NVIS ---------------------------------------------------------
+#*******************************************************************************
+library(sf); library(stars)
+library(tidyverse); 
+library(data.table); library(lubridate);
+library(dtplyr)
+setDTthreads(threads=8)
+nvis <- stars::read_stars("../data_general/NVIS/nvis51_majorVegClass_0p05.tif") %>% 
+  set_names('veg_class')
+codes <- readr::read_fwf("../data_general/NVIS/nvis51_majorVegClass_codes.txt",
+                         fwf_widths(c(2,100)), skip = 1) %>%
+  set_names(c("veg_class","veg_class_descrip")) %>%
+  mutate(vc = as.factor(veg_class_descrip))
+base_coords <- unique(tmp[,.(x,y)])
+base_coords <- st_as_sf(base_coords,crs=st_crs(4326),coords=c("x","y"))
+nvis <- st_extract(nvis, pts = base_coords)
+nvis <- bind_cols(nvis %>% st_coordinates() %>% as.data.table,nvis$veg_class) %>% set_names(c("x","y","veg_class"))
+nvis <- merge(nvis,codes,by='veg_class')
+nvis <- nvis[veg_class<=15]
+tmp <- merge(tmp,nvis,by=c("x","y"))
+rm(base_coords)
+#*******************************************************************************
+#* END SECTION
+#*******************************************************************************
+
+
+
+arrow::write_parquet(tmp, sink="/home/sami/scratch/ARD_ndvi_aclim_anoms.parquet",
               compression = 'snappy')
 gc()

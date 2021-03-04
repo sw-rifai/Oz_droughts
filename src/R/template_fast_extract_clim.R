@@ -12,26 +12,35 @@ setDTthreads(threads=8)
 #*******************************************************************************
 # base <- stars::read_stars("../data_general/AVHRR_CDRv5_VI/AVHRR_NIRV_monmean_EastOz_1982_2019.tif",
 #                           RasterIO = list(bands=1))
-# nvis <- stars::read_stars("../data_general/NVIS/nvis51_majorVegClass_0p05.tif")
+nvis <- stars::read_stars("../data_general/NVIS/nvis51_majorVegClass_0p05.tif") %>% 
+  set_names('veg_class')
+
 # nvis2 <- st_warp(src=nvis, dest=base[,,], use_gdal = T)
 # names(nvis2) <- "veg_class"
 # nvis <- nvis2 %>% as_tibble() %>% as.data.table()
-# codes <- readr::read_fwf("../data_general/NVIS/nvis51_majorVegClass_codes.txt",
-#                          fwf_widths(c(2,100)), skip = 1) %>%
-#   set_names(c("veg_class","veg_class_descrip")) %>%
-#   mutate(vc = as.factor(veg_class_descrip))
+codes <- readr::read_fwf("../data_general/NVIS/nvis51_majorVegClass_codes.txt",
+                         fwf_widths(c(2,100)), skip = 1) %>%
+  set_names(c("veg_class","veg_class_descrip")) %>%
+  mutate(vc = as.factor(veg_class_descrip))
 # nvis <- inner_join(nvis, codes, by='veg_class')
 # nvis <- nvis %>% filter(veg_class <= 15) # !!! only forests and woodlands !!!
 # rm(base); #
-base <- arrow::read_parquet("../data_general/MCD43/MCD64_AVHRR_NDVI_hybrid_2020-05-26.parquet") %>% 
-  as.data.table() %>% lazy_dt()
-nvis <- base %>% 
-  group_by(x,y) %>% 
-  summarize(veg_class = first(veg_class), 
-            vc = first(vc)) %>% 
-  ungroup() %>% 
+base <- arrow::read_parquet("../data_general/MCD43/MCD43_AVHRR_NDVI_hybrid_2020-10-12.parquet") %>% 
   as.data.table()
+base_coords <- unique(base[,.(x,y)])
+base_coords <- st_as_sf(base_coords,crs=st_crs(4326),coords=c("x","y"))
+nvis <- st_extract(nvis, pts = base_coords)
+nvis <- bind_cols(nvis %>% st_coordinates() %>% as.data.table,nvis$veg_class) %>% set_names(c("x","y","veg_class"))
+nvis <- merge(nvis,codes,by='veg_class')
+nvis <- nvis[veg_class<=15]
+# nvis <- base %>% 
+#   group_by(x,y) %>% 
+#   summarize(veg_class = first(veg_class), 
+#             vc = first(vc)) %>% 
+#   ungroup() %>% 
+#   as.data.table()
 rm(base); gc()
+rm(base_coords)
 #*******************************************************************************
 #* END SECTION
 #*******************************************************************************
@@ -676,8 +685,10 @@ gc(reset = T, full=T)
 #*******************************************************************************
 # NVIS and NDVI (forest & woodlands) ------------------------------------------------
 #*******************************************************************************
-base <- arrow::read_parquet("../data_general/MCD43/MCD64_AVHRR_NDVI_hybrid_2020-05-18.parquet") %>% 
-  as.data.table()
+# base <- arrow::read_parquet("../data_general/MCD43/MCD64_AVHRR_NDVI_hybrid_2020-05-18.parquet") %>% 
+#   as.data.table()
+
+
 # base <- base %>% lazy_dt() %>% 
 #   mutate(x = round(x, 2) ,
 #          y = round(y, 2)) %>% 
@@ -709,12 +720,12 @@ base <- arrow::read_parquet("../data_general/MCD43/MCD64_AVHRR_NDVI_hybrid_2020-
 # JOIN ALL THE PIECES -----------------------------------------------------
 #*******************************************************************************
 tmp_clim <- tmp_clim %>% rename(date=time)
-base <- base %>% rename(x_vi=x,y_vi=y)
+# base <- base %>% rename(x_vi=x,y_vi=y)
 
-tmp_clim <- merge(tmp_clim, 
-              base,
-             by=c("x_vi","y_vi","date"), 
-             all=TRUE,allow.cartesian=TRUE)
+# tmp_clim <- merge(tmp_clim, 
+#               base,
+#              by=c("x_vi","y_vi","date"), 
+#              all=TRUE,allow.cartesian=TRUE)
 tmp_clim %>% head
 tmp_clim <- tmp_clim[is.na(pet)==F][order(date,x_vi,y_vi)]
 

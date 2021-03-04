@@ -15,7 +15,7 @@ oz_poly <- st_as_sf(oz_poly)
 oz_poly <- st_simplify(oz_poly, dTolerance = 0.05)
 
 # vegetation index record
-vi <- arrow::read_parquet("../data_general/MCD43/MCD43_AVHRR_NDVI_hybrid_2020-10-11.parquet" 
+vi <- arrow::read_parquet("../data_general/MCD43/MCD43_AVHRR_NDVI_hybrid_2020-10-12.parquet" 
                           # col_select = c("x","y","date",
                           #                "ndvi_c","ndvi_mcd","ndvi_hyb", 
                           #                "evi2_hyb","evi2_mcd","sz")
@@ -570,10 +570,10 @@ p_wue_sen <- lt_v_sen %>%
   coord_sf(xlim = c(140,154),
            ylim = c(-45,-10), expand = FALSE)+
   labs(x=NULL,y=NULL)+
-  scico::scale_fill_scico(expression(paste(Delta*NDVI[Pred.]("%"))),
+  scico::scale_fill_scico(expression(paste(Delta*NDVI[WUE~Pred.]("%"))),
                           palette = 'bamako', 
                           direction = -1,
-                          limits=c(6,12), #na.value = 'red',
+                          limits=c(5,15), #na.value = 'red',
                           oob=scales::squish
   )+
   theme(panel.background = element_rect(fill='lightblue'),
@@ -685,20 +685,157 @@ p_violin_sen
 library(patchwork)
 ggsave((p_vpd_sen|p_wue_sen|p_diff_sen|p_violin_sen)+
          plot_layout()+
-         plot_annotation(tag_levels = 'A'), 
+         plot_annotation(tag_levels = 'a',tag_prefix = '(',tag_suffix = ')'), 
        filename = 'figures/Fig4_map_dVpd_dNdviPred_dDifference_violin.png', 
        width = 30, height = 20, units='cm', dpi=350, type='cairo')
 
-ggsave((p_vpd_sen|p_wue_sen|p_diff_sen|p_violin_sen)+
-         plot_layout()+
-         plot_annotation(tag_levels = 'A'), 
-       filename = 'doc/submission_pnas_1/Fig4_map_dVpd_dNdviPred_dDifference_violin.pdf', 
-       width = 30, height = 20, units='cm', dpi=350)
-ggsave((p_vpd_sen|p_wue_sen|p_diff_sen|p_violin_sen)+
-         plot_layout()+
-         plot_annotation(tag_levels = 'A'), 
-       filename = 'doc/submission_pnas_1/Fig4_map_dVpd_dNdviPred_dDifference_violin.tiff', 
-       width = 30, height = 20, units='cm', dpi=350)
+
+
+
+co2_start <- tmp_ndvi$co2 %>% min
+co2_end <- tmp_ndvi$co2 %>% max
+delta_co2 <- co2_end - co2_start
+
+system.time(
+  lt_ndvi_co2_p_epoch <-  tmp_ndvi[id%in%vec_ids] %>% #dat_annual %>% #[nobs_annual >= 10] %>% 
+    .[,.(beta = list(unname(MASS::rlm(ndvi_hyb~I(co2-co2_start)+frac_p_anom+jitter(epoch), 
+                                      data=.SD)$coefficients))), 
+      by=.(x,y)] %>% 
+    .[,`:=`(b0=unlist(beta)[1], b1=unlist(beta)[2],b2=unlist(beta)[3],b3=unlist(beta)[4]
+    ), by=.(x,y)]
+)
+
+p_co2 <- lt_ndvi_co2_p_epoch %>% 
+  as_tibble() %>% 
+  filter(between(b0,0.05,1)) %>% 
+  # mutate(b2=0) %>% 
+  mutate(dNDVI = 100*(b1*delta_co2+0*b3)/(b0)) %>% 
+  ggplot(data=.,aes(x,y,fill=dNDVI))+
+  geom_sf(data=oz_poly, inherit.aes = F, fill='gray50',color='black')+
+  geom_tile()+
+  scale_x_continuous(breaks=seq(140,154,by=5))+
+  coord_sf(xlim = c(140,154),
+           ylim = c(-45,-10), expand = FALSE)+
+  labs(x=NULL,y=NULL,
+       fill=expression(paste(Delta*NDVI[CO[2]]("%"))))+
+  # scico::scale_fill_scico(expression(paste(Delta*NDVI[CO[2]]("%"))),
+  #                         palette = 'tofino',
+  #                         direction = 1,
+  #                         limits=c(-5,25), #na.value = 'red',
+  #                         oob=scales::squish
+  # )+
+  scale_fill_continuous_divergingx(
+                          palette = 'BrBG',
+                          # direction = 1,
+                          limits=c(-5,25), #na.value = 'red',
+                          oob=scales::squish
+  )+
+  theme(panel.background = element_rect(fill='lightblue'),
+        panel.grid = element_blank(), 
+        legend.title = element_text(size=8),
+        legend.position = c(1,1), 
+        legend.justification = c(1,1)); p_co2
+lt_ndvi_co2_p_epoch %>% as_tibble() %>% 
+  filter(between(b0,0.05,1)) %>% 
+  # mutate(b2=0) %>% 
+  mutate(dNDVI = (b1*delta_co2+0*b3)/(b0)) %>% 
+  pull(dNDVI) %>% quantile(., c(0.05,0.5,0.95))
+
+
+
+
+
+
+# hcl_palettes(plot=T)
+# RColorBrewer::display.brewer.all()
+# vec_cols <- colorspace::hcl_palettes(palette = 'BrBG')
+# colorspace::divergingx_palettes(plot=T)
+# scico::scico_palette_show()
+
+p_box <- inner_join({lt_ndvi_co2_p_epoch %>% as_tibble() %>% 
+    filter(between(b0,0.05,1)) %>% 
+    # mutate(b2=0) %>% 
+    mutate(dNDVI = (b1*delta_co2+0*b3)/(b0)) %>% 
+    select(x,y,dNDVI)},{
+      lt_v_sen %>% 
+        as_tibble() %>% 
+        filter(between(b1,-0.05,0.05)) %>% 
+        mutate(dVPD_VPD = b1*37/b0) %>% 
+        mutate(expectation10 = 0.1*(dCa_Ca - 0.5*dVPD_VPD), 
+               expectation50 = 0.5*(dCa_Ca - 0.5*dVPD_VPD), 
+               expectation90 = 0.9*(dCa_Ca - 0.5*dVPD_VPD)) %>% 
+        select(x,y,expectation10,expectation50,expectation90)}) %>%
+  # filter(between(expectation,0.05,0.15)) %>% 
+  # filter(between(dNDVI, -0.4,0.4)) %>% 
+  inner_join(., kop, by=c("x","y")) %>% 
+  inner_join(., {lt_ppet_sen %>% 
+      as_tibble() %>% 
+      # filter(between(b1,-0.1,0.1)) %>% 
+      mutate(delta_precip = 100*(37*b1)/b0) %>% 
+      select(x,y,delta_precip) %>% 
+      inner_join(., kop, by=c("x","y")) %>% 
+      group_by(zone) %>% 
+      summarize(delta_precip=mean(delta_precip,na.rm=TRUE)) %>% 
+      ungroup()
+  }, by=c("zone")) %>% 
+  mutate(zone = recode(zone, 'Desert'='Arid')) %>% 
+  mutate(zone = recode(zone, 'Temperate Tas.'='Temp. Tasm.')) %>% 
+  mutate(`10%` = 100*(expectation10-dNDVI), 
+         `50%` = 100*(expectation50-dNDVI),
+         `90%` = 100*(expectation90-dNDVI)) %>%
+  select(zone,delta_precip,`10%`,`50%`,`90%`) %>% 
+  gather(-zone,-delta_precip,key='key',value='value') %>% 
+  mutate(key = factor(key,
+                      levels = c('10%','50%','90%'))) %>% 
+  ggplot(data=.,aes(value,zone,
+                    fill=key))+
+  geom_vline(aes(xintercept=0),color='grey50',lty=3)+
+  geom_boxplot(#draw_quantiles = c(0.25,0.5,0.75), 
+              # trim=TRUE,
+    outlier.colour = NA,
+              color='black')+
+  scico::scale_fill_scico_d(expression(paste('Foliar gain from '~CO[2]~'fert.:')),
+                            palette='bamako',direction = -1, begin = 0.2,end=0.95,
+  guide=guide_legend(title.position = 'top'))+
+  # scale_fill_manual("% WUE benefit allocated to foliar area:",
+  #   values=c(vec_cols[1], vec_cols[2], vec_cols[3]))+
+  # scale_fill_gradient2(expression(paste(Delta*P:PET[12*mo],"(%)")),
+  #                      low = vec_cols2[1], 
+  #                      mid= vec_cols2[6], 
+  #                      high= vec_cols2[11], 
+  #                      limits=c(-40,40)
+  # )+
+  labs(y=NULL, x=expression(paste(Delta*NDVI[Pred.]-Delta*NDVI[CO[2]]," (%)")))+
+  scale_x_continuous(limits=c(-30,30))+
+  scale_y_discrete(limits=rev(structure(c(1L,2L,3L,4L,5L,6L,7L),# c(5L, 4L, 6L, 2L, 1L, 3L, 7L), 
+                                        .Label = c("Equatorial",
+                                                   "Tropical", "Subtropical", "Grassland", "Arid", "Temperate",
+                                                   "Temp. Tasm."), class = c("ordered", "factor"))))+
+  theme_linedraw()+
+  theme(legend.position = 'top', 
+        legend.key.height = unit(0.2,'cm'),
+        panel.grid = element_blank()); p_box
+
+
+# ggsave((p_vpd_sen|p_wue_sen|p_co2|p_box)+
+#          plot_layout()+
+#          plot_annotation(tag_levels = 'a',tag_prefix = '(',tag_suffix = ')'), 
+#          filename="figures/Fig6_map_dVpd_dNdviPred_dDifference_boxplot.png",
+#          width=35, height=20,units='cm',dpi=350)
+library(cowplot)
+p_left <- ggdraw(p_vpd_sen)+draw_label(label='(a)', x=0.07,y=0.95,size = 25)
+p_mid1 <- ggdraw(p_co2)+draw_label(label='(b)',x=0.05,y=0.95,size=25)
+p_mid2 <- ggdraw(p_wue_sen)+draw_label(label='(c)', x=0.05,y=0.95, size=25)
+#hjust=0,vjust = 0)
+p_right <- ggdraw(p_box)+draw_label(label = '(d)', x=0.05,y=0.95,size=25)
+
+cp_r <- cowplot::plot_grid(p_left,p_mid1,p_mid2,p_right,
+                           nrow = 1,
+                           rel_widths = c(1,1,1,1))
+cp_r
+ggsave(plot=cp_r,
+       filename = "figures/Fig6_map_dVpd_dNdviPred_dDifference_boxplot.png", 
+       width = 35, height=20, units='cm', dpi=350, type='cairo')
 
 
 
@@ -968,3 +1105,86 @@ ggsave((p_vpd_sen|p_wue_sen|p_diff_sen|p_violin_sen)+
 #   theme(legend.position = 'top', 
 #         legend.key.height = unit(0.2,'cm'),
 #         panel.grid = element_blank()); p_violin_sen
+
+
+tmp_ndvi %>% select(co2,frac_p_anom,frac_vpd_anom,frac_pet_anom,frac_ppet_anom) %>% drop_na() %>% cor
+system.time(
+  lt_ndvi_co2_p_pet_ppet_epoch <-  tmp_ndvi[id%in%vec_ids] %>% #dat_annual %>% #[nobs_annual >= 10] %>%
+    .[,.(beta = list(unname(lm(ndvi_hyb~I(co2-co2_start)+
+                                        frac_p_anom+
+                                        frac_vpd_anom+
+                                        I(frac_vpd_anom**2)+
+                                        jitter(epoch),
+                                      data=.SD)$coefficients))),
+      by=.(x,y)] %>%
+    .[,`:=`(b0=unlist(beta)[1],
+            b_co2=unlist(beta)[2]
+            # b_vpd=unlist(beta)[3],
+            # b_pet_anom=unlist(beta)[4],
+            # b_epoch=unlist(beta)[5]
+    ), by=.(x,y)]
+)
+lt_ndvi_co2_p_pet_ppet_epoch %>% as_tibble() %>%
+  filter(between(b0,0.05,1)) %>%
+  # mutate(b2=0) %>%
+  mutate(dNDVI = (b_co2*delta_co2)/(b0)) %>%
+  pull(dNDVI) %>% quantile(., c(0.05,0.5,0.95))
+
+lt_ndvi_co2_p_pet_ppet_epoch %>% as_tibble() %>%
+  filter(between(b0,0.05,1)) %>%
+  # mutate(b2=0) %>%
+  mutate(dNDVI = (b_co2*delta_co2)/(b0)) %>%
+  pull(dNDVI) %>% hist(100)
+
+
+system.time(
+  lt_test <-  tmp_ndvi[id%in%vec_ids] %>% #dat_annual %>% #[nobs_annual >= 10] %>%
+    .[,.(beta = list(unname(glm(ndvi_hyb~I(co2-co2_start)+
+                                 frac_p_anom+
+                                 frac_vpd_anom+
+                                 I(frac_vpd_anom**2)+
+                                 jitter(epoch),
+                                family=Gamma(link='log'),
+                               data=.SD)$coefficients))),
+      by=.(x,y)] %>%
+    .[,`:=`(b0=unlist(beta)[1],
+            b_co2=unlist(beta)[2]
+            # b_vpd=unlist(beta)[3],
+            # b_pet_anom=unlist(beta)[4],
+            # b_epoch=unlist(beta)[5]
+    ), by=.(x,y)]
+)
+
+
+
+
+lt_ndvi_co2_p_pet_ppet_epoch %>% 
+  as_tibble() %>% 
+  filter(between(b0,0.05,1)) %>% 
+  # mutate(b2=0) %>% 
+  mutate(dNDVI = 100*(b_co2*delta_co2)/(b0)) %>% 
+  ggplot(data=.,aes(x,y,fill=dNDVI))+
+  geom_sf(data=oz_poly, inherit.aes = F, fill='gray50',color='black')+
+  geom_tile()+
+  scale_x_continuous(breaks=seq(140,154,by=5))+
+  coord_sf(xlim = c(140,154),
+           ylim = c(-45,-10), expand = FALSE)+
+  labs(x=NULL,y=NULL,
+       fill=expression(paste(Delta*NDVI[CO[2]]("%"))))+
+  scico::scale_fill_scico(expression(paste(Delta*NDVI[CO[2]]("%"))),
+                          palette = 'bamako',
+                          direction = -1,
+                          limits=c(6,12), #na.value = 'red',
+                          oob=scales::squish
+  )+
+  # scale_fill_continuous_divergingx(
+  #   palette = 'BrBG',
+  #   # direction = 1,
+  #   limits=c(-5,25), #na.value = 'red',
+  #   oob=scales::squish
+  # )+
+  theme(panel.background = element_rect(fill='lightblue'),
+        panel.grid = element_blank(), 
+        legend.title = element_text(size=8),
+        legend.position = c(1,1), 
+        legend.justification = c(1,1));

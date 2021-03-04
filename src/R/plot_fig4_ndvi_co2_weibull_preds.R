@@ -10,7 +10,7 @@ set.seed(333)
 # IMPORT ###################################################################
 
 # vegetation index record
-vi <- arrow::read_parquet("../data_general/MCD43/MCD43_AVHRR_NDVI_hybrid_2020-10-11.parquet" 
+vi <- arrow::read_parquet("../data_general/MCD43/MCD43_AVHRR_NDVI_hybrid_2020-10-12.parquet" 
                           # col_select = c("x","y","date",
                           #                "ndvi_c","ndvi_mcd","ndvi_hyb", 
                           #                "evi2_hyb","evi2_mcd","sz")
@@ -67,7 +67,8 @@ dat <- merge(dat,
              by=c("x","y","date"), 
              all=TRUE,allow.cartesian=TRUE)
 dat <- dat[order(x,y,date)][, ndvi_3mo := frollmean(ndvi_hyb,n = 3,fill = NA,align='center',na.rm=TRUE), by=.(x,y)]
-rm(vi); gc(full=TRUE)
+# rm(vi); 
+gc(full=TRUE)
 
 # Attach season
 dat[,`:=`(year=year(date),month=month(date))] %>%
@@ -99,7 +100,8 @@ mlo <- readr::read_table("../data_general/CO2_growth_rate/co2_mm_mlo_20200405.tx
   select(date,co2_int,co2_trend) %>% 
   as.data.table()
 dat <- merge(mlo,dat,by="date")
-dat <- dat[is.na(ndvi_3mo)==F & is.na(co2_int)==F]
+dat <- dat[#is.na(ndvi_3mo)==F & # why remove the na's from ndvi_3mo?
+             is.na(co2_int)==F]
 center_co2 <- mean(dat$co2_int)
 dat <- dat[,`:=`(cco2=co2_int-center_co2)]
 gc()
@@ -121,8 +123,10 @@ ldat <- dat %>% lazy_dt()
 
 #split test & train ------------------------------------------------------------
 set.seed(321)
-train_dat <- dat[mape<1.5][is.na(ndvi_3mo)==F & is.na(pe_12mo)==F][sample(.N, 4e6)]
-test_dat <- dat[mape<1.5][is.na(ndvi_3mo)==F & is.na(pe_12mo)==F][sample(.N, 4e6)]
+train_dat <- dat[mape<1.5][#is.na(ndvi_3mo)==F & 
+  is.na(pe_12mo)==F][sample(.N, 4e6)]
+test_dat <- dat[mape<1.5][#is.na(ndvi_3mo)==F & 
+  is.na(pe_12mo)==F][sample(.N, 4e6)]
 gc(full = T)
 #*******************************************************************************
 
@@ -592,11 +596,281 @@ library(patchwork)
   plot_annotation(tag_levels = 'a', 
                   tag_prefix = '(',
                   tag_suffix = ')')
-ggsave(filename = 'figures/delete_me.png',
-       width = 16, height = 16, units='cm', dpi=350, type='cairo')
+# former 16*16 dims
 ggsave(filename = 'figures/Fig4_n4_ndvi_season_by_epoch_gray_overlay_weibull_ppet_x_co2.png',
-       width = 16, height = 16, units='cm', dpi=350, type='cairo')
-ggsave(filename = 'doc/submission_pnas_1/Fig3_n4_ndvi_season_by_epoch_gray_overlay_weibull_ppet_x_co2.tiff',
-       width = 16, height = 16, units='cm', dpi=350, type='cairo')
-ggsave(filename = 'doc/submission_pnas_1/Fig3_n4_ndvi_season_by_epoch_gray_overlay_weibull_ppet_x_co2.pdf',
-       width = 16, height = 16, units='cm', dpi=350)
+       width = 14, height = 16, units='cm', dpi=350, type='cairo')
+
+
+
+# Map of CO2 effect
+n4_preds <- expand_grid(season=unique(train_dat$season),
+                        co2 = seq(min(dat$co2_int),max(dat$co2_int),length.out=100),
+                        mape = seq(0.05,1.5,length.out = 200), 
+                        pct_anom = c(0), 
+                        epoch = 2) %>% 
+  mutate(pe_anom_12mo = 0.01*pct_anom*mape) %>%
+  # mutate(pe_12mo = pe_anom_12mo+mape) %>% 
+  mutate(cco2 = co2-center_co2)
+
+
+early_andvi <- dat %>% lazy_dt() %>% 
+  filter(date>=ymd("1981-08-01") & 
+           date<=ymd("1986-08-01")) %>% 
+  group_by(x,y) %>% 
+  summarize(early_ndvi = mean(ndvi_hyb,na.rm=TRUE)) %>% 
+  ungroup() %>% 
+  as.data.table()
+
+
+oz_poly <- sf::read_sf("../data_general/GADM/gadm36_AUS.gpkg", 
+                       layer="gadm36_AUS_1")
+oz_poly <- sf::st_as_sf(oz_poly)
+oz_poly <- sf::st_simplify(oz_poly, dTolerance = 0.05)
+
+colorspace::hcl_palettes(type = "continuous") 
+colorspace::hcl_palettes() %>% plot
+dat[date==ymd('2001-01-01')] %>% 
+  as_tibble() %>% 
+  select(x,y,mape) %>% 
+  merge(., early_andvi,by=c("x","y")) %>% 
+  # expand_grid(., cco2 = c(max(dat$co2_int)-center_co2, 
+  #                        min(dat$co2_int)-center_co2)) %>% 
+  expand_grid(., cco2 = c(42.4, 
+                          -34)) %>% 
+  mutate(pe_anom_12mo=0, 
+         epoch=1) %>% 
+  mutate(pred_son = predict(n4_son,newdata=.)) %>% 
+  mutate(pred_djf = predict(n4_djf,newdata=.)) %>% 
+  mutate(pred_mam = predict(n4_mam,newdata=.)) %>% 
+  mutate(pred_jja = predict(n4_jja,newdata=.)) %>% 
+  rowwise() %>% 
+  mutate(pred = mean(c(pred_son,pred_djf,pred_mam,pred_jja),na.rm=T)) %>% 
+  select(x,y,pred,cco2) %>% 
+  pivot_wider(id_cols=c('x','y'), names_from=cco2, values_from=pred) %>% 
+  mutate(diff = 100*((`42.4`/`-34`)-1) ) %>% #pull(diff) %>% quantile(., c(0.1,0.5, 0.9))
+  ggplot(data=.,aes(x,y,fill=diff))+
+  geom_sf(data=oz_poly, inherit.aes = F, fill='gray50',color='black')+
+  geom_tile()+
+  coord_equal()+
+  scale_x_continuous(breaks=seq(140,154,by=5))+
+  coord_sf(xlim = c(140,154),
+           ylim = c(-44,-10), expand = FALSE)+
+  labs(x=NULL,y=NULL, 
+       fill=expression(paste(CO[2]~Delta*NDVI)))+
+  colorspace::scale_fill_binned_sequential(
+    palette='Terrain 2', 
+    limits=c(5,20),
+    n.breaks=7, rev=T)+
+  geom_tile()+
+  theme(panel.background = element_rect(fill='lightblue'),
+        panel.grid = element_blank(), 
+        legend.title = element_text(size=7),
+        legend.position = c(1,1), 
+        legend.title.align = 1,
+        legend.key.width = unit(0.33,'cm'),
+        legend.justification = c(1,1))
+ggsave(filename = 'figures/Fig_n4_ndvi_map_weibull_ppet_x_co2_modeled_effect.png',
+       width = 7, height = 16, units='cm', dpi=350, type='cairo')
+
+
+
+# Plot Joint Map + response figures -------------------------------------------------
+p1 <- (dat[date==ymd('2001-01-01')] %>% 
+         as_tibble() %>% 
+         select(x,y,mape) %>% 
+         merge(., early_andvi,by=c("x","y")) %>% 
+         expand_grid(., cco2 = c(42.4, 
+                                 -34)) %>% 
+         mutate(pe_anom_12mo=0, 
+                epoch=1) %>% 
+         mutate(pred_son = predict(n4_son,newdata=.)) %>% 
+         mutate(pred_djf = predict(n4_djf,newdata=.)) %>% 
+         mutate(pred_mam = predict(n4_mam,newdata=.)) %>% 
+         mutate(pred_jja = predict(n4_jja,newdata=.)) %>% 
+         rowwise() %>% 
+         mutate(pred = mean(c(pred_son,pred_djf,pred_mam,pred_jja),na.rm=T)) %>% 
+         select(x,y,pred,cco2) %>% 
+         pivot_wider(id_cols=c('x','y'), names_from=cco2, values_from=pred) %>% 
+         mutate(diff = 100*((`42.4`/`-34`)-1) ) %>% #pull(diff) %>% quantile(., c(0.1,0.5, 0.9))
+         ggplot(data=.,aes(x,y,fill=diff))+
+         geom_sf(data=oz_poly, inherit.aes = F, fill='gray50',color='black')+
+         geom_tile()+
+         coord_equal()+
+         scale_x_continuous(breaks=seq(140,154,by=5))+
+         coord_sf(xlim = c(140,154),
+                  ylim = c(-44,-10), expand = FALSE)+
+         labs(x=NULL,y=NULL, 
+              fill=expression(paste(CO[2]~Delta*NDVI~('%'))))+
+         colorspace::scale_fill_binned_sequential(
+           palette='Terrain 2', 
+           limits=c(5,20),
+           n.breaks=7, rev=T)+
+         geom_tile()+
+         theme(panel.background = element_rect(fill='lightblue'),
+               panel.grid = element_blank(), 
+               legend.title = element_text(size=7),
+               legend.position = c(1,1), 
+               legend.title.align = 1,
+               legend.key.width = unit(0.33,'cm'),
+               legend.justification = c(1,1)))
+
+
+p2 <- (n4_preds %>% 
+         mutate(epoch='all') %>% 
+         ggplot(data=., aes(mape,pred,color=(co2), group=co2))+
+         geom_line(alpha=0.5)+
+         geom_text(data=gofs[epoch=='Merged 1982-2019'] %>% 
+                     mutate(r2 = paste0("R**2 ==",format(r2,digits = 2))), inherit.aes = F, 
+                   aes(x=1.075,y=0.2,
+                       label=r2), 
+                   parse=TRUE, size=3.5)+
+         geom_text(data=gofs[epoch=='Merged 1982-2019'] %>% 
+                     mutate(rmse = paste0("RMSE ==",format(rmse,digits = 2))), inherit.aes = F, 
+                   aes(x=0.925,y=0.1,
+                       label=rmse), 
+                   parse=TRUE, size=3.5)+
+         scale_alpha_discrete("epoch", range=c(0.2,0.6))+
+         scale_color_viridis_c(expression(paste(CO[2]~ppm)), option='B',end=0.85, 
+                               limits=c(335,420))+
+         scale_x_continuous(limits=c(0.08,1.5),
+                            breaks=c(0,0.5,1,1.5),
+                            labels = c(0,0.5,1,1.5),
+                            expand=c(0,0),
+                            guide = guide_axis(n.dodge=1, angle=0,check.overlap = TRUE)
+         )+
+         scale_y_continuous(limits=c(0,0.9),expand=c(0,0.01))+
+         labs(x=NULL, #expression(paste("Mean Annual P:PET")),
+              y=expression(paste(NDVI)), 
+              subtitle="Merged 1982-2019")+
+         facet_grid(~season, labeller = labeller(pct_anom=vec_labels))+
+         theme_linedraw()+
+         # guides(color=guide_colorbar(title.position = 'top'))+
+         theme(#panel.grid = element_blank(),
+           # panel.spacing.x = unit(6, "mm"),
+           axis.text = element_text(size=10),
+           panel.grid.minor = element_blank(),
+           # axis.text.x = element_text(angle=45, vjust=-0.5),
+           plot.margin = margin(t = 0.1,r = 0.4,b = 0.1,l = 0.4,'cm'),
+           # legend.position = c(0.525,0.175), 
+           legend.position = 'none', #c(0.99,0.01),
+           # legend.justification = c(0.99,0.01),
+           # legend.key.width = unit(0.5,'cm'),
+           # legend.key.height = unit(0.2,'cm'),
+           # legend.direction = 'vertical', 
+           legend.background = element_rect(fill=NA)))
+
+
+p3 <- (e2_n4_preds %>% 
+         ggplot(data=., aes(mape,pred,color=(co2), group=co2))+
+         geom_line(data=e1_n4_preds, aes(mape, pred, group=co2), col='gray70',alpha=0.05)+
+         geom_line(alpha=0.25)+
+         geom_text(data=gofs[epoch=='MODIS 2001-2019'] %>% 
+                     mutate(r2 = paste0("R**2 ==",format(r2,digits = 2))), inherit.aes = F, 
+                   aes(x=1.075,y=0.2,
+                       label=r2), 
+                   parse=TRUE, size=3.5)+
+         geom_text(data=gofs[epoch=='MODIS 2001-2019'] %>% 
+                     mutate(rmse = paste0("RMSE ==",format(rmse,digits = 2))), inherit.aes = F, 
+                   aes(x=0.925,y=0.1,
+                       label=rmse), 
+                   parse=TRUE, size=3.5)+
+         scale_alpha_discrete("epoch", range=c(0.2,0.6))+
+         scale_color_viridis_c(expression(atop(paste(CO[2]),"(ppm)")), option='B',end=0.85, 
+                               limits=c(335,420))+
+         scale_x_continuous(limits=c(0.08,1.5),
+                            breaks=c(0,0.5,1,1.5),
+                            labels = c(0,0.5,1,1.5),
+                            expand=c(0,0),
+                            guide = guide_axis(n.dodge=1, angle=0,check.overlap = TRUE)
+         )+
+         scale_y_continuous(limits=c(0,0.9),expand=c(0,0.01))+
+         labs(x=NULL, #expression(paste("Mean Annual P:PET")),
+              y=expression(paste(NDVI)), 
+              subtitle="MODIS 2001-2019")+
+         facet_grid(~season, labeller = labeller(pct_anom=vec_labels))+
+         theme_linedraw()+
+         theme(#panel.grid = element_blank(),
+           # panel.spacing.x = unit(6, "mm"),
+           axis.text = element_text(size=10),
+           panel.grid.minor = element_blank(),
+           # axis.text.x = element_text(angle=45, vjust=-0.5),
+           plot.margin = margin(t = 0.1,r = 0.4,b = 0.1,l = 0.4,'cm'),
+           # legend.position = c(0.525,0.175), 
+           # legend.position = c(0.99,0.01),
+           # legend.justification = c(0.99,0.01),
+           legend.position = 'none',
+           # legend.key.width = unit(0.5,'cm'),
+           # legend.key.height = unit(0.2,'cm'),
+           # legend.direction = 'horizontal', 
+           legend.background = element_rect(fill=NA)))
+
+
+
+p4 <- (e1_n4_preds %>% 
+         ggplot(data=., aes(mape,pred,color=(co2), group=co2))+
+         geom_line(data=e2_n4_preds, aes(mape, pred, group=co2), col='gray70',alpha=0.05)+
+         geom_line(alpha=0.25)+
+         geom_text(data=gofs[epoch=='AVHRR 1982-2000'] %>% 
+                     mutate(r2 = paste0("R**2 ==",format(r2,digits = 2))), inherit.aes = F, 
+                   aes(x=1.075,y=0.2,
+                       label=r2), 
+                   parse=TRUE, size=3.5)+
+         geom_text(data=gofs[epoch=='AVHRR 1982-2000'] %>% 
+                     mutate(rmse = paste0("RMSE ==",format(rmse,digits = 2))), inherit.aes = F, 
+                   aes(x=0.925,y=0.1,
+                       label=rmse), 
+                   parse=TRUE, size=3.5)+
+         scale_alpha_discrete("epoch", range=c(0.2,0.6))+
+         scale_color_viridis_c(expression(paste(CO[2]~ppm)), option='B',end=0.85, 
+                               limits=c(335,420))+
+         scale_x_continuous(limits=c(0.08,1.5),
+                            breaks=c(0,0.5,1,1.5),
+                            labels = c(0,0.5,1,1.5),
+                            expand=c(0,0),
+                            guide = guide_axis(n.dodge=1, angle=0,check.overlap = TRUE)
+         )+
+         scale_y_continuous(limits=c(0,0.9),expand=c(0,0.01))+
+         labs(x=expression(paste("Mean Annual P:PET")),
+              y=expression(paste(NDVI)), 
+              subtitle="AVHRR 1982-2000")+
+         facet_grid(~season, labeller = labeller(pct_anom=vec_labels))+
+         theme_linedraw()+
+         theme(
+           # plot.subtitle = element_text(size=10),
+           #panel.grid = element_blank(),
+           # panel.spacing.x = unit(6, "mm"),
+           axis.text = element_text(size=10),
+           panel.grid.minor = element_blank(),
+           # axis.text.x = element_text(angle=45, vjust=-0.5),
+           plot.margin = margin(t = 0.1,r = 0.4,b = 0.1,l = 0.4,'cm'),
+           # legend.position = c(0.525,0.175), 
+           legend.position = 'bottom',
+           # legend.position = c(0.99,0.01),
+           # legend.justification = c(0.99,0.01),
+           legend.key.width = unit(2,'cm'),
+           legend.key.height = unit(0.25,'cm'),
+           # legend.direction = 'horizontal', 
+           legend.background = element_rect(fill=NA)))
+
+library(cowplot)
+p_left <- p1+draw_label(label='(a)', x=140.95,y=-11,size = 20)
+p_top <- ggdraw(p2)+draw_label(label='(b)',x=0.03,y=0.93,size=20)
+p_mid <- ggdraw(p3)+draw_label(label='(c)', x=0,y=0.96, size=20,hjust=0.1,vjust=0.1)
+p_bot <- ggdraw(p4)+draw_label(label = '(d)', x=0.035,y=0.94,size=20)
+cp_r <- cowplot::plot_grid(p_top,p_mid,p_bot,
+                           nrow = 3,
+                           rel_heights = c(1,1,1.4))
+cp_out <- cowplot::plot_grid(p_left,cp_r, 
+                             rel_widths = c(1,2), rel_heights = c(1,1),
+                             greedy = F)
+ggsave(plot=cp_out,
+       filename = "figures/Fig_n4_ndvi_map_weibull_ppet_x_co2_modeled_effect.png",
+       width = 25, height=20, units='cm', dpi=350, type='cairo')
+
+
+
+
+
+
+
+
