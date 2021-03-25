@@ -1548,7 +1548,7 @@ aa <- dat %>%
   filter(is.na(vpd)==F) %>% 
   as_tibble()
 aa <- aa %>% 
-  inner_join(., kop %>% select(x,y,cz), by=c("x","y"))
+  inner_join(., kop %>% select(x,y,zone), by=c("x","y"))
 aa_mavpd <- aa %>% filter(hydro_year %in% c(1982:2010)) %>% 
   group_by(x,y) %>% 
   summarize(mavpd = mean(vpd,na.rm=TRUE)) %>% 
@@ -1557,7 +1557,7 @@ p_vpd <- aa %>%
   inner_join(aa_mavpd,by=c("x","y")) %>%
   mutate(vpd_pct = 100*vpd/mavpd - 100) %>% 
   sample_frac(0.5) %>% 
-  rename(`Climate Zone` = cz) %>% 
+  rename(`Climate Zone` = zone) %>% 
   mutate(epoch = ifelse(hydro_year<=2000,'AVHRR 1982-2000','MODIS 2001-2019')) %>% 
   ggplot(data=., aes(hydro_year, vpd_pct,
                      color=`Climate Zone`,
@@ -1570,7 +1570,7 @@ p_vpd <- aa %>%
   #             method=MASS::rlm, lty=3)+
   scale_x_continuous(expand=c(0,0), breaks = c(1982,1990,2000,2010,2019))+
   scale_y_continuous(expand=c(0,0), labels = scales::format_format(3))+
-  scale_color_viridis_d(option='B')+
+  scale_color_viridis_d(option='B',end=0.95)+
   # facet_wrap(~`Climate Zone`,scales = 'free',labeller = label_value, 
   #            ncol = 2)+
   labs(x=NULL, y="% Change of Annual VPD")+
@@ -1584,6 +1584,105 @@ ggsave(p_vpd, filename = "figures/SM_fig_zonal_vpd_trend_by_epoch.png",
        width=12, height=10, units='cm', dpi=350, type='cairo')
 # END # ******************************************************************************
 
+
+#*******************************************************************************
+# SM Fig:  Zonal PRECIP Trends  ---------------------------------------------
+#*******************************************************************************
+aa <- dat %>%
+  lazy_dt() %>% 
+  filter(hydro_year %in% 1982:2019) %>% 
+  group_by(x,y,hydro_year) %>% 
+  summarize(
+    precip = mean(precip_12mo, na.rm=TRUE)) %>% 
+  ungroup() %>% 
+  filter(is.na(precip)==F) %>% 
+  as_tibble()
+aa <- aa %>% 
+  inner_join(., kop %>% select(x,y,zone), by=c("x","y"))
+aa_map <- aa %>% filter(hydro_year %in% c(1982:2010)) %>% 
+  group_by(x,y) %>% 
+  summarize(map = mean(precip,na.rm=TRUE)) %>% 
+  ungroup()
+p_precip <- aa %>% 
+  inner_join(aa_map,by=c("x","y")) %>%
+  mutate(p_pct = 100*precip/map - 100) %>% 
+  sample_frac(0.5) %>% 
+  rename(`Climate Zone` = zone) %>% 
+  mutate(epoch = ifelse(hydro_year<=2000,'AVHRR 1982-2000','MODIS 2001-2019')) %>% 
+  ggplot(data=., aes(hydro_year, p_pct,
+                     color=`Climate Zone`,
+                     group=paste(epoch,`Climate Zone`)))+
+  # geom_point(alpha=0.05,color='gray')+
+  geom_smooth(method=MASS::rlm)+
+  # geom_smooth(inherit.aes = F, 
+  #             aes(hydro_year, vpd_pct,
+  #                    color=`Climate Zone`), 
+  #             method=MASS::rlm, lty=3)+
+  scale_x_continuous(expand=c(0,0), breaks = c(1982,1990,2000,2010,2019))+
+  scale_y_continuous(expand=c(0,0), labels = scales::format_format(3))+
+  scale_color_viridis_d(option='B',end=0.95)+
+  # facet_wrap(~`Climate Zone`,scales = 'free',labeller = label_value, 
+  #            ncol = 2)+
+  labs(x=NULL, y="% Change of Annual Precip.")+
+  theme_linedraw()+
+  theme(strip.text = element_text(face='bold'), 
+        panel.grid = element_blank(), 
+        axis.text.x = element_text(size=7), 
+        legend.position = c(0.01,0.99), 
+        legend.justification = c(0.01,0.99)); p_precip
+ggsave(p_precip, filename = "figures/SM_fig_zonal_precip_trend_by_epoch.png", 
+       width=12, height=10, units='cm', dpi=350, type='cairo')
+# END # ******************************************************************************
+
+#*******************************************************************************
+# SM Fig:  Zonal PET Trends  ---------------------------------------------
+#*******************************************************************************
+aa <- dat %>%
+  lazy_dt() %>% 
+  filter(hydro_year %in% 1982:2019) %>% 
+  group_by(x,y,hydro_year) %>% 
+  summarize(
+    pet = mean(pet_12mo, na.rm=TRUE)) %>% 
+  ungroup() %>% 
+  filter(is.na(pet)==F) %>% 
+  as_tibble()
+aa <- aa %>% 
+  inner_join(., kop %>% select(x,y,zone), by=c("x","y"))
+aa_mapet <- aa %>% filter(hydro_year %in% c(1982:2010)) %>% 
+  group_by(x,y) %>% 
+  summarize(mapet = mean(pet,na.rm=TRUE)) %>% 
+  ungroup()
+p_pet <- aa %>% 
+  inner_join(aa_mapet,by=c("x","y")) %>%
+  mutate(pet_pct = 100*pet/mapet - 100) %>% 
+  # sample_frac(0.5) %>% 
+  rename(`Climate Zone` = zone) %>% 
+  mutate(epoch = ifelse(hydro_year<=2000,'AVHRR 1982-2000','MODIS 2001-2019')) %>% 
+  ggplot(data=., aes(hydro_year, pet_pct,
+                     color=`Climate Zone`,
+                     group=paste(epoch,`Climate Zone`)))+
+  geom_smooth(method=MASS::rlm)+
+  scale_x_continuous(expand=c(0,0), breaks = c(1982,1990,2000,2010,2019))+
+  scale_y_continuous(expand=c(0,0), labels = scales::format_format(3))+
+  scale_color_viridis_d(option='B',end=0.95)+
+  labs(x=NULL, y="% Change of Annual PET")+
+  theme_linedraw()+
+  theme(strip.text = element_text(face='bold'), 
+        panel.grid = element_blank(), 
+        axis.text.x = element_text(size=7), 
+        legend.position = c(0.01,0.99), 
+        legend.justification = c(0.01,0.99)); p_pet
+ggsave(p_pet, filename = "figures/SM_fig_zonal_pet_trend_by_epoch.png", 
+       width=12, height=10, units='cm', dpi=350, type='cairo')
+# END # ******************************************************************************
+
+# SM Fig Merge VPD P PET relative change figures -----------------------------------
+p_epoch_joint <- p_vpd/p_precip/p_pet+plot_layout(guides='collect')
+p_epoch_joint
+ggsave(p_epoch_joint, 
+       filename = "figures/SM_fig_zonal_vpd_precip_pet_trend_by_epoch.png", 
+       width=20, height=20, units='cm', dpi=350, type='cairo')
+# END # **********************************************************************
 
 #*******************************************************************************
 # SM Fig:  Zonal P:PET Trends  ---------------------------------------------
@@ -1636,57 +1735,60 @@ ggsave(p_ppet, filename = "figures/SM_fig_zonal_P:PET_trend_by_epoch.png",
 # END # ******************************************************************************
 
 
-#*******************************************************************************
-# SM Fig:  Zonal P:PET Trends  ---------------------------------------------
-#*******************************************************************************
-aa <- dat %>%
-  lazy_dt() %>% 
-  filter(hydro_year %in% 1982:2019) %>% 
-  group_by(x,y,hydro_year) %>% 
-  summarize(
-    precip = mean(precip_12mo, na.rm=TRUE)) %>% 
-  ungroup() %>% 
-  filter(is.na(precip)==F) %>% 
-  as_tibble()
-aa <- aa %>% 
-  inner_join(., kop %>% select(x,y,cz), by=c("x","y"))
-aa_maprecip <- aa %>% filter(hydro_year %in% c(1982:2010)) %>% 
-  group_by(x,y) %>% 
-  summarize(maprecip = mean(precip,na.rm=TRUE)) %>% 
-  ungroup()
-p_precip <- aa %>% 
-  inner_join(aa_maprecip,by=c("x","y")) %>%
-  mutate(precip_pct = 100*precip/maprecip - 100) %>% 
-  sample_frac(0.5) %>% 
-  rename(`Climate Zone` = cz) %>% 
-  mutate(epoch = ifelse(hydro_year<=2000,'AVHRR 1982-2000','MODIS 2001-2019')) %>% 
-  ggplot(data=., aes(hydro_year, precip,
-                     color=`Climate Zone`,
-                     group=paste(epoch,`Climate Zone`)))+
-  # geom_point(alpha=0.05,color='gray')+
-  geom_smooth(method=MASS::rlm)+
-  geom_smooth(method='lm',lty=3)+
-  geom_smooth()+
-  # geom_smooth(inherit.aes = F, 
-  #             aes(hydro_year, vpd_pct,
-  #                    color=`Climate Zone`), 
-  #             method=MASS::rlm, lty=3)+
-  scale_x_continuous(expand=c(0,0), breaks = c(1982,1990,2000,2010,2019))+
-  scale_y_continuous(expand=c(0,0), labels = scales::format_format(3))+
-  scale_color_viridis_d(option='B')+
-  # facet_wrap(~`Climate Zone`,scales = 'free',labeller = label_value, 
-  #            ncol = 2)+
-  labs(x=NULL, y="Annual Precip")+
-  facet_wrap(~`Climate Zone`,ncol = 1,scales = 'free')+
-  theme_linedraw()+
-  theme(strip.text = element_text(face='bold'), 
-        panel.grid = element_blank(), 
-        legend.position = 'none',# c(0.01,0.99), 
-        # legend.justification = c(0.01,0.99), 
-        axis.text.x = element_text(size=7)); p_precip
-ggsave(p_precip, filename = "figures/SM_fig_zonal_Precip_trend_by_epoch.png", 
-       width=12, height=10, units='cm', dpi=350, type='cairo')
-# END # ******************************************************************************
+# #*******************************************************************************
+# # SM Fig:  Zonal P:PET Trends  ---------------------------------------------
+# #*******************************************************************************
+# aa <- dat %>%
+#   lazy_dt() %>% 
+#   filter(hydro_year %in% 1982:2019) %>% 
+#   group_by(x,y,hydro_year) %>% 
+#   summarize(
+#     precip = mean(precip_12mo, na.rm=TRUE)) %>% 
+#   ungroup() %>% 
+#   filter(is.na(precip)==F) %>% 
+#   as_tibble()
+# aa <- aa %>% 
+#   inner_join(., kop %>% select(x,y,cz), by=c("x","y"))
+# aa_maprecip <- aa %>% filter(hydro_year %in% c(1982:2010)) %>% 
+#   group_by(x,y) %>% 
+#   summarize(maprecip = mean(precip,na.rm=TRUE)) %>% 
+#   ungroup()
+# p_precip <- aa %>% 
+#   inner_join(aa_maprecip,by=c("x","y")) %>%
+#   mutate(precip_pct = 100*precip/maprecip - 100) %>% 
+#   sample_frac(0.5) %>% 
+#   rename(`Climate Zone` = cz) %>% 
+#   mutate(epoch = ifelse(hydro_year<=2000,'AVHRR 1982-2000','MODIS 2001-2019')) %>% 
+#   ggplot(data=., aes(hydro_year, precip,
+#                      color=`Climate Zone`,
+#                      group=paste(epoch,`Climate Zone`)))+
+#   # geom_point(alpha=0.05,color='gray')+
+#   geom_smooth(method=MASS::rlm)+
+#   geom_smooth(method='lm',lty=3)+
+#   geom_smooth()+
+#   # geom_smooth(inherit.aes = F, 
+#   #             aes(hydro_year, vpd_pct,
+#   #                    color=`Climate Zone`), 
+#   #             method=MASS::rlm, lty=3)+
+#   scale_x_continuous(expand=c(0,0), breaks = c(1982,1990,2000,2010,2019))+
+#   scale_y_continuous(expand=c(0,0), labels = scales::format_format(3))+
+#   scale_color_viridis_d(option='B')+
+#   # facet_wrap(~`Climate Zone`,scales = 'free',labeller = label_value, 
+#   #            ncol = 2)+
+#   labs(x=NULL, y="Annual Precip")+
+#   facet_wrap(~`Climate Zone`,ncol = 1,scales = 'free')+
+#   theme_linedraw()+
+#   theme(strip.text = element_text(face='bold'), 
+#         panel.grid = element_blank(), 
+#         legend.position = 'none',# c(0.01,0.99), 
+#         # legend.justification = c(0.01,0.99), 
+#         axis.text.x = element_text(size=7)); p_precip
+# ggsave(p_precip, filename = "figures/SM_fig_zonal_Precip_trend_by_epoch.png", 
+#        width=12, height=10, units='cm', dpi=350, type='cairo')
+# # END # ******************************************************************************
+
+
+
 
 #*******************************************************************************
 # SM Fig: 10 Burn Area Trends  ---------------------------------------------

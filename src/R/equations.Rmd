@@ -1,0 +1,75 @@
+---
+title: "equations"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Equations 
+### Eq 1: NDVI calibration model 
+$$NDVI_{MCD64} = s(NDVI_{AVHRR})+s(month) + s(SZA) + s(TOD) + s(x,y)$$
+
+
+### Eq 2: Weibull function for CO2 effect  
+$$NDVI=V_{a}-V_{d}\,(\exp(-\exp(c_{ln})\,(MI_{MA})))+\eta$$   
+
+
+$$NDVI=V_{a}-V_{d}\,[\exp(-\exp(c_{ln})\,(MI_{MA})^{q})]+\eta$$   
+
+
+$$\eta = \beta_{1}\frac{MI_{anom}}{MI_{MA}}+\beta_{2}\,CO_2\,MI_{MA}+\beta_{3}\,CO_2\,\frac{MI_{anom}}{MI_{MA}}+sensor$$   
+
+### Eq 3: Water use efficiency at leaf level
+$$W_{leaf} = \frac{A_{leaf}}{E_{leaf}} = \frac{C_a}{1.6D}(1 - \chi)$$
+
+### Eq 4: derivative of W_leaf
+$$\frac{dW_{leaf}}{W_{leaf}}=\frac{dA_{leaf}}{A_{leaf}} - \frac{dE_{leaf}}{E_{leaf}} = \frac{dC_a}{C_a} - \frac{dD}{D} + \frac{d(1-\chi)}{(1-\chi)}$$
+  
+### Eq 5: 
+$$\frac{dW_{leaf}}{W_{leaf}}=\frac{dA_{leaf}}{A_{leaf}} - \frac{dE_{leaf}}{E_{leaf}} = \frac{dC_a}{C_a} - \frac{1}{2}\frac{dD}{D}$$ 
+  
+  
+
+### Eq 6: 
+$$E_{canopy}=E_{leaf}\,L$$ 
+
+### Eq 7: 
+$$\frac{dE_{canopy}}{E_{canopy}} \approx \frac{dE_{leaf}}{E_{leaf}}+\frac{dL}{L}$$ 
+
+### Eq 8: 
+$$-\frac{dE_{leaf}}{E_{leaf}} \approx \frac{dL}{L}$$ 
+
+### Eq 9: 
+$$\frac{dL}{L} \approx \frac{dF}{F} \approx \frac{dNDVI}{NDVI}$$ 
+
+### Eq 10: 
+$$\frac{dW_{leaf}}{W_{leaf}} \approx  \frac{dA_{leaf}}{A_{leaf}} + \frac{dF}{F} \approx \frac{dC_a}{C_a} - \frac{1}{2}\frac{dD}{D}$$  
+
+### Eq 11 
+$$\frac{dNDVI}{NDVI} \approx \frac{1}{2}[\frac{dCa}{Ca}-\frac{dD}{2\,D}]$$  
+  
+
+
+### Eq 12: Linear model for CO2 effect  
+$$NDVI=\beta_0+ \beta_1\,year+\beta_2\,sensor$$  
+
+### Eq 13:  
+$$NDVI=\beta_0+ \beta_1\,CO_2+\beta_2\,\frac{P_{anom}}{P_{MA}}+\beta_3\,\frac{PET_{anom}}{PET_{MA}}+\beta_4\,\frac{MI_{anom}}{{MI_{MA}}}+\beta_5\,sensor$$  
+
+### Eq 14:  
+$$100*[\frac{\beta_1(2019-1982)}{\beta_0}]$$   
+
+
+### SM Eq 1: 128 linear models   
+$$NDVI = \beta_0+\beta_1\,CO_2 + \beta_2\,MI_{anom}+\beta_3\,Veg.\,Class+\beta_4\,sensor$$
+
+
+### SM Eq 2: Logistic model   
+$$NDVI = \frac{V_A}{(1+exp((m-MI_{12mo})/s))}$$   
+
+### SM Eq 3: Richards growth model  
+$$NDVI=(V_A+\beta_1\,CO_2+\beta_2\,G)\,\frac{(1+exp(m+\beta_3\,CO_2+\beta_4\,G - MI_{MA}))}{(s+\beta_5\,CO_2+\beta_6\,G)^{(-exp(-(q+\beta_7\,CO_2+\beta_8\,F)))}}$$   
+
+$$G = \frac{MI_{anom}}{MI_{MA}}$$   

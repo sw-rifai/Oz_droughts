@@ -1,0 +1,673 @@
+---
+title: "The Evolving Severity of Episodic Drought Impacts upon Australian Forest lands"
+author: 
+  - Sami W. Rifai^[ARC Centre of Excellence for Climate Extremes, Sydney, NSW 2052, Australia., srifai@gmail.com]
+  - Martin G. De Kauwe^[ARC Centre of Excellence for Climate Extremes, Sydney, NSW 2052, Australia.,]
+  - Many Others^[other places]
+date: "`r format(Sys.time(), '%Y-%m-%d')`"
+output:
+  html_document:
+    df_print: paged
+editor_options: 
+  chunk_output_type: console
+---
+```{r Chunk Options, echo=FALSE,eval=TRUE}
+# Some recommended settings. 
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE, 
+  warning = FALSE,
+  fig.pos = 'h',
+  out.extra = "",   # To force the use of figure environment
+  fig.cap = "Please caption every figure"
+)
+```
+```{r Order of processing, echo=FALSE, eval=FALSE}
+# source("src/R/template_fast_extract.R")
+# source("src/R/template_fast_calc_anoms.R")
+# source("src/R/template_fast_calc_lagMatrix.R")
+```
+```{r Data Imports, echo=FALSE, eval=T, warning=FALSE, message=FALSE}
+library(tidyverse); 
+library(sf); library(mgcv); library(RcppArmadillo)
+library(arrow)
+library(tidyverse); library(lubridate); library(paletteer)
+library(data.table); library(dtplyr,warn.conflicts = F); 
+setDTthreads(threads=8)
+
+oz_poly <- sf::read_sf("../data_general/GADM/gadm36_AUS.gpkg", 
+                   layer="gadm36_AUS_1")
+oz_poly <- st_as_sf(oz_poly)
+oz_poly <- st_simplify(oz_poly, dTolerance = 0.05)
+tmp <- arrow::read_parquet("/home/sami/scratch/ARD_ndvi_aclim_anoms.parquet",
+                           col_select = c(
+  # "ap_sd", "ape_sd", "apet_sd", "atmax_sd", "avpd15_sd", 
+  "date", "hydro_year", "id", 
+  # "map", "mape", "mapet", "matmax", "mavpd15", 
+  "month", 
+  # "ndvi_12mo", 
+  "ndvi_anom", "ndvi_anom_12mo","ndvi_anom_sd", 
+  "ndvi_mcd", 
+  # "ndvi_sd", "ndvi_u", "pe", "pe_12mo", "pe_36mo", 
+  # "pe_anom", "pe_anom_12mo", "pe_anom_36mo", "pe_anom_3mo", "pe_anom_6mo", 
+  # "pe_anom_sd", "pe_sd", "pe_u", "pet", "pet_12mo", "pet_36mo", 
+  # "pet_anom", "pet_anom_12mo", "pet_anom_36mo", "pet_anom_3mo", 
+  # "pet_anom_6mo", "pet_anom_sd", "pet_sd", "pet_u", "precip", "precip_12mo", 
+  # "precip_36mo", "precip_anom", 
+  "precip_anom_12mo", 
+  #"precip_anom_36mo", 
+  # "precip_anom_3mo", "precip_anom_6mo", "precip_anom_sd", "precip_sd", 
+  # "precip_u", "season", "t35", "t36", "t37", "t38", "t39", "t40", 
+  # "t41", "t42", "t43", "t44", "t45", "tmax", "tmax_anom", "tmax_anom_12mo", 
+  # "tmax_anom_36mo", "tmax_anom_3mo", "tmax_anom_6mo", "tmax_anom_sd", 
+  # "tmax_sd", "tmax_u", 
+  "vc", "veg_class", 
+  # "vp15", "vp9", "vpd15", 
+  # "vpd15_12mo", "vpd15_36mo", "vpd15_anom", "vpd15_anom_12mo", 
+  # "vpd15_anom_36mo", "vpd15_anom_3mo", "vpd15_anom_6mo", "vpd15_anom_sd", 
+  # "vpd15_sd", "vpd15_u", 
+  "x", "y", "year"))
+# data.table 
+tmp <- setDT(tmp) # OR: tmp <- as.data.table(tmp)
+
+
+load("data/gridCell_lm_ndvi_clim.Rdata") # grid cell linear regressions
+
+```
+```{r Variables for text, echo=FALSE, eval=TRUE}
+# variables to be used inline with the manuscript text
+range_map <- tmp$map %>% na.omit() %>% range() %>% round(., -1)
+range_pet <- tmp$mapet %>% na.omit() %>% range() %>% round(., -1)
+
+```
+## Abstract
+  
+## 1. Introduction
+  
+Australia has a long history of severe droughts spanning multiple years. Droughts such as the Federation drought, the WWII drought, and the Millennium drought spanned years, caused widespread agricultural collapse, and led to increased bushfires. The drought from 2017-2019 produced an unprecedented bushfire season dubbed "The Black Summer" where XYZ ha burned and enough smoke was produced to reach Argentina. Prior to the fires, widespread leaf abscission is most likely to have acted as a precursor to produce the fuel layer for the 2019 bushfires. 
+
+Prior to the drought of 2017-2019, the Millennium Drought had been the worst Australian drought in methodologically observed record (van Dijk et al., 2013). However unlike the 2017-2019 drought, the Millennium Drought did not produce bushfires comparable in scale to those of the Black Summer. Here we ask what happened to Australian forests and woodlands in the 2017-2019 drought, that did not happen in prior observed severe droughts?
+
+It is pertinent to note that Australian trees are extraordinarily well adapted to drought. Australian trees exist across extensive climate gradient from energy limited tropical and temperate rainforests to water limited woodlands of the interior. The vast majority of Australian forests and woodlands are water limited, which is true even for the tall Eucalyptus dominated forests of the eastern coast (source; Givnish?). A key determinant of where and what trees can grow is the balance between precipitation (P) and potential evapotranspiration (PET). The ratio of P:PET and similar variants are routed in Budkyo's energy limitation framework (source) where actual evapotranspiration is predominantly ultimately limited by solar radiation or precipitation. Temperate and tropical rainforests dominate the forested regions of eastern Australia where P:PET is less than 1. 
+
+The Australian forest and woodland landscape is not only dominated by PET, but the distribution of P has unusually high interannual variability owing to strong teleconnections with sea surface temperature anomalies (source).  
+
+Despite the unusual drought adapted resilience of Australian trees, widespread tree mortality was reported during the 2017-2019 drought (Dead tree detective link). 
+- Donohue et al., 2009  
+- Budyko energy limitation framework  
+- The rate of climate change in eastern Australia  
+
+
+It is well established that most vegetation in Australia is water limited.
+
+Here we provide a multi-scale investigation of three over-arching questions about the apparent increasing severity of drought impacts upon the forested lands of eastern Australia:  
+
+### 1.2 Questions  
+1. _Has meteorological drought severity changed through time?_  
+Have anomalies of precipitation, PET, or temperature become more extreme through time? Upward trends in temperature originating from climate change will also lead to a longterm increase in PET. Prior reports have found that wet areas (northern Queensland) are getting wetter while dry areas (interior Australia) are getting dryer. However the effect of climate change on interannual variability of meteorological anomalies is far less clear. Temperature extremes are becoming larger, but assuming a detrended time series, has the frequency of deviations from the norm changed?
+
+
+
+3. _Why did forest vegetation respond more to the 2017-2019 drought leading to the "Black Summer" than prior droughts of similar severity?_  
+Anecdotal reports of largescale leafdrop in 2019 likely acted as precursor to the unprecedented bushfires of late 2019. Did forest and woodland ecosystems recover from prior droughts before the 2017-2019 drought? To our knowledge this has not been addressed. How has the time to recover from drought extremes changed? Current understanding of drought bourne tree mortality is a developing field. 
+
+  
+  
+## 2. Methods
+### 2.1 Study region
+We focus on eastern Australian vegetation containing trees. Specifically we use the National Vegetation Information System (NVIS) major classes to subset eastern Australia into the focal study regions. These classes are predominantly dominated by trees in the Acacia, Callitris, Casuarina, Eucalyptus, Mallee, Melaleuca genera. 
+  
+```{r Figure 1. NVIS map, eval=TRUE, echo=FALSE, fig.cap="Figure 1. NVIS v5.1 Major Vegetation Classes that contain trees."}
+f1_theme <- theme(panel.background = element_rect(fill = '#99A3C4'), 
+                  panel.grid = element_blank(), 
+                  legend.position = 'bottom', 
+                  axis.text = element_blank(), 
+                  axis.ticks = element_blank())
+
+p_vc <- tmp[date==ymd("2000-01-01")] %>% 
+  as_tibble() %>% 
+  ggplot(data=., aes(x,y,fill=vc))+
+  geom_sf(data=oz_poly, inherit.aes = F)+
+  geom_tile()+
+  scale_fill_viridis_d("NVIS 5.1 Vegetation Class",
+    option='B')+
+  labs(x=NULL,y=NULL)+
+  coord_sf(xlim = c(140,154),
+           ylim = c(-45,-10), expand = FALSE)+
+  f1_theme+
+  theme(legend.position = 'left')
+p_vc
+```  
+### 2.2 Regional climate and data
+The forests and woodlands of eastern Australia span a vast gradient in mean annual precipitation (`r round(range_map[1],)` - `r round(range_map[2],)` mm yr^-1^) and mean annual potential evapotranspiration (`r round(range_pet[1],)` - `r round(range_pet[2],)` mm yr^-1^). 
+<br>
+
+### 2.3 Remote Sensing of Forest and Woodland Ecosystems
+We utilized the long-term record for the Advanced Very High Resolution Radiometer (1982-2019) (NOAA CDR AVHRR Surface Reflectance, Version 5),  MODIS surface reflectance (MOD09A1.006 Terra Surface Reflectance 8-Day Global 500m), and Vegetation Optical Depth (VOD) from the LPDRv2 product (Du et al., 2017). All data sets were filtered to retain only optimal quality surface reflectance or VOD retrievals.
+
+The time since "recovery" was quantified simply by counting the number of years following a drought threshold ($\leq$ -1.5 $\sigma$) were required until a recovery threshold ($\geq$ 1.5 $\sigma$) was reached.
+  
+
+### 2.3 Models
+We examined the effects of P, PET, and P:PET upon $NIR_{V}$ by using a combination of multiple linear regression models and generalized additive models (Wood 2017). 
+$$NIR_{V_{i}} = \beta_0 + f_1(P_i) + f_2(PET_i) + \epsilon_i$$
+Where $\epsilon$ is assumed to be identically and independently distributed $\epsilon \sim N(0,\sigma^2)$. $f_1$ and $f_2$ represent smoothing functions that approximate a sequence of basis functions $$f(x) = \sum_{j = 1}^{J} b_{j}(x)\beta_{j}$$ (Wood 2017). The smoothing functions are penalized by a $\lambda$ term to maximize the log-likelihood. To further minimize the potential for overfitting the smoothing functions we specify a maximum number of basis functions for the smoothing function to approximate. Further detail behind the theory of generalized additive models can be found in Wood (2017). 
+<br>
+```{r Table 1, paged.print=TRUE}
+# print(getwd())
+# list.files("doc")
+read_csv("doc/tables/Oz_droughts_tables - T1_DataSources.csv") %>% 
+  knitr::kable(caption = "**Table 1**. Summary of Remote Sensing and Climate Data")
+```
+
+
+<br> 
+
+## 3. Results  
+### Question 1: _Has meteorological drought severity changed through time?_
+  
+```{r Figure 2 Drought Severity across Epochs, echo=FALSE, fig.cap="**Figure 2.**. The changing anomalies of precipitation and extreme temperatures through recent severe drought years in eastern Australia."}
+tmp <- arrow::read_parquet("/home/sami/scratch/ARD_ndvi_aclim_anoms.parquet",
+                           col_select = c(
+  # "ap_sd", "ape_sd", "apet_sd", "atmax_sd", "avpd15_sd", 
+  "date", "hydro_year", "id", 
+  # "map", "mape", "mapet", "matmax", "mavpd15", 
+  "month", 
+  # "ndvi_12mo", 
+  "ndvi_anom", "ndvi_anom_12mo","ndvi_anom_sd", 
+  "ndvi_mcd", 
+  # "ndvi_sd", "ndvi_u", "pe", "pe_12mo", "pe_36mo", 
+  # "pe_anom", "pe_anom_12mo", "pe_anom_36mo", "pe_anom_3mo", "pe_anom_6mo", 
+  # "pe_anom_sd", "pe_sd", "pe_u", "pet", "pet_12mo", "pet_36mo", 
+  # "pet_anom", 
+  "pet_anom_12mo", 
+  # "pet_anom_36mo", "pet_anom_3mo", 
+  # "pet_anom_6mo", "pet_anom_sd", "pet_sd", "pet_u", "precip", "precip_12mo", 
+  # "precip_36mo", "precip_anom", 
+  "precip_anom_12mo", 
+  #"precip_anom_36mo", 
+  # "precip_anom_3mo", "precip_anom_6mo", "precip_anom_sd", "precip_sd", 
+  # "precip_u", "season", "t35", "t36", "t37", "t38", "t39", "t40", 
+  # "t41", "t42", "t43", "t44", "t45", "tmax", "tmax_anom", 
+  "tmax_anom_12mo", 
+  # "tmax_anom_36mo", "tmax_anom_3mo", "tmax_anom_6mo", "tmax_anom_sd", 
+  # "tmax_sd", "tmax_u", 
+  "vc", "veg_class", 
+  # "vp15", "vp9", "vpd15", 
+  # "vpd15_12mo", "vpd15_36mo", "vpd15_anom", "vpd15_anom_12mo", 
+  # "vpd15_anom_36mo", "vpd15_anom_3mo", "vpd15_anom_6mo", "vpd15_anom_sd", 
+  # "vpd15_sd", "vpd15_u", 
+  "x", "y", "year")) %>% as.data.table()
+
+tmp[year %in% c(1992, 2003, 2018,2019)] %>% 
+  .[month == 11] %>%
+  # .[id %in% sample.int(60000,1e3)] %>% 
+  .[,`:=`(lat = cut(y, breaks=seq(-40,-10,by=5), 
+                    # labels = 'a',  
+                    include.lowest = T, ordered_result = T), 
+          lon = cut(x, breaks=seq(135,155,by=5),
+                    include.lowest = T, ordered_result = T))] %>% 
+  .[,.(precip_anom_12mo = mean(precip_anom_12mo,na.rm=TRUE), 
+       pet_anom_12mo = mean(pet_anom_12mo,na.rm=TRUE), 
+       tmax_anom_12mo = mean(tmax_anom_12mo, na.rm=TRUE), 
+       p_05 = quantile(precip_anom_12mo ,0.05,na.rm=TRUE), 
+       p_95 = quantile(precip_anom_12mo, 0.95,na.rm=TRUE),
+       tmax_05 = quantile(tmax_anom_12mo ,0.05,na.rm=TRUE), 
+       tmax_95 = quantile(tmax_anom_12mo, 0.95,na.rm=TRUE)),
+    by=.(year)] %>% 
+  as_tibble() %>% 
+  # filter(is.na(lat)==F) %>% 
+  ggplot(data=., aes(precip_anom_12mo, tmax_anom_12mo,
+                     color=as.factor(year)))+
+  geom_hline(aes(yintercept=0),color='gray')+
+  geom_vline(aes(xintercept=0),color='gray')+
+  geom_point(alpha=0.4,fill=NA)+
+  geom_errorbar(aes(xmin=p_05, 
+                    xmax=p_95))+
+  geom_errorbar(aes( 
+    ymin=tmax_05, 
+    ymax=tmax_95))+
+  geom_path(inherit.aes = F,
+            aes(precip_anom_12mo,
+                tmax_anom_12mo),
+            alpha=0.5,lty=1,lwd=0.3)+
+  scale_color_viridis_d("", 
+                        end=0.8, option='A', direction = 1)+
+  # facet_grid(as.factor(lat)~as.factor(lon), drop = TRUE)+
+  labs(x=expression(paste("Precip. Anomaly"["12-month"]~(mm~yr**-1))), 
+       y=expression(paste("Max. Monthly Temp. Anom."~(degree*C))))+
+  theme_linedraw()+
+  theme(panel.grid = element_blank(), 
+        legend.position = c(0.1,0.8), 
+        legend.key = element_rect(fill='transparent'),
+        legend.background = element_rect(fill='transparent')
+        # panel.background = element_rect(fill='#EEEEFF')
+        )
+
+```
+  
+  
+```{r Fig * Precip Longterm Trend, fig.cap="**Figure 3.** Long-term trend of $Precip$ between 1983-2019."}
+map_theme <- theme(panel.background = element_rect(fill = '#99A3C4'), 
+                   panel.grid = element_blank(), 
+                   legend.position = 'bottom', 
+                   axis.text = element_blank(), 
+                   axis.ticks = element_blank())
+
+vec_col <- RColorBrewer::brewer.pal(n=11, name='BrBG')
+lt_p_season %>% 
+  ggplot(data=., aes(x,y,fill=b1))+
+  geom_sf(inherit.aes = F, data=oz_poly,fill='gray70',color='gray10')+
+  geom_tile()+
+  scale_fill_gradient2(expression(paste(P~(mm~yr^-1))),
+                       limits=c(-2.5,2.5),
+                       oob=scales::squish, 
+                       na.value = 'gray')+
+  labs(x=NULL,y=NULL)+
+  coord_sf(xlim = c(140,154),
+           ylim = c(-45,-10), expand = FALSE)+
+  facet_wrap(~season, nrow = 1)+
+  map_theme+
+  theme(legend.position = 'bottom')
+
+```
+
+```{r Fig * Tmax Trend, fig.cap="**Figure 4.** Long-term trend of $T_{max}$ between 1983-2019."}
+map_theme <- theme(panel.background = element_rect(fill = '#99A3C4'), 
+                   panel.grid = element_blank(), 
+                   legend.position = 'bottom', 
+                   axis.text = element_blank(), 
+                   axis.ticks = element_blank())
+
+vec_col <- RColorBrewer::brewer.pal(n=11, name='BrBG')
+lt_tmax_season %>% 
+  ggplot(data=., aes(x,y,fill=b1))+
+  geom_sf(inherit.aes = F, data=oz_poly,fill='gray70',color='gray10')+
+  geom_tile()+
+  scale_fill_viridis_c(expression(paste(T[max]~(degree*C~yr^-1))),
+                       option='B',direction = 1,
+                       limits=c(-0.025,0.1),
+                       oob=scales::squish, 
+                       na.value = 'gray')+
+  labs(x=NULL,y=NULL)+
+  coord_sf(xlim = c(140,154),
+           ylim = c(-45,-10), expand = FALSE)+
+  facet_wrap(~season, nrow = 1)+
+  map_theme+
+  theme(legend.position = 'bottom')
+
+```
+  
+### Question 2: _Have vegetation drought responses changed through time?_ 
+  
+Longterm $NDVI$ has increased across most of eastern Australia, which is consistent with earlier results (Donohue et al., YYYY). 
+
+
+```{r NDVI sens to P & PET, eval=TRUE, message=F, warning=F, fig.cap="**Figure #.** The linear sensitivity of $NDVI$ anom. sigma to anomalies of $P_{12 month}$ and $PET_{12 month}$"}
+
+p1 <- sens_ndviAnomSd_p_pet_season %>% 
+  as_tibble() %>% 
+  ggplot(data=.,aes(x,y,fill=b_p))+
+  geom_sf(inherit.aes = F, data=oz_poly,fill='gray70',color='gray10')+
+  geom_tile()+
+  scale_fill_gradient2(expression(paste(beta~P)),
+    limits=sens_ndviAnomSd_p_pet_season$b_p %>% quantile(c(0.01,0.99)),
+    oob=scales::squish,
+    na.value = '#black'
+  )+
+  labs(x=NULL,y=NULL)+
+  coord_sf(xlim = c(140,154),
+           ylim = c(-45,-10), expand = FALSE)+
+  facet_grid(cols = vars(season))+
+  theme(panel.background = element_rect(fill ='gray50'  #'#99A3C4'
+  ), 
+  panel.grid = element_blank(), 
+  legend.position = 'right', 
+  axis.text = element_blank(), 
+  axis.ticks = element_blank())
+
+p2 <- sens_ndviAnomSd_p_pet_season %>% 
+  as_tibble() %>% 
+  ggplot(data=.,aes(x,y,fill=b_pet))+
+  geom_sf(inherit.aes = F, data=oz_poly,fill='gray70',color='gray10')+
+  geom_tile()+
+  scale_fill_gradient2(expression(paste(beta~PET)),
+    limits=sens_ndviAnomSd_p_pet_season$b_pet %>% quantile(c(0.01,0.99)),
+    oob=scales::squish,
+    na.value = '#black'
+  )+
+  labs(x=NULL,y=NULL)+
+  coord_sf(xlim = c(140,154),
+           ylim = c(-45,-10), expand = FALSE)+
+  facet_grid(cols = vars(season))+
+  theme(panel.background = element_rect(fill ='gray50'  #'#99A3C4'
+  ), 
+  panel.grid = element_blank(), 
+  legend.position = 'right', 
+  axis.text = element_blank(), 
+  axis.ticks = element_blank())
+
+cowplot::plot_grid(p1,p2,nrow = 2)
+```
+
+
+```{r f_climatology, eval=F, message=FALSE, warning=FALSE}
+qdat <- tmp %>% sample_n(100000) %>% 
+  filter(is.na(vc)==F) %>% 
+  filter(is.na(ndvi_anom_sd)==F & 
+           between(ndvi_anom_sd, -3.5, 3.5)) %>% 
+  filter(between(precip_anom_sd, -5,5))
+test <- tmp %>% sample_n(100000) %>% 
+  filter(is.na(vc)==F) %>% 
+  filter(is.na(ndvi_anom_sd)==F & 
+           between(ndvi_anom_sd, -3.5, 3.5)) %>% 
+  filter(between(precip_anom_sd, -5,5))
+f_climatology <- bam(ndvi_u~ 
+                       te(x,y,month, bs=c("tp","tp","cc"))+
+                       s(vc, bs='re') +
+                       s(map,mapet,k=5)+
+                       s(ap_sd, apet_sd,k=5)+
+                       s(precip_u, precip_sd, k=5)+
+                       s(pet_u, pet_sd, k=5)
+                     , 
+                     select=TRUE, discrete = TRUE, method='fREML', 
+                     # nthreads = 6, 
+                     data=qdat)
+
+# ndvi trend (working!) by vegetation class
+lt_vc <- tmp[ndvi_anom_sd >= -3.5 & ndvi_anom_sd <= 3.5] %>%
+    .[date>= ymd("1982-01-01") & date<= ymd("2019-12-31")] %>% 
+    .[,.(val = mean(ndvi_mcd, na.rm=TRUE)), by=.(x,y,vc,hydro_year)] %>% 
+    .[,.(b1 = fastLm(X = cbind(1,hydro_year), y=val, data=.SD)$coefficients[2]),
+      by=.(vc)]
+
+
+test %>% 
+  mutate(pred = predict(f_climatology, newdata=.)) %>% 
+  drop_na(c("pred","ndvi_u")) %>% 
+  # select(pred,ndvi) %>% 
+  as_tibble() %>% 
+  group_by(vc) %>%
+  summarize(mandvi = mean(ndvi_u), 
+            range_ndvi = diff(range(ndvi_u)),
+            r2 = cor(pred, ndvi_u)**2, 
+            rmse = sqrt(mean((pred-ndvi_u)**2))) %>% 
+  ungroup() %>% 
+  left_join(., as_tibble(lt_vc), by='vc') %>% 
+  knitr::kable(col.names = 
+                 c("NVIS Vegetation Class","Mean ndvi","Range ndvi","R2","RMSE","Long-term Trend"), 
+               format = "markdown", digits = c(2,2,2,2,2,5), 
+               caption = "**Table 2.*** Predictability of average NIR-V")
+ 
+```
+  
+<br>
+  
+Forestland responses to annual precip deficits, increases in PET, and elevated temperatures are straightforward to detect. The responses to short-term meterological anomalies are less obvious. 
+![Figure *. $NDVI$ Lag Model where Precip and PET have a linear response upon $NDVI$, yet this response varies depending upon the number of months prior to the $NDVI$ observation.](../../figures/ndvi_anom_sigma_lagModel_P_PET_VPD_2season2VC.png)
+
+<br>
+
+The Eucalyptus dominated are increasing $NDVI$ faster than other forest and woodland ecosystems. 
+<br>
+```{r Long-term NIRV trend, fig.cap="**Figure #**. Long-term seasonal $NDVI$ trends from 1983-2019."}
+map_theme <- theme(panel.background = element_rect(fill = '#99A3C4'), 
+                   panel.grid = element_blank(), 
+                   legend.position = 'bottom', 
+                   axis.text = element_blank(), 
+                   axis.ticks = element_blank())
+
+vec_col <- RColorBrewer::brewer.pal(n=11, name='BrBG')
+lt_ndvi_season %>% 
+  ggplot(data=., aes(x,y,fill=b1))+
+  geom_sf(inherit.aes = F, data=oz_poly,fill='gray70',color='gray10')+
+  geom_tile()+
+  scale_fill_gradient2(expression(paste(Delta*NDVI~yr^-1)),
+                       high=vec_col[11], mid=vec_col[6], low=vec_col[1],
+                       limits=c(-0.005,0.005),
+                       oob=scales::squish,na.value='gray')+
+  # scale_fill_viridis_c(expression(paste(Delta*NDVI~yr^-1)),
+  #                      option='D',direction = 1,
+  #                      limits=c(-0.0001,0.0015),
+  #                      oob=scales::squish, na.value = 'red')+
+  labs(x=NULL,y=NULL)+
+  coord_sf(xlim = c(140,154),
+           ylim = c(-45,-10), expand = FALSE)+
+  facet_wrap(~season, nrow = 1)+
+  map_theme+
+  theme(legend.position = 'bottom')
+```
+  
+The majority of the near coastal forests and woodlands experienced their minimum $NDVI$ during the 2017-2019 drought (Fig *). 
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.cap="**Figure #.## Time of minimum observed $NDVI$ anomaly."}
+library(patchwork)
+f1_theme <- theme(panel.background = element_rect(fill = '#99A3C4'), 
+                  panel.grid = element_blank(), 
+                  legend.position = 'bottom', 
+                  axis.text = element_blank(), 
+                  axis.ticks = element_blank())
+
+p_min <- tmp %>% # oddly dplyr approach seems faster than data.table (although I could be wrong)
+  group_by(x,y) %>% 
+  filter(is.na(ndvi_anom_sd)==F) %>% 
+  filter(ndvi_anom_sd == min(ndvi_anom_sd, na.rm = TRUE)) %>% 
+  mutate(ddate=decimal_date(date)) %>% 
+  ungroup() %>% 
+  ggplot(data=., aes(x,y,fill=ddate))+
+  geom_sf(data=oz_poly, inherit.aes = F, 
+          fill='gray',color='#828387')+
+  geom_tile()+
+  scale_fill_viridis_c("Date of Min",
+                       option='B', end=0.95)+
+  labs(x=NULL,y=NULL)+
+  coord_sf(xlim = c(140,154),
+           ylim = c(-45,-10), expand = FALSE)+
+  f1_theme+
+  theme(legend.position = 'right')
+gc(verbose = F)
+p_max <- tmp %>%
+  group_by(x,y) %>% 
+  filter(is.na(ndvi_anom_sd)==F) %>% 
+  filter(ndvi_anom_sd == max(ndvi_anom_sd, na.rm = TRUE)) %>% 
+  mutate(ddate=decimal_date(date)) %>% 
+  ungroup() %>% 
+  ggplot(data=., aes(x,y,fill=ddate))+
+  geom_sf(data=oz_poly, inherit.aes = F, 
+          fill='gray',color='#828387')+
+  geom_tile()+
+  scale_fill_viridis_c("Date of Max",
+                       option='D', end=0.95)+
+  labs(x=NULL,y=NULL)+
+  coord_sf(xlim = c(140,154),
+           ylim = c(-45,-10), expand = FALSE)+
+  f1_theme+
+  theme(legend.position = 'right')
+gc(verbose=F)
+p_min+p_max+plot_layout(nrow = 1)
+```
+
+
+### Question 3: _Why did forest vegetation respond more to the 2017-2019 drought leading to the "Black Summer" than prior droughts of similar severity?_ 
+
+_Did forested ecosystems recover before the 2017-2019 drought?_
+Widespread declines in $NDVI$ were witnessed in late 2019. However vegetation had not necessarily recovered in years prior. Widely dispersed and sustained negative $NDVI$ anomalies persisted in regions which later experienced catastrophic bushfires in later 2019 (Fig. X & Y). In some regions the decline in $NDVI$ was punctuated during the 2017-2019 drought (Fig. X), where in other regions such as Victoria, vegetation may not have fully recovered from the Millennium Drought before the 2017-2019 drought.
+  
+![Figure *. Coastal New South Wales region, years since recovery of $NDVI$ using MODIS Terra with burn affected areas masked.](../../figures/tsr_mods_-1.5_1.5_NSW_with_inset.png)
+
+<!-- source("src/R/template_vi_timeSinceRecovery.R")   -->
+![**Figure #**. Victoria region, years since recovery of $NDVI$ using MODIS Terra with burn affected areas masked.](../../figures/tsr_mods_-1.5_1.5_VIC_with_inset.png)
+
+GAMs can predict the seasonal averages of $NDVI$ with a high degree of accuracy, but it is far more challenging to predict the anomalies (standardized or raw) of $NDVI$.
+
+
+
+#### *Which ecosystems were most affected?*
+Most forest and woodland vegetation classes were experiencing a long-term decline in $NDVI$ over the period 1982-2019 (Table 1). Casuarina and Acacia dominated ecosystems experienced the greatest decline while Rainforests and Tall Open Eucalypt Forests experienced the largest long-term increases in $NDVI$. 
+
+```{r}
+library(data.table); library(RcppRoll); library(paletteer);
+vi <- arrow::read_parquet("../data_general/MCD43/MCD64_AVHRR_NDVI_hybrid_2020-05-26.parquet") %>% as.data.table()
+
+tmp <- arrow::read_parquet("/home/sami/scratch/ARD_ndvi_aclim_anoms.parquet",
+       col_select = c(
+                             "date", "hydro_year", "id", 
+                             "precip_anom_12mo","map",
+                             # "ndvi_anom", "ndvi_anom_12mo","ndvi_anom_sd", 
+                             # "ndvi_mcd", 
+                             "x", "y", "year")) %>% as.data.table()
+tmp <- tmp[date >= ymd('2001-01-01')]
+tmp <- vi[tmp,on=.(x,y,date)]
+```
+
+```{r}
+library(dtplyr)
+gc(reset = T, full=T)
+# palettes_d_names %>% filter(length > 8 & type=='qualitative') %>% View
+# palettes_c_names %>% filter(type=='diverging' & package=='dichromat')
+# https://github.com/EmilHvitfeldt/r-color-palettes/blob/master/type-sorted-palettes.md#diverging-color-palettes
+clim_p_anom <- tmp %>% lazy_dt() %>% 
+    mutate(zone = case_when(y > -23.5 ~ 'Tropical', 
+                          y <= -23.5 & y > -35 ~ 'Subtropical',
+                          y <= -35 ~ 'Temperate')) %>%
+  mutate(zone = factor(zone, levels = c("Tropical","Subtropical","Temperate"),
+                       ordered = T)) %>%
+  group_by(date,zone) %>% 
+           summarize(precip_anom_12mo = 100*mean(precip_anom_12mo/map,na.rm=TRUE)) %>% 
+             ungroup() %>% 
+  as_tibble()
+
+d_1 <- tmp[date>=ymd("2001-01-01")] %>% 
+  lazy_dt() %>% 
+  mutate(zone = case_when(y > -23.5 ~ 'Tropical', 
+                          y <= -23.5 & y > -35 ~ 'Subtropical',
+                          y <= -35 ~ 'Temperate')) %>%
+  mutate(zone = factor(zone, levels =      c("Tropical","Subtropical","Temperate"),ordered = T)) %>%
+  group_by(vc,zone,date) %>% 
+  summarize(val = mean(ndvi_mcd,na.rm=TRUE), 
+            nobs = sum(is.na(ndvi_mcd)==F)) %>% 
+  ungroup() %>% 
+  as_tibble() %>% 
+  inner_join(., {.} %>% 
+               mutate(year=year(date)) %>% 
+               filter(year >=2001 & year<= 2015) %>% 
+                group_by(vc,zone) %>% 
+               summarize(mandvi=mean(val,na.rm=TRUE)) %>% 
+               ungroup(), 
+             by=c("vc","zone")) %>% 
+  group_by(vc,zone) %>% 
+  arrange(date) %>% 
+  mutate(val_12mo = RcppRoll::roll_meanr(val,n=12,fill=NA)) %>% 
+  ungroup() %>% 
+  mutate(val_anom_12mo = val_12mo-mandvi) %>% 
+  filter(nobs > 500) %>% 
+  filter(date <= ymd("2019-10-01")) 
+  # inner_join(., clim_p_anom, by=c("date","zone")) %>% 
+
+d_1 %>% 
+  filter(str_detect(vc,"Other")==F) %>% 
+  ggplot(data=., aes(date,val_anom_12mo,color=vc))+
+  geom_rect(aes(xmin=date,xmax=date+months(1),ymin=-0.09,ymax=0.09,
+                fill=precip_anom_12mo), 
+            data=clim_p_anom, inherit.aes = F)+
+  scale_fill_paletteer_c(palette = "pals::ocean.balance", 
+                       direction = -1, 
+                       labels=c("-50-","-25","0","25","50+"),
+                       limits=c(-50,50), 
+                       oob=scales::squish)+
+  geom_hline(aes(yintercept=0),lwd=1,color='white')+
+  geom_hline(aes(yintercept=0))+
+  # geom_line(aes(date,val_anom_12mo,group=vc),col='white',lwd=1.1)+
+  geom_line(lwd=1)+
+  scale_color_paletteer_d("RColorBrewer::Paired" )+#"awtools::bpalette")+
+  scale_x_date(expand=c(0,0),
+               limits=c(ymd("2002-01-01",ymd("2019-10-01"))))+
+  scale_y_continuous(expand=c(0,0))+
+  labs(x=NULL,
+       y=expression(paste("Mean NDVI Anom.")))+
+  facet_wrap(~zone,nrow=3)+
+  theme_linedraw()+
+  guides(fill=guide_legend(
+              title=expression(paste("12 month\n Precip\n Reduction (%)")), 
+              legend.position='bottom', 
+              legend.direction='vertical'), 
+    color=guide_legend(title=NULL,
+                       ncol=2,
+                       legend.position='bottom'))+
+  theme(panel.grid = element_blank(), 
+        legend.position = 'bottom',
+        legend.direction = 'vertical',
+        
+        text = element_text(family='AvantGarde'))
+```
+
+
+#### *Is forest vegetation more sensitive to meteorological anomalies*
+
+<br>
+<br>
+  
+## 4. Discussion  
+Most Australian forests and woodlands have experienced a long-term increase in NDVI, and yet pre-fire declines in NDVI were particularly severe and widespread in the dominant Eucalypt forest ecosystems. Here we attempt to reconcile this counter-intuitive.
+
+### 4.1 Drought severity through time  
+The phrase, "The wet gets wetter and the dry gets drier", has become a 'truism' regarding droughts of eastern Australian. The most differentiating quality of recent droughts is the quick acceleration of ever higher maximum air temperatures. 
+
+### 4.2 The dynamics of vegetation drought responses
+There is widespread evidence that dryland ecosystems have experienced greater water use efficiency because of elevated atmospheric CO2, however the contribution to sustained higher vegetation indices is transient and perhaps dwarfed by the co-occuring effects of elevated temperature and vapor pressure deficit.
+
+### 4.3 Forest and woodland decline prior to The Black Summer
+Non-linear declines in NDVI were caused in some locales by breaching thresholds of both VPD and Tmax. This was primarily concentrated in the sub-tropical Eucalypt dominated ecosystems of New South Wales and Victoria. These area were particularly prone to burning during the Black Summer fires (Sep 2019 - Jan 2020). Yet was the fire caused by vegetation responses from the drought during 2019, or was it caused by an accumulation of fuel from prior years? This is unclear. The MODIS LAI product (MCD15A3H) is not highly accurate over Australian woody ecosystems, yet it suggests that a X% reduction was observed during the 2017-2019 period. 
+
+
+## 5. Conclusions
+
+## Acknowledgements 
+## References
+
+Eric Vermote, Chris Justice, Ivan Csiszar, Jeff Eidenshink, Ranga Myneni, Frederic Baret, Ed Masuoka, Robert Wolfe, Martin Claverie and NOAA CDR Program (2014): NOAA Climate Data Record (CDR) of AVHRR Surface Reflectance, Version 4. [indicate subset used]. NOAA National Climatic Data Center.
+
+
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>

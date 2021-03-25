@@ -1139,21 +1139,28 @@ lt_ndvi_co2_p_pet_ppet_epoch %>% as_tibble() %>%
 
 system.time(
   lt_test <-  tmp_ndvi[id%in%vec_ids] %>% #dat_annual %>% #[nobs_annual >= 10] %>%
-    .[,.(beta = list(unname(glm(ndvi_hyb~I(co2-co2_start)+
+    .[,.(beta = list(unname(lm(ndvi_hyb~I(co2-co2_start)+
                                  frac_p_anom+
+                                 I(frac_p_anom**2)+
                                  frac_vpd_anom+
                                  I(frac_vpd_anom**2)+
+                                 frac_ppet_anom+
+                                 I(frac_ppet_anom**2)+
                                  jitter(epoch),
-                                family=Gamma(link='log'),
                                data=.SD)$coefficients))),
       by=.(x,y)] %>%
     .[,`:=`(b0=unlist(beta)[1],
-            b_co2=unlist(beta)[2]
+            b_co2=unlist(beta)[2],
             # b_vpd=unlist(beta)[3],
             # b_pet_anom=unlist(beta)[4],
-            # b_epoch=unlist(beta)[5]
+            b_epoch=unlist(beta)[9]
     ), by=.(x,y)]
 )
+lt_test %>% as_tibble() %>%
+  # filter(between(b0,0.05,1)) %>%
+  # mutate(b2=0) %>%
+  mutate(dNDVI = exp(b0+b_co2*delta_co2+b_epoch)/(exp(b0)) - 1) %>%
+  pull(dNDVI) %>% quantile(., c(0.05,0.5,0.95),na.rm=T)
 
 
 
@@ -1188,3 +1195,51 @@ lt_ndvi_co2_p_pet_ppet_epoch %>%
         legend.title = element_text(size=8),
         legend.position = c(1,1), 
         legend.justification = c(1,1));
+
+
+
+
+tmp_mappet <- unique(dat[,.(x,y,mape)])
+ggplot(data=tmp_mappet,aes(x,y,fill=mape))+
+  geom_tile()+
+  scale_fill_viridis_c(limits=c(0,7))
+
+n4 <- merge(tmp_ndvi,tmp_mappet,by=c("x","y")) %>%
+  .[id%in%vec_ids] %>%
+  .[,`:=`(cco2 = co2-co2_start)] %>% 
+  nls.multstart::nls_multstart(ndvi_hyb ~ 
+                                 Asym-Drop*exp(-exp(lrc)*mape^pwr) + 
+                                 B1*(frac_ppet_anom) + 
+                                 B2*(cco2)+
+                                 B3*(cco2*mape)+
+                                 B4*(frac_vpd_anom)+
+                                 B5*(frac_p_anom),
+                               data = .,
+                               iter = 1,
+                               start_lower = c(Asym=0.0, Drop=0.6,lrc=0,pwr=0,B1=-0.5,B2=0,B3=0,B4=-0.1,B5=-0.1),
+                               start_upper = c(Asym=1, Drop=1,lrc=1,pwr=2,B1=0.5,B2=0.001,B3=0.001,B4=0.1,B5=0.1),
+                               # supp_errors = 'Y',
+                               na.action = na.omit)
+summary(n4)
+
+yardstick::rsq_vec(truth=merge(tmp_ndvi,tmp_mappet,by=c("x","y")) %>%
+                     .[id%in%vec_ids] %>% pull(ndvi_hyb), 
+                   estimate=predict(n4,newdata=merge(tmp_ndvi,tmp_mappet,by=c("x","y")) %>%
+                                      .[id%in%vec_ids]))
+
+junk1 <- tmp_mappet %>% 
+  as_tibble() %>%
+  mutate(frac_ppet_anom=0,frac_vpd_anom=0,frac_p_anom=0,epoch=1,cco2=co2_start) %>% 
+  mutate(pred1 = predict(n4,newdata=.))
+junk2 <- tmp_mappet %>% 
+  as_tibble() %>%
+  mutate(frac_ppet_anom=0,frac_vpd_anom=0,frac_p_anom=0,epoch=1,cco2=co2_end) %>% 
+  mutate(pred2 = predict(n4,newdata=.))
+
+inner_join(junk1,junk2,by=c('x','y')) %>% 
+  mutate(dNDVI = 100*(pred2-pred1)/pred1) %>% 
+  # mutate(dNDVI = exp(b0+b_co2*delta_co2)/(exp(b0)) - 1) %>%
+  pull(dNDVI) %>% quantile(., c(0.05,0.5,0.95),na.rm=T)
+
+inner_join(junk1,junk2,by=c('x','y')) %>% 
+  mutate(dNDVI = (pred2-pred1)/pred1) %>% pull(dNDVI) %>% summary

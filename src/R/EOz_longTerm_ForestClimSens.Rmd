@@ -1,0 +1,58 @@
+---
+title: "Climate disequilibria and regime shifts in Australian forests:  Long-term Climate Sensitivity of Australian Forest lands"
+author: 
+  - Sami W. Rifai^[ARC Centre of Excellence for Climate Extremes, Sydney, NSW 2052, Australia., srifai@gmail.com]
+  - Martin G. De Kauwe^[ARC Centre of Excellence for Climate Extremes, Sydney, NSW 2052, Australia.,]
+  - Many Others^[other places]
+date: "`r format(Sys.time(), '%Y-%m-%d')`"
+output:
+  html_document:
+    df_print: paged
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r Chunk Options, echo=FALSE,eval=TRUE}
+# Some recommended settings. 
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE, 
+  warning = FALSE,
+  fig.pos = 'h',
+  out.extra = "",   # To force the use of figure environment
+  fig.cap = "Please caption every figure"
+)
+```
+## Abstract
+
+* There is a longterm secular upwards shift in NDVI that is most likely associated with CO[2]
+* The NDVI of Australian forests assembles along a saturating curve of Precip:PET. 
+* The response of NDVI to temperature has shifted, where the temperature at which NDVI is highest has increased by 2 degrees since 1983. 
+* No temporal shift in NDVI response to precipitation was found.
+* Vegetation is not only undergoing change, but some vegetation is likely undergoing rapid selection. Landscapes with significant grass coverage are adapting quickly to climate change, whereas tree dominated landscapes are approaching greater disequilibria with climate. 
+* We predict tree dominated ecosystems will lose ground cover to grass dominated ecosystems.
+
+## 1. Introduction  
+
+
+
+### 1.2 Questions 
+1. _What meteorological variables cause decline in NDVI?_
+2. _Which meteorological tipping point thresholds are most likely to be crossed?_
+2. _Have vegetation drought responses changed through time?_  
+It is well established that the large majority of Australian forest and woodland ecosystems respond positively to precipitation, while a few energy limited rainforest regions in coastal northern Queensland, southern Victoria, and Tasmania are energy limited (*e.g.* PET). However long-term increasing trends of vegetation indices have been reported over Australian vegetation (Donohue et al., YYYY; source; source), which has been attributed to increasing atmospheric CO~2~ (C~a~).
+3. _Are there meteorological thresholds
+
+## 2. Methods
+### 2.1 Study region
+### 2.2 Regional climate and data 
+
+## 3. Results  
+
+
+## 4.1 Discussion   
+
+## Acknowledgements 
+## References
+
+<br>

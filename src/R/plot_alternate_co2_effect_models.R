@@ -172,8 +172,8 @@ dat_annual <- dat_annual[is.infinite(frac_ppet_anom)==F]
 dat_annual %>% dim
 
 # dat_annual[frac_ppet_anom==max(frac_ppet_anom)]
-# dat[near(x,147.6157,tol=0.01)&near(y,-42.55769,tol=0.01)] %>% 
-#   ggplot(data=.,aes(date, pe_anom))+
+# dat[near(x,147.6157,tol=0.01)&near(y,-42.55769,tol=0.01)] %>%
+#   ggplot(data=.,aes(date, pe_anom_12mo))+
 #   geom_point()
 
 
@@ -226,10 +226,147 @@ p_vpd_sen <- lt_v_sen %>%
 
 
 # Plot GAM estimate CO2 effect on NDVI -----------------------------------------
+o99 <- bam(ndvi_hyb~
+            te(x,y,by=hydro_year_c)+
+            epoch
+          , 
+          data=dat_annual, 
+          select=T, 
+          discrete=TRUE)
+
+plot(sm(getViz(o99),1))+
+  geom_sf(data=oz_poly, inherit.aes = F, fill='gray50',color='black')+
+  l_fitRaster()+
+  geom_sf(data=oz_poly, inherit.aes = F, fill=NA,color='black')+
+  scale_x_continuous(breaks=seq(140,154,by=5))+
+  coord_sf(xlim = c(140,154),
+           ylim = c(-45,-10), expand = FALSE)+
+  scale_fill_gradient2()
+
+mutate(pred = predict(o0,newdata=.)) %>% 
+  filter(is.na(pred)==F) %>% 
+  select(x,y,e,frac_vpd_anom,pred,co2) %>% 
+  pivot_wider(., names_from=c('e'), values_from=c('pred','co2','frac_vpd_anom')) %>% 
+  mutate(dNDVI = 100*((pred_e2-pred_e1)/pred_e1)) %>% 
+  mutate(d_vpd = frac_vpd_anom_e2 - frac_vpd_anom_e1) %>% 
+  ggplot(data=.,aes(x,y,fill=dNDVI))+
+  geom_tile()+
+  coord_equal()+
+  scale_fill_gradient2()
+
+
+#! not working -----
+o0 <- bam(ndvi_hyb~
+            te(x,y,by=co2)+
+            te(x,y,by=frac_vpd_anom)+
+            te(x,y,by=frac_p_anom)+
+          # s(mavpd15,by=frac_vpd_anom,k=5)+
+          #   s(map,by=frac_p_anom,k=5)+
+            # s(mapet,by=frac_pet_anom,k=5)+
+            # s(mappet,by=frac_ppet_anom,k=5)+
+            epoch
+          , 
+          data=dat_annual[sample(.N,100000)], 
+          method='fREML',
+          select=TRUE, 
+          discrete=F)
+summary(o0)
+getViz(o0) %>% plot(allTerms=T) %>% print(pages=1)
+
+
+dat_annual <- dat_annual %>% mutate(id=paste('x',x,'_','y',y))
+l1 <- lme4::lmer(ndvi_hyb~co2+frac_vpd_anom+frac_p_anom+
+             (co2|id) + (1|id), 
+           data=dat_annual)
+
+
+as.data.table(junk)[is.na(x)==F][is.na(y)==F][is.na(co2)==F] %>% 
+  .[is.na(frac_vpd_anom)==F] %>% 
+  .[is.na(frac_p_anom)==F] %>% 
+  .[is.na(epoch)==F] %>% 
+  drop_na() %>% 
+  mutate(pred=predict(o0,newdata=.))
+  
+
+bind_rows(tibble(pred_vpd_e1) %>% select(x,y,e,frac_vpd_anom), 
+          tibble(pred_vpd_e2) %>% select(x,y,e,frac_vpd_anom)) %>% 
+  inner_join(., tibble(co2=c(340.8,411.9),e=c('e1','e2')), 
+             by=c('e')) %>% 
+  mutate(frac_p_anom=0, 
+         frac_ppet_anom=0,
+         frac_pet_anom=0,
+         # frac_vpd_anom=0,
+         epoch=0) %>%
+  inner_join(., tibble(unique(dat_annual[,.(x,y,map,mapet,mappet,mavpd15)])), by=c('x','y')) %>% 
+  mutate(pred = predict(o0,newdata=.)) %>%   
+  filter(is.na(pred)==F) %>% 
+  select(x,y,e,frac_vpd_anom,pred,co2) %>% 
+  pivot_wider(., names_from=c('e'), values_from=c('pred','co2','frac_vpd_anom')) %>% 
+  mutate(dNDVI = 100*((pred_e2-pred_e1)/pred_e1)) %>% #pull(dNDVI) %>% quantile(.,c(0.05,0.95))
+  mutate(d_vpd = frac_vpd_anom_e2 - frac_vpd_anom_e1) %>% 
+  ggplot(data=.,aes(x,y,fill=dNDVI))+
+  geom_tile()+
+  coord_equal()+
+  scico::scale_fill_scico(palette='bamako',direction = -1,
+                          limits=c(0,15),
+                          oob=scales::squish
+  )
+
 o1 <- bam(ndvi_hyb~
+            te(x,y)+
+            te(x,y,by=co2)+
+            s(frac_p_anom,k=5,bs='cs')+
+            epoch
+          , 
+          data=dat_annual, 
+          select=TRUE, 
+          discrete=TRUE)
+summary(o1)
+
+o2 <- bam(ndvi_hyb~
+            te(x,y)+
+            te(x,y,by=co2)+
+            s(frac_p_anom,k=5,bs='cs')+
+            s(co2,k=5,bs='cs')+
+            
+            epoch
+          , 
+          data=dat_annual, 
+          select=TRUE, 
+          discrete=TRUE)
+summary(o2)
+
+
+o3 <- bam(ndvi_hyb~
+            te(x,y)+
+            te(x,y,by=co2)+
+            s(frac_p_anom,k=5,bs='cs')+
+            s(frac_pet_anom,k=5,bs='cs')+
+            epoch
+          , 
+          data=dat_annual, 
+          select=TRUE, 
+          discrete=TRUE)
+summary(o3)
+
+o4 <- bam(ndvi_hyb~
+            te(x,y)+
+            te(x,y,by=co2)+
+            s(frac_p_anom,k=5,bs='cs')+
+            s(frac_pet_anom,k=5,bs='cs')+
+            te(co2,frac_vpd_anom,k=5,bs='cs')+
+            epoch
+          , 
+          data=dat_annual, 
+          select=TRUE, 
+          discrete=TRUE)
+summary(o4)
+
+
+o2 <- bam(ndvi_hyb~
             te(x,y,by=co2,fx = F)+
             epoch+
-            s(mappet,k=5,bs='cs')+
+            te(mappet,co2,k=5,bs='cs')+
             s(frac_p_anom,k=5,bs='cs')+
             s(frac_ppet_anom,k=5,bs='cs')+
             s(frac_pet_anom,k=5,bs='cs')+
@@ -238,41 +375,89 @@ o1 <- bam(ndvi_hyb~
           data=dat_annual, 
           select=TRUE, 
           discrete=TRUE)
-summary(o1)
-plot(o1,scheme=2)
 
-summary(tmp_ndvi$co2)
+o5 <- bam(ndvi_hyb~
+            epoch+
+            s(mappet,k=5,bs='cs')+
+            # s(co2,k=5,bs='cs')+
+            te(frac_vpd_anom,co2,k=5)+
+            s(frac_p_anom,k=5,bs='cs')+
+            s(frac_ppet_anom,k=5,bs='cs')+
+            s(frac_pet_anom,k=5,bs='cs'), 
+          data=dat_annual, 
+          select=TRUE, 
+          discrete=TRUE)
+summary(o5)
+
+o6 <- bam(ndvi_hyb~
+            epoch+
+            te(mappet, frac_vpd_anom,co2,k=5)+
+            s(frac_p_anom,k=5,bs='cs')+
+            s(frac_ppet_anom,k=5,bs='cs')+
+            s(frac_pet_anom,k=5,bs='cs'), 
+          data=dat_annual, 
+          select=TRUE, 
+          discrete=TRUE)
+summary(o6)
 
 
-norms_vpd <- lt_v_sen[,`:=`(vpd15_0 = b0,
-                            vpd15_1 = b0+16*b1,
-                            vpd15_2 = b0+37*b1)] %>% 
-  .[,`:=`(frac_vpd_anom = (vpd15_1-vpd15_0)/vpd15_1 )]
-ggplot(data=.,aes(x,y,fill=vpd15_1-vpd15_0))+
-  geom_tile()+
+o7 <- bam(ndvi_hyb~
+            epoch+
+            te(mappet,frac_p_anom, frac_vpd_anom,co2,k=5),
+            # s(frac_p_anom,k=5,bs='cs')+
+            # s(frac_ppet_anom,k=5,bs='cs')+
+            # s(frac_pet_anom,k=5,bs='cs'), 
+          data=dat_annual, 
+          select=TRUE, 
+          discrete=TRUE)
+summary(o7)
+
+bbmle::AICtab(o0,o1,o2,o3,o4,o5,o6,o7)
+
+
+library(mgcViz)
+plot(sm(getViz(o1),1))+
+  l_fitRaster()+
   coord_equal()+
   scale_fill_gradient2()
 
 
-expand_grid(norms, tibble(co2=c(341.4,410.9),e=c('e1','e2'))) %>% 
-  filter(mape<=2) %>% 
+pred_vpd_e1 <- merge(unique(dat_annual[,.(x,y,mavpd15)]), lt_v_sen[,.(x,y,b0)], by=c("x","y")) %>% 
+  .[,`:=`(e='e1', 
+          frac_vpd_anom = (b0-mavpd15)/mavpd15)]
+
+pred_vpd_e2 <- lt_v_sen[,`:=`(vpd15_0 = b0,
+                              vpd15_1 = b0+16*b1,
+                              vpd15_2 = b0+37*b1)] %>% 
+  merge(unique(dat_annual[,.(x,y,mavpd15)]), ., by=c("x","y")) %>% 
+  .[,`:=`(frac_vpd_anom = (vpd15_2-mavpd15)/mavpd15, 
+          e='e2')]
+
+
+bind_rows(tibble(pred_vpd_e1) %>% select(x,y,e,frac_vpd_anom), 
+          tibble(pred_vpd_e2) %>% select(x,y,e,frac_vpd_anom)) %>% 
+  inner_join(., tibble(co2=c(340.8,411.9),e=c('e1','e2')), 
+             by=c('e')) %>% 
   mutate(frac_p_anom=0, 
          frac_ppet_anom=0,
          frac_pet_anom=0,
-         frac_vpd_anom=0, 
          epoch=0) %>%
-  filter(is.na(mape)==F) %>% 
-  mutate(pred = predict(o1,newdata=.)) %>% 
+  inner_join(., tibble(unique(dat_annual[,.(x,y,mappet)])), by=c('x','y')) %>% 
+  mutate(pred = predict(o0,newdata=.)) %>% 
   filter(is.na(pred)==F) %>% 
-  pivot_wider(., names_from=c('e'), values_from=c('pred','co2')) %>% 
-  mutate(dNDVI = 100*((pred_e2-pred_e1)/pred_e1)) %>%
-  # filter(dNDVI > 0) %>% 
+  select(x,y,e,frac_vpd_anom,pred,co2) %>% 
+  pivot_wider(., names_from=c('e'), values_from=c('pred','co2','frac_vpd_anom')) %>% 
+  mutate(dNDVI = 100*((pred_e2-pred_e1)/pred_e1)) %>% 
+  mutate(d_vpd = frac_vpd_anom_e2 - frac_vpd_anom_e1) %>% 
   ggplot(data=.,aes(x,y,fill=dNDVI))+
   geom_tile()+
   coord_equal()+
-  scale_fill_viridis_c(option='B',
-                       limits=c(0,17),
-                       oob=scales::squish)
+  scico::scale_fill_scico(palette='bamako',direction = -1, 
+                          limits=c(0,20), oob=scales::squish
+                          )
+  # scale_fill_viridis_c(option='B',
+  #                      # limits=c(0,17),
+  #                      oob=scales::squish)
 
 
 

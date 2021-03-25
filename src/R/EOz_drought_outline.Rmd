@@ -5,23 +5,44 @@ date: "`r format(Sys.time(), '%Y-%m-%d')`"
 output:
   html_document:
     df_print: paged
+editor_options: 
+  chunk_output_type: console
 ---
 
 ```{r echo=FALSE}
 # Some recommended settings. 
 knitr::opts_chunk$set(
   echo = FALSE,
+  message = FALSE, 
+  warning = FALSE,
   fig.pos = 'h',
-  out.extra = "",   # To force the use of figure enviroment
+  out.extra = "",   # To force the use of figure environment
   fig.cap = "Please caption every figure"
 )
 ```
+```{r order of processing, echo=FALSE, eval=FALSE}
+# source("src/R/template_fast_extract.R")
+# source("src/R/template_fast_calc_anoms.R")
+# source("src/R/template_fast_calc_lagMatrix.R")
+```
+
+
 ```{r echo=FALSE, eval=TRUE, warning=FALSE, message=FALSE}
-library(tidyverse)
+library(tidyverse); library(sf)
+oz_poly <- sf::read_sf("../data_general/GADM/gadm36_AUS.gpkg", 
+                   layer="gadm36_AUS_1")
+oz_poly <- st_as_sf(oz_poly)
+
+# plot(oz_poly)
 ```
 
 
 ```{r eval=TRUE, echo=FALSE, warning=FALSE, message=FALSE}
+# Description: Calculate the climatology and meteorological anomalies quickly
+# with the data.frame package. Considerable RAM is required. 
+# Description: Calculate the climatology and meteorological anomalies quickly
+# with the data.frame package. Considerable RAM is required. 
+
 library(arrow)
 library(tidyverse); library(lubridate);
 library(data.table)
@@ -30,12 +51,22 @@ setDTthreads(threads=8)
 #*******************************************************************************
 # Get data  ---------------------------------------------------------
 #*******************************************************************************
-tmp <- arrow::read_parquet("/home/sami/srifai@gmail.com/work/research//data_general/Oz_misc_data/ARD_nirv_aclim_2020-04-18.parquet", 
-)
+tmp <- arrow::read_parquet("/home/sami/srifai@gmail.com/work/research/data_general/Oz_misc_data/ARD_nirv_aclim_2020-04-27.parquet")
 
 # data.table 
 tmp <- setDT(tmp) # OR: tmp <- as.data.table(tmp)
 tmp <- tmp %>% rename(x=x_vi, y=y_vi)
+tmp <- tmp[, pet:=ifelse(pet<50,50,pet)]
+tmp <- tmp[, id := .GRP, by=.(x,y)]
+
+# Subsetting to just one type of vegetation class
+# tmp_vc <- tmp[date==ymd("2000-01-01"),.(x,y,vc)]
+# vec_vc <- unique(tmp$vc) %>% sort
+# tmp_vc <- tmp_vc[vc=="Eucalypt Open Forests"]
+# tmp <- tmp[tmp_vc,on=.(x,y)] # subset to just the selected vegetation class
+#*******************************************************************************
+#* END SECTION
+#*******************************************************************************
 
 #*******************************************************************************
 # Calculate Climatology --------------------------------------------------------
@@ -45,20 +76,24 @@ tmp <- tmp[, `:=`(month = month(date))] # create month
 tmp <- tmp[, `:=`(year = year(date))]   # create year
 tmp <- tmp[,`:=`("pe" = precip/pet)]
 norms_nirv <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
-                  .("nirv_u" = mean(nirv), 
-                    "nirv_sd" = sd(nirv)),
+                  .("nirv_u" = mean(nirv,na.rm=TRUE), 
+                    "nirv_sd" = sd(nirv,na.rm=TRUE)),
                   by=.(x,y,month)] # joining on x,y,month
 norms_p <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
-               .("precip_u" = mean(precip), 
-                 "precip_sd" = sd(precip)),
+               .("precip_u" = mean(precip,na.rm=TRUE), 
+                 "precip_sd" = sd(precip,na.rm=TRUE)),
                by=.(x,y,month)]
 norms_pet <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
-                 .(pet_u = mean(pet), 
-                   pet_sd = sd(pet)),
+                 .(pet_u = mean(pet,na.rm=TRUE), 
+                   pet_sd = sd(pet,na.rm=TRUE)),
                  by=.(x,y,month)]
 norms_pe <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
-                .(pe_u = mean(pe), 
-                  pe_sd = sd(pe)),
+                .(pe_u = mean(pe,na.rm=TRUE), 
+                  pe_sd = sd(pe,na.rm=TRUE)),
+                by=.(x,y,month)]
+norms_tmax <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
+                .(tmax_u = mean(tmax,na.rm=TRUE), 
+                  tmax_sd = sd(tmax,na.rm=TRUE)),
                 by=.(x,y,month)]
 
 norms_map <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
@@ -70,13 +105,14 @@ norms_mapet <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to 
                    by=.(x,y,year)][,.("mapet"=mean(apet), 
                                       "apet_sd"=sd(apet)),by=.(x,y)]
 norms_mape <- tmp[date>=ymd('1982-01-01')&date<=ymd("2011-12-31"), # filter to ref period
-                  .("ape" = sum(pe)),
+                  .("ape" = mean(pe)),
                   by=.(x,y,year)][,.("mape"=mean(ape), 
                                      "ape_sd"=sd(ape)),by=.(x,y)]
 
 # join all the data frames ***
 norms <- norms_p[norms_pet, on=.(x,y,month)] # join data.tables
 norms <- norms[norms_pe, on=.(x,y,month)] # join data.tables
+norms <- norms[norms_tmax, on=.(x,y,month)] # join data.tables
 norms <- norms[norms_map, on=.(x,y)]
 norms <- norms[norms_mapet, on=.(x,y)]
 norms <- norms[norms_mape, on=.(x,y)]
@@ -92,11 +128,13 @@ tmp <- norms[tmp, on=.(x,y,month)]
 tmp <- tmp[, `:=`(nirv_anom = nirv - nirv_u, 
                   precip_anom = precip-precip_u,  # calc raw anomaly 
                   pet_anom = pet-pet_u, 
-                  pe_anom = pe-pe_u)]
+                  pe_anom = pe-pe_u, 
+                  tmax_anom = tmax-tmax_u)]
 tmp <- tmp[, `:=`(nirv_anom_sd = nirv_anom/nirv_sd,
                   precip_anom_sd = precip_anom/precip_sd,  # calc sd anomaly 
                   pet_anom_sd = pet_anom/pet_sd, 
-                  pe_anom_sd = pe_anom/pe_sd)]
+                  pe_anom_sd = pe_anom/pe_sd, 
+                  tmax_anom_sd = tmax_anom/tmax_sd)]
 #*******************************************************************************
 #* END SECTION
 #*******************************************************************************
@@ -109,6 +147,8 @@ tmp <- tmp[order(x,y,date)][, nirv_12mo := frollmean(nirv,n = 12,fill = NA,align
 tmp <- tmp[order(x,y,date)][, precip_12mo := frollsum(precip,n = 12,fill = NA,align='right'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, pet_12mo := frollsum(pet,n = 12,fill = NA,align='right'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, pe_12mo := frollsum(pe,n = 12,fill = NA,align='right'), by=.(x,y)]
+tmp <- tmp[order(x,y,date)][, tmax_anom_12mo := frollapply(tmax_anom,FUN=max,
+                                                           n = 12,fill = NA,align='right'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, nirv_anom_12mo := frollmean(nirv_anom,n = 12,fill = NA,align='right'), by=.(x,y)]
 
 # rolling 2 year sums
@@ -147,9 +187,34 @@ tmp <- tmp[, `:=`(pe_anom_48mo = pe_48mo-4*mape)]
 #* END SECTION
 #*******************************************************************************
 
-```
 
-```{r}
+#*******************************************************************************
+#* Add season and hydro year -----
+#*******************************************************************************
+vec_dates <- data.table(date=sort(unique(tmp$date))) %>% 
+  .[,quarter:=quarter(date)] %>% 
+  mutate(q = case_when(quarter==1~"DJF",
+                       quarter==2~"MAM",
+                       quarter==3~"JJA",
+                       quarter==4~"SON")) %>% 
+  mutate(season = factor(q,
+                         levels=c("DJF","MAM","JJA","SON"), 
+                         ordered=T)) %>% 
+  select(date,season) %>% 
+  mutate(hydro_year = year(date+months(1)))
+
+tmp <- tmp[vec_dates,on=.(date)]
+#*******************************************************************************
+#* END SECTION
+#*******************************************************************************
+
+
+
+
+```
+<br>
+<br>
+```{r echo=FALSE, eval=TRUE}
 # variables to be used inline with the manuscript text
 range_map <- tmp$map %>% na.omit() %>% range() %>% round(., -1)
 range_pet <- tmp$mapet %>% na.omit() %>% range() %>% round(., -1)
@@ -159,17 +224,21 @@ range_pet <- tmp$mapet %>% na.omit() %>% range() %>% round(., -1)
 
 ## 1. Introduction
 
-Australia has a long history of severe droughts spanning multiple years. Droughts such as the Federation drought, the WWII drought, and the Millennium drought spanned years, caused widespread agricultural collapse, and led to increased bushfires. 
+Australia has a long history of severe droughts spanning multiple years. Droughts such as the Federation drought, the WWII drought, and the Millennium drought spanned years, caused widespread agricultural collapse, and led to increased bushfires. The drought from 2017-2019 produced an unprecedented bushfire season dubbed "The Black Summer" where XYZ ha burned and enough smoke was produced to reach Argentina. Prior to the fires, widespread leaf abscission is most likely to have acted as a precursor to produce the fuel layer for the 2019 bushfires. 
 
+Prior to the drought of 2017-2019, the Millennium Drought had been the worst Australian drought in methodologically observed record (van Dijk et al., 2013). However unlike the 2017-2019 drought, the Millennium Drought did not produce bushfires comparable in scale to those of the Black Summer. Here we ask what happened to Australian forests and woodlands in the 2017-2019 drought, that did not happen in prior observed severe droughts?
+
+It is pertinent to note that Australian trees are extraordinarily well adapted to drought. Australian trees exist across extensive climate gradient from energy limited tropical and temperate rainforests to water limited woodlands of the interior. The vast majority of Australian forests and woodlands are water limited, which is true even for the tall Eucalyptus dominated forests of the eastern coast (source; Givnish?). A key determinant of where and what trees can grow is the balance between precipitation (P) and potential evapotranspiration (PET). The ratio of P:PET and similar variants are routed in Budkyo's energy limitation framework (source) where actual evapotranspiration is predominantly ultimately limited by solar radiation or precipitation. Temperate and tropical rainforests dominate the forested regions of eastern Australia where P:PET is less than 1. 
+
+The Australian forest and woodland landscape is not only dominated by PET, but the distribution of P has unusually high interannual variability owing to strong teleconnections with sea surface temperature anomalies (source).  
+
+Despite the unusual drought adapted resilliance of Australian trees, widespread tree mortality was reported during the 2017-2019 drought (Dead tree detective link). 
 - Donohue et al., 2009  
 - Budyko energy limitation framework  
 - The rate of climate change in eastern Australia  
 
-Prior to the drought of 2017-2019, the Millennium Drought had been the worst Australian drought in methodologically observed record (van Dijk et al., 2013).
 
-Australian trees span an extensive climate gradient. A key determinant of where and what trees can grow is the balance between precipitation (P) and potential evapotranspiration (PET). The ratio of P:PET and similar variants are routed in Budkyo's energy limitation framework (source) where actual evapotranspiration is predominantly ultimately limited by solar radiation or precipitation. Temperate and tropical rainforests dominate the forested regions of eastern Australia where P:PET is less than 1. 
 
-Eastern coastal Australia holds the largest share of tree covered landscapes in Australia yet it is still largely water limited (source).
 
 Questions:  
 1. Has meteorological drought severity changed through time?  
@@ -180,39 +249,692 @@ Questions:
 ### 2.1 Study region
 We focus on eastern Australian vegetation containing trees. Specifically we use the National Vegetation Information System (NVIS) major classes to subset eastern Australia into the focal study regions. These classes are predominantly dominated by trees in the Acacia, Callitris, Casuarina, Eucalyptus, Mallee, Melaleuca genera. 
 
+```{r eval=TRUE, echo=FALSE, fig.cap="NVIS Major Vegetation Classes that contain trees."}
+f1_theme <- theme(panel.background = element_rect(fill = '#99A3C4'), 
+                  panel.grid = element_blank(), 
+                  legend.position = 'bottom', 
+                  axis.text = element_blank(), 
+                  axis.ticks = element_blank())
+
+p_vc <- tmp[date==ymd("2000-01-01")] %>% 
+  as_tibble() %>% 
+  ggplot(data=., aes(x,y,fill=vc))+
+  geom_sf(data=oz_poly, inherit.aes = F)+
+  geom_tile()+
+  scale_fill_viridis_d("NVIS 5.1 Vegetation Class",
+    option='B')+
+  labs(x=NULL,y=NULL)+
+  coord_sf(xlim = c(140,154),
+           ylim = c(-45,-10), expand = FALSE)+
+  f1_theme+
+  theme(legend.position = 'left')
+p_vc
+```
+
+```{r eval=TRUE, echo=FALSE, warning=F, message=F, fig.width=10, fig.height=8, dpi=300, fig.cap="Mean Annual NIR-V"}
+library(patchwork)
+f1_theme <- theme(panel.background = element_rect(fill = '#99A3C4'), 
+                  panel.grid = element_blank(), 
+                  legend.position = 'bottom', 
+                  axis.text = element_blank(), 
+                  axis.ticks = element_blank())
+
+# Mean Annual NIR-V 
+p_nirv_u <- tmp[date>=ymd("1982-01-01") & date<= ymd("2011-12-31")] %>% 
+  .[,.(nirv=mean(nirv,na.rm = TRUE)),by=.(x,y)] %>% 
+  as_tibble() %>% 
+  ggplot(data=., aes(x,y,fill=nirv))+
+  geom_sf(data=oz_poly, inherit.aes = F)+
+  geom_tile()+
+  scale_fill_gradientn("",
+                       colors = rev(c("#134940", "#175c42", "#19713e", "#1b8531", "#1e9a1d", "#4fa939", "#7cb856", "#a3c674", "#c3d492", "#dee1b0", "#ede9cf")),
+                       # limits=c(0,0.25),
+                       oob=scales::squish)+
+  labs(x=NULL,y=NULL,title = expression(paste("Mean Annual ",NIR[V])))+
+  coord_sf(xlim = c(140,154),
+           ylim = c(-45,-10), expand = FALSE)+
+  f1_theme
+
+p_nirv_amp <- tmp[date>=ymd("2000-01-01") & date<= ymd("2000-12-31")] %>%
+  .[is.na(nirv_u)==F] %>% 
+  .[,.(nirv_max=max(nirv_u,na.rm = TRUE), 
+       nirv_min=min(nirv_u,na.rm=TRUE)),by=.(x,y)] %>% 
+  as_tibble() %>% 
+  ggplot(data=., aes(x,y,fill=nirv_max-nirv_min))+
+  geom_sf(data=oz_poly, inherit.aes = F)+
+  geom_tile()+
+  scale_fill_viridis_c("",
+    option='A',limits=c(0,0.15),oob=scales::squish)+
+  # scale_fill_gradientn("",
+  #                      colors = rev(c("#134940", "#175c42", "#19713e", "#1b8531", "#1e9a1d", "#4fa939", "#7cb856", "#a3c674", "#c3d492", "#dee1b0", "#ede9cf")),
+  #                      # limits=c(0,0.25),
+  #                      oob=scales::squish)+
+  labs(x=NULL,y=NULL,title = expression(paste(NIR[V]~Amplitude)))+
+  coord_sf(xlim = c(140,154),
+           ylim = c(-45,-10), expand = FALSE)+
+  f1_theme
+
+p_nirv_u+p_nirv_amp+plot_layout(nrow=1)
+```
+
+
 ### 2.2 Regional climate 
 The study region spans a vast gradient in mean annual precipitation (`r round(range_map[1],)` - `r round(range_map[2],)` mm yr^-1) and mean annual potential evapotranspiration (`r round(range_pet[1],)` - `r round(range_pet[2],)` mm yr^-1). 
 <br>
 <br>
 <br>
-NVIS Major Vegetation Classes that contain trees.
-```{r eval=TRUE, echo=FALSE, fig.cap="Blah Blah ;lajdf;lkadjf;ldkajfd;lkjdaf;lkdja;lfdkjalfd;jadljfda;lkjfdlakjf;lkdaj"}
-f1_theme <- theme(panel.background = element_rect(fill = 'gray30'), 
+
+```{r eval=TRUE, echo=FALSE, warning=F, message=F, fig.width=10, fig.height=8, dpi=300, fig.cap="Mean Annual Climate of Forests and Woodlands"}
+library(patchwork)
+f1_theme <- theme(panel.background = element_rect(fill = '#99A3C4'), 
                   panel.grid = element_blank(), 
                   legend.position = 'bottom', 
-                  axis.text = element_blank())
-p_vc <- tmp[date==ymd("2000-01-01")] %>% 
-  as_tibble() %>% 
-  ggplot(data=., aes(x,y,fill=vc))+
-  geom_tile()+
-  coord_equal()+
-  scale_fill_viridis_d(
-    # expression(paste("Tmax",degree*C)),
-    option='B')+
-  labs(x=NULL,y=NULL)+
-  scale_x_continuous(expand=c(0,0))+
-  scale_y_continuous(expand=c(0.01,0.01))+
-  f1_theme+
-  theme(legend.position = 'left')
-p_vc
-```
-\caption{Caption here}
+                  axis.text = element_blank(), 
+                  axis.ticks = element_blank())
 
+p_p <- tmp[date==ymd("2000-01-01")] %>% 
+  as_tibble() %>% 
+  ggplot(data=., aes(x,y,fill=map))+
+  geom_sf(data=oz_poly, inherit.aes = F)+
+  geom_tile()+
+  coord_sf()+
+  scale_fill_viridis_c(expression(paste(mm~yr**-1)),
+                       limits=c(100,3000),oob=scales::squish,
+    option='D', direction = -1)+
+  labs(x=NULL,y=NULL,title='P')+
+  coord_sf(xlim = c(140,154),
+           ylim = c(-45,-10), expand = FALSE)+
+  f1_theme
+
+p_pet <- tmp[date==ymd("2000-01-01")] %>% 
+  as_tibble() %>% 
+  ggplot(data=., aes(x,y,fill=mapet))+
+  geom_sf(data=oz_poly, inherit.aes = F)+
+  geom_tile()+
+  coord_sf()+
+  scale_fill_viridis_c(expression(paste(mm~yr**-1)),
+                       limits=c(500,2500),oob=scales::squish,
+    option='B')+
+  labs(x=NULL,y=NULL,title="PET")+
+  coord_sf(xlim = c(140,154),
+           ylim = c(-45,-10), expand = FALSE)+
+  f1_theme
+
+p_pe <- tmp[date==ymd("2000-01-01")] %>% 
+  ggplot(data=., aes(x,y,fill=mape))+
+  geom_sf(data=oz_poly, inherit.aes = F)+
+  geom_tile()+
+  coord_sf()+
+  scale_fill_viridis_c("",
+                       limits=c(0,2.5),
+                       oob=scales::squish,
+    option='E', direction = -1)+
+  labs(x=NULL,y=NULL,title = 'P:PET')+
+  coord_sf(xlim = c(140,154),
+           ylim = c(-45,-10), expand = FALSE)+
+  f1_theme
+
+
+p_p+p_pet+p_pe+patchwork::plot_layout(nrow=1)
+```
+
+### 2.3 Models
+We examined the effects of P, PET, and P:PET upon $NIR_{V}$ by using generalized additive models (Wood 2017). 
+$$NIR_{V_{i}} = \beta_0 + f_1(P_i) + f_2(PET_i) + \epsilon_i$$
+Where $\epsilon$ is assumed to be identically and independently distributed $\epsilon \sim N(0,\sigma^2)$. $f_1$ and $f_2$ represent smoothing functions that approximate a sequence of basis functions $$f(x) = \sum_{j = 1}^{J} b_{j}(x)\beta_{j}$$ (Wood 2017). The smoothing functions are penalized by a $\lambda$ term to maximize the log-likelihood. To further minimize the potential for overfitting the smoothing functions we specify a maximum number of basis functions for the smoothing function to approximate. Further detail behind the theory of generalized additive models can be found in Wood (2017). 
+<br> 
 
 ## 3. Results
-Question 1: Has meteorological drought severity changed through time?  
-Question 2: Have vegetation drought responses changed through time?  
-Question 3: Why did forest vegetation respond more to the 2017-2019 drought leading to the "Black Summer" than prior droughts of similar severity?  
+### Question 1: _Has meteorological drought severity changed through time?_
+```{r echo=FALSE}
+tmp[year %in% c(1992, 2003, 2018,2019)] %>% 
+  .[month == 11] %>%
+  # .[id %in% sample.int(60000,1e3)] %>% 
+  .[,`:=`(lat = cut(y, breaks=seq(-40,-10,by=5), 
+                    # labels = 'a',  
+                    include.lowest = T, ordered_result = T), 
+          lon = cut(x, breaks=seq(135,155,by=5),
+                    include.lowest = T, ordered_result = T))] %>% 
+  .[,.(precip_anom_12mo = mean(precip_anom_12mo,na.rm=TRUE), 
+       pet_anom_12mo = mean(pet_anom_12mo,na.rm=TRUE), 
+       tmax_anom_12mo = mean(tmax_anom_12mo, na.rm=TRUE), 
+       p_05 = quantile(precip_anom_12mo ,0.05,na.rm=TRUE), 
+       p_95 = quantile(precip_anom_12mo, 0.95,na.rm=TRUE),
+       tmax_05 = quantile(tmax_anom_12mo ,0.05,na.rm=TRUE), 
+       tmax_95 = quantile(tmax_anom_12mo, 0.95,na.rm=TRUE)),
+    by=.(year)] %>% 
+  as_tibble() %>% 
+  # filter(is.na(lat)==F) %>% 
+  ggplot(data=., aes(precip_anom_12mo, tmax_anom_12mo,
+                     color=as.factor(year)))+
+  geom_hline(aes(yintercept=0),color='gray')+
+  geom_vline(aes(xintercept=0),color='gray')+
+  geom_point(alpha=0.4,fill=NA)+
+  geom_errorbar(aes(xmin=p_05, 
+                    xmax=p_95))+
+  geom_errorbar(aes( 
+    ymin=tmax_05, 
+    ymax=tmax_95))+
+  geom_path(inherit.aes = F,
+            aes(precip_anom_12mo,
+                tmax_anom_12mo),
+            alpha=0.5,lty=1,lwd=0.3)+
+  scale_color_viridis_d("", 
+                        end=0.8, option='A', direction = -1)+
+  # facet_grid(as.factor(lat)~as.factor(lon), drop = TRUE)+
+  labs(x=expression(paste("Precip. Anomaly"["12-month"]~(mm~yr**-1))), 
+       y=expression(paste("Max. Monthly Temp. Anom."~(degree*C))))+
+  theme_linedraw()+
+  theme(panel.grid = element_blank(), 
+        legend.position = c(0.1,0.8), 
+        legend.key = element_rect(fill='transparent'),
+        legend.background = element_rect(fill='transparent')
+        # panel.background = element_rect(fill='#EEEEFF')
+        )
 
+```
+
+<br>
+### Question 2: _Have vegetation drought responses changed through time?_  
+
+```{r fig.cap="Long-term", message=FALSE, warning=FALSE}
+#*******************************************************************************
+library(RcppArmadillo)
+system.time(
+  lt_season <- tmp[nirv_anom_sd >= -3.5 & nirv_anom_sd <= 3.5] %>% 
+    .[,.(val = mean(nirv, na.rm=TRUE)), by=.(x,y,season,year)] %>% 
+    .[,.(b1 = fastLm(X = year, y = val, data=.SD)$coefficients), 
+      by=.(x,y,season)]
+)
+
+source("src/R/helper_funs_Oz_droughts.R")
+
+library(sf)
+oz_poly <- sf::read_sf("../data_general/GADM/gadm36_AUS.gpkg", 
+                       layer="gadm36_AUS_1")
+oz_poly <- st_as_sf(oz_poly)
+oz_poly <- st_simplify(oz_poly,dTolerance = 0.05)
+
+
+map_theme <- theme(panel.background = element_rect(fill = '#99A3C4'), 
+                  panel.grid = element_blank(), 
+                  legend.position = 'bottom', 
+                  axis.text = element_blank(), 
+                  axis.ticks = element_blank())
+
+vec_col <- RColorBrewer::brewer.pal(n=11, name='BrBG')
+lt_season %>% 
+ ggplot(data=., aes(x,y,fill=b1))+
+  geom_sf(inherit.aes = F, data=oz_poly,fill='gray70',color='gray10')+
+  geom_tile()+
+  scale_fill_viridis_c(expression(paste(Delta*NIR[V]~yr^-1)),
+                       option='D',direction = 1,
+                       limits=c(-0.00001,0.00015),
+                       oob=scales::squish, na.value = 'red')+
+  labs(x=NULL,y=NULL)+
+  coord_sf(xlim = c(140,154),
+           ylim = c(-45,-10), expand = FALSE)+
+  facet_wrap(~season, nrow = 1)+
+  map_theme+
+  theme(legend.position = 'bottom')
+#*******************************************************************************
+```
+<br>
+<br> 
+
+```{r NIRV Time Decay Figures, eval=FALSE, echo=FALSE, warning=FALSE, message=FALSE}
+library(tidyverse); library(lubridate)
+library(data.table); 
+library(mgcv); library(mgcViz)
+setDTthreads(threads=10)
+
+# Get data 
+source("src/R/template_fast_calc_anoms.R")
+
+
+# Process lags 
+# source("src/R/template_fast_calc_lagMatrix.R")
+fn_proc <- function(tmp,n_lags=13){
+  library(tidyverse); library(lubridate);
+  library(data.table)
+  gc(reset = T, full = T)  
+
+  
+  #!!! The following is for for a form of lagged variable GAM where the lagged
+  # covariates are organized into matrices. 
+  # This can/will def blow up the memory... even 64 GB...  
+  #*******************************************************************************
+  # Cast the variables to lagged matrices -----------------------------------
+  #*******************************************************************************
+  # Because this is so memory intensive I'm subsetting in time
+  tmp <- tmp[date >= ymd("1978-01-01")]
+  
+  # precip anom lags
+  gc(reset = TRUE,full=T)
+  mat_p <- tmp[,.(x,y,date,precip_anom)][order(x,y,date), c(paste0("precip_anom_",1:n_lags)) := shift(precip_anom, 1:n_lags) , .(x,y)][order(date)]
+  mat_p <- mat_p %>% rename(precip_anom_0 = precip_anom) %>% select(-x,-y,-date)
+  gc(verbose = T, reset = T, full = T)
+  
+  # pet anom lags
+  gc(reset = TRUE,full=T)
+  mat_pet <- tmp[,.(x,y,date,pet_anom)][order(x,y,date), c(paste0("pet_anom_",1:n_lags)) := shift(pet_anom, 1:n_lags) , .(x,y)][order(date)]
+  mat_pet <- mat_pet %>% rename(pet_anom_0 = pet_anom) %>% select(-x,-y,-date)
+  gc(verbose = T, reset = T, full = T)
+  
+  # P:PET anom lags
+  mat_pe <- tmp[,.(x,y,date,pe_anom)][order(x,y,date), c(paste0("pe_anom_",1:n_lags)) := shift(pe_anom, 1:n_lags) , .(x,y)][order(date)]
+  mat_pe <- mat_pe %>% rename(pe_anom_0 = pe_anom) %>% select(-x,-y,-date)
+  gc(verbose = T, reset = T, full = T)
+  
+  
+  lag_n <- 0:n_lags ## create time lag matrix...
+  
+  tmp_mat <- t(matrix(lag_n,length(lag_n),length(tmp$x)))
+  tmp <- as_tibble(tmp)
+  tmp$lag_month <- tmp_mat # lag index is needed for GAM
+
+  tmp$lag_precip_anom <- as.matrix(mat_p)
+  rm(mat_p); gc()
+  tmp$lag_pet_anom <- as.matrix(mat_pet)
+  rm(mat_pet); gc()
+  tmp$lag_pe_anom <- as.matrix(mat_pe)
+  rm(mat_pe); gc()
+  
+
+  #*******************************************************************************
+  #* END SECTION
+  #*******************************************************************************
+  return(tmp)
+}
+
+tmp1 <- fn_proc(tmp, n_lags = 13)
+
+
+
+
+
+# P + PET + P:PET model ---------------------------------------------------
+library(mgcv); library(mgcViz)
+library(parallel)  
+nc <- 6
+if (detectCores()>1) { ## no point otherwise
+  cl <- makeCluster(nc) 
+  ## could also use makeForkCluster, but read warnings first!
+} else cl <- NULLs
+library(mgcv); library(mgcViz)
+fit_son <- bam(nirv_anom_sd ~ 
+                 s(vc,bs='re')+
+                 s(lag_month,by=lag_precip_anom, bs='gp',k=5)+
+                 s(lag_month,by=lag_pet_anom, bs='gp',k=5)+
+                 s(lag_month,by=lag_pe_anom, bs='gp',k=5),
+               data=tmp1 %>% #filter(season=='SON') %>% 
+                 sample_n(50000) %>% 
+                 filter(between(nirv_anom_sd,-3.5,3.5)), 
+               select=T, method='fREML', discrete = T, nthreads = 6)
+fit_djf <- bam(nirv_anom_sd ~ 
+                 s(vc,bs='re')+
+                 s(lag_month,by=lag_precip_anom, bs='gp',k=5)+
+                 s(lag_month,by=lag_pet_anom, bs='gp',k=5)+
+                 s(lag_month,by=lag_pe_anom, bs='gp',k=5),
+               data=tmp1 %>% filter(season=='DJF') %>% sample_n(50000) %>% 
+                 filter(between(nirv_anom_sd,-3.5,3.5)), 
+               select=T, method='fREML', discrete = T, nthreads = 6)
+fit_mam <- bam(nirv_anom_sd ~ 
+                 s(vc,bs='re')+
+                 s(lag_month,by=lag_precip_anom, bs='gp',k=5)+
+                 s(lag_month,by=lag_pet_anom, bs='gp',k=5)+
+                 s(lag_month,by=lag_pe_anom, bs='gp',k=5),
+               data=tmp1 %>% filter(season=='MAM') %>% sample_n(50000) %>% 
+                 filter(between(nirv_anom_sd,-3.5,3.5)), 
+               select=T, method='fREML', discrete = T, nthreads = 6)
+fit_jja <- bam(nirv_anom_sd ~ 
+                 s(vc,bs='re')+
+                 s(lag_month,by=lag_precip_anom, bs='gp',k=5)+
+                 s(lag_month,by=lag_pet_anom, bs='gp',k=5)+
+                 s(lag_month,by=lag_pe_anom, bs='gp',k=5)
+               ,
+               data=tmp1 %>% filter(season=='JJA') %>% sample_n(50000) %>% 
+                 filter(between(nirv_anom_sd,-3.5,3.5)), 
+               select=T, method='fREML', discrete = T, nthreads = 6)
+summary(fit_son); summary(fit_djf); summary(fit_mam); summary(fit_jja)
+
+par(mfrow=c(2,2))
+plot(fit_son,rug=F,shade=T, select = 2, scale=0, 
+     xlab="lag month",ylab=expression(paste(beta~Precip)), 
+     main="SON");abline(h=0,col='red',lty=3)
+plot(fit_djf,rug=F,shade=T, select = 2, scale=0, 
+     xlab="lag month",ylab=expression(paste(beta~Precip)), 
+     main="DJF");abline(h=0,col='red',lty=3)
+plot(fit_mam,rug=F,shade=T, select = 2, scale=0, 
+     xlab="lag month",ylab=expression(paste(beta~Precip)), 
+     main="MAM");abline(h=0,col='red',lty=3)
+plot(fit_jja,rug=F,shade=T, select = 2, scale=0, 
+     xlab="lag month",ylab=expression(paste(beta~Precip)), 
+     main="JJA");abline(h=0,col='red',lty=3)
+sm(getViz(fit_son),2) %>% plot
+
+p1 <- plot(sm(getViz(fit_son),2))+
+  l_ciPoly() + 
+  l_fitLine() + geom_hline(yintercept = 0, linetype = 2)+
+  scale_x_continuous(expand=c(0,0), breaks = seq(0,12,length.out = 7))+
+  scale_y_continuous(limits=c(-0.004,0.008))+
+  labs(x="Lag Month",y=expression(paste(beta~Precip)),title="SON")
+p2 <- plot(sm(getViz(fit_djf),2))+
+  l_ciPoly() + 
+  l_fitLine() + geom_hline(yintercept = 0, linetype = 2)+
+  scale_x_continuous(expand=c(0,0), breaks = seq(0,12,length.out = 7))+
+  scale_y_continuous(limits=c(-0.004,0.008))+
+  labs(x="Lag Month",y=expression(paste(beta~Precip)),title="DJF")
+p3 <- plot(sm(getViz(fit_mam),2))+
+  l_ciPoly() + 
+  l_fitLine() + geom_hline(yintercept = 0, linetype = 2)+
+  scale_x_continuous(expand=c(0,0), breaks = seq(0,12,length.out = 7))+
+  scale_y_continuous(limits=c(-0.004,0.008))+
+  labs(x="Lag Month",y=expression(paste(beta~Precip)),title="MAM")
+p4 <- plot(sm(getViz(fit_jja),2))+
+  l_ciPoly() + 
+  l_fitLine() + geom_hline(yintercept = 0, linetype = 2)+
+  scale_x_continuous(expand=c(0,0), breaks = seq(0,12,length.out = 7))+
+  scale_y_continuous(limits=c(-0.004,0.008))+
+  labs(x="Lag Month",y=expression(paste(beta~Precip)),title="JJA")
+pet1 <- plot(sm(getViz(fit_son),3))+
+  l_ciPoly() + 
+  l_fitLine() + geom_hline(yintercept = 0, linetype = 2)+
+  scale_x_continuous(expand=c(0,0), breaks = seq(0,12,length.out = 7))+
+  scale_y_continuous(limits=c(-0.007,0.0035))+  
+  labs(x="Lag Month",y=expression(paste(beta~PET)),title="SON")
+pet2 <- plot(sm(getViz(fit_djf),3))+
+  l_ciPoly() + 
+  l_fitLine() + geom_hline(yintercept = 0, linetype = 2)+
+  scale_x_continuous(expand=c(0,0), breaks = seq(0,12,length.out = 7))+
+  scale_y_continuous(limits=c(-0.007,0.0035))+  
+  labs(x="Lag Month",y=expression(paste(beta~PET)),title="DJF")
+pet3 <- plot(sm(getViz(fit_mam),3))+
+  l_ciPoly() + 
+  l_fitLine() + geom_hline(yintercept = 0, linetype = 2)+
+  scale_x_continuous(expand=c(0,0), breaks = seq(0,12,length.out = 7))+
+  scale_y_continuous(limits=c(-0.007,0.0035))+  
+  labs(x="Lag Month",y=expression(paste(beta~PET)),title="MAM")
+pet4 <- plot(sm(getViz(fit_jja),3))+
+  l_ciPoly() + 
+  l_fitLine() + geom_hline(yintercept = 0, linetype = 2)+
+  scale_x_continuous(expand=c(0,0), breaks = seq(0,12,length.out = 7))+
+  scale_y_continuous(limits=c(-0.007,0.0035))+  
+  labs(x="Lag Month",y=expression(paste(beta~PET)),title="JJA")
+pe1 <- plot(sm(getViz(fit_son),4))+
+  l_ciPoly() + 
+  l_fitLine() + geom_hline(yintercept = 0, linetype = 2)+
+  scale_x_continuous(expand=c(0,0), breaks = seq(0,12,length.out = 7))+
+  scale_y_continuous(limits=c(-0.4,0.3))+
+  labs(x="Lag Month",y=expression(paste(beta~P:PET)),title="SON")
+pe2 <- plot(sm(getViz(fit_djf),3))+
+  l_ciPoly() + 
+  l_fitLine() + geom_hline(yintercept = 0, linetype = 2)+
+  scale_x_continuous(expand=c(0,0), breaks = seq(0,12,length.out = 7))+
+  scale_y_continuous(limits=c(-0.4,0.3))+
+  labs(x="Lag Month",y=expression(paste(beta~P:PET)),title="DJF")
+pe3 <- plot(sm(getViz(fit_mam),4))+
+  l_ciPoly() + 
+  l_fitLine() + geom_hline(yintercept = 0, linetype = 2)+
+  scale_x_continuous(expand=c(0,0), breaks = seq(0,12,length.out = 7))+
+  scale_y_continuous(limits=c(-0.4,0.3))+
+  labs(x="Lag Month",y=expression(paste(beta~P:PET)),title="MAM")
+pe4 <- plot(sm(getViz(fit_jja),4))+
+  l_ciPoly() + 
+  l_fitLine() + geom_hline(yintercept = 0, linetype = 2)+
+  scale_x_continuous(expand=c(0,0), breaks = seq(0,12,length.out = 7))+
+  scale_y_continuous(limits=c(-0.4,0.3))+
+  labs(x="Lag Month",y=expression(paste(beta~P:PET)),title="JJA")
+
+p_all <- mgcViz::gridPrint(p1,p2,p3,p4, 
+                  pet1,pet2,pet3,pet4,
+                  pe1,pe2,pe3,pe4,
+                  ncol=4)
+ggsave(p_all, filename = "figures/nirv_anom_sigma_lagModel_P_PET_PE.png",
+       width = 22, height = 15, units='cm', dpi='retina',type = 'cairo')
+
+
+
+
+# P & PET model -----------------------------------------------------------
+fit_son <- bam(nirv_anom_sd ~ 
+                 s(vc,bs='re')+
+                 s(lag_month,by=lag_precip_anom, bs='gp',k=5)+
+                 s(lag_month,by=lag_pet_anom, bs='gp',k=5),
+               data=tmp1 %>% #filter(season=='SON') %>% 
+                 sample_n(50000) %>% 
+                 filter(between(nirv_anom_sd,-3.5,3.5)), 
+               select=T, method='fREML', discrete = T, nthreads = 6)
+fit_djf <- bam(nirv_anom_sd ~ 
+                 s(vc,bs='re')+
+                 s(lag_month,by=lag_precip_anom, bs='gp',k=5)+
+                 s(lag_month,by=lag_pet_anom, bs='gp',k=5),
+               data=tmp1 %>% filter(season=='DJF') %>% sample_n(50000) %>% 
+                 filter(between(nirv_anom_sd,-3.5,3.5)), 
+               select=T, method='fREML', discrete = T, nthreads = 6)
+fit_mam <- bam(nirv_anom_sd ~ 
+                 s(vc,bs='re')+
+                 s(lag_month,by=lag_precip_anom, bs='gp',k=5)+
+                 s(lag_month,by=lag_pet_anom, bs='gp',k=5),
+               data=tmp1 %>% filter(season=='MAM') %>% sample_n(50000) %>% 
+                 filter(between(nirv_anom_sd,-3.5,3.5)), 
+               select=T, method='fREML', discrete = T, nthreads = 6)
+fit_jja <- bam(nirv_anom_sd ~ 
+                 s(vc,bs='re')+
+                 s(lag_month,by=lag_precip_anom, bs='gp',k=5)+
+                 s(lag_month,by=lag_pet_anom, bs='gp',k=5),
+               data=tmp1 %>% filter(season=='JJA') %>% sample_n(50000) %>% 
+                 filter(between(nirv_anom_sd,-3.5,3.5)), 
+               select=T, method='fREML', discrete = T, nthreads = 6)
+summary(fit_son); summary(fit_djf); summary(fit_mam); summary(fit_jja)
+
+par(mfrow=c(2,2))
+plot(fit_son,rug=F,shade=T, select = 2, scale=0, 
+     xlab="lag month",ylab=expression(paste(beta~Precip)), 
+     main="SON");abline(h=0,col='red',lty=3)
+plot(fit_djf,rug=F,shade=T, select = 2, scale=0, 
+     xlab="lag month",ylab=expression(paste(beta~Precip)), 
+     main="DJF");abline(h=0,col='red',lty=3)
+plot(fit_mam,rug=F,shade=T, select = 2, scale=0, 
+     xlab="lag month",ylab=expression(paste(beta~Precip)), 
+     main="MAM");abline(h=0,col='red',lty=3)
+plot(fit_jja,rug=F,shade=T, select = 2, scale=0, 
+     xlab="lag month",ylab=expression(paste(beta~Precip)), 
+     main="JJA");abline(h=0,col='red',lty=3)
+sm(getViz(fit_son),2) %>% plot
+
+p1 <- plot(sm(getViz(fit_son),2))+
+  l_ciPoly() + 
+  l_fitLine() + geom_hline(yintercept = 0, linetype = 2)+
+  scale_x_continuous(expand=c(0,0), breaks = seq(0,12,length.out = 7))+
+  scale_y_continuous(limits=c(-0.004,0.008))+
+  labs(x="Lag Month",y=expression(paste(beta~Precip)),title="SON")
+p2 <- plot(sm(getViz(fit_djf),2))+
+  l_ciPoly() + 
+  l_fitLine() + geom_hline(yintercept = 0, linetype = 2)+
+  scale_x_continuous(expand=c(0,0), breaks = seq(0,12,length.out = 7))+
+  scale_y_continuous(limits=c(-0.004,0.008))+
+  labs(x="Lag Month",y=expression(paste(beta~Precip)),title="DJF")
+p3 <- plot(sm(getViz(fit_mam),2))+
+  l_ciPoly() + 
+  l_fitLine() + geom_hline(yintercept = 0, linetype = 2)+
+  scale_x_continuous(expand=c(0,0), breaks = seq(0,12,length.out = 7))+
+  scale_y_continuous(limits=c(-0.004,0.008))+
+  labs(x="Lag Month",y=expression(paste(beta~Precip)),title="MAM")
+p4 <- plot(sm(getViz(fit_jja),2))+
+  l_ciPoly() + 
+  l_fitLine() + geom_hline(yintercept = 0, linetype = 2)+
+  scale_x_continuous(expand=c(0,0), breaks = seq(0,12,length.out = 7))+
+  scale_y_continuous(limits=c(-0.004,0.008))+
+  labs(x="Lag Month",y=expression(paste(beta~Precip)),title="JJA")
+pet1 <- plot(sm(getViz(fit_son),3))+
+  l_ciPoly() + 
+  l_fitLine() + geom_hline(yintercept = 0, linetype = 2)+
+  scale_x_continuous(expand=c(0,0), breaks = seq(0,12,length.out = 7))+
+  scale_y_continuous(limits=c(-0.007,0.0035))+  
+  labs(x="Lag Month",y=expression(paste(beta~PET)),title="SON")
+pet2 <- plot(sm(getViz(fit_djf),3))+
+  l_ciPoly() + 
+  l_fitLine() + geom_hline(yintercept = 0, linetype = 2)+
+  scale_x_continuous(expand=c(0,0), breaks = seq(0,12,length.out = 7))+
+  scale_y_continuous(limits=c(-0.007,0.0035))+  
+  labs(x="Lag Month",y=expression(paste(beta~PET)),title="DJF")
+pet3 <- plot(sm(getViz(fit_mam),3))+
+  l_ciPoly() + 
+  l_fitLine() + geom_hline(yintercept = 0, linetype = 2)+
+  scale_x_continuous(expand=c(0,0), breaks = seq(0,12,length.out = 7))+
+  scale_y_continuous(limits=c(-0.007,0.0035))+  
+  labs(x="Lag Month",y=expression(paste(beta~PET)),title="MAM")
+pet4 <- plot(sm(getViz(fit_jja),3))+
+  l_ciPoly() + 
+  l_fitLine() + geom_hline(yintercept = 0, linetype = 2)+
+  scale_x_continuous(expand=c(0,0), breaks = seq(0,12,length.out = 7))+
+  scale_y_continuous(limits=c(-0.007,0.0035))+  
+  labs(x="Lag Month",y=expression(paste(beta~PET)),title="JJA")
+
+p_all <- mgcViz::gridPrint(p1,p2,p3,p4, 
+                           pet1,pet2,pet3,pet4,
+                           ncol=4)
+ggsave(p_all, filename = "figures/nirv_anom_sigma_lagModel_P_PET.png",
+       width = 22, height = 11, units='cm', dpi='retina',type = 'cairo')
+
+```
+
+
+
+
+
+```{r Table-climatology-GAM-trend, echo=FALSE, message=FALSE, warning=FALSE}
+library(mgcv); library(mgcViz)
+qdat <- tmp %>% sample_n(100000) %>% 
+  filter(is.na(vc)==F) %>% 
+  filter(is.na(nirv_anom_sd)==F & 
+           between(nirv_anom_sd, -3.5, 3.5)) %>% 
+  filter(between(precip_anom_sd, -5,5))
+test <- tmp %>% sample_n(100000) %>% 
+  filter(is.na(vc)==F) %>% 
+  filter(is.na(nirv_anom_sd)==F & 
+           between(nirv_anom_sd, -3.5, 3.5)) %>% 
+  filter(between(precip_anom_sd, -5,5))
+f_climatology <- bam(nirv_u~ 
+            te(x,y,month, bs=c("tp","tp","cc"))+
+            s(vc, bs='re') +
+            s(map,mapet,k=5)+
+            s(ap_sd, apet_sd,k=5)+
+            s(precip_u, precip_sd, k=5)+
+            s(pet_u, pet_sd, k=5)
+            # s(mape, ape_sd, k=5)
+            # s(map,mapet,ap_sd,k=5)
+            , 
+          # s(vc, bs='re'), 
+          select=TRUE, discrete = TRUE, method='fREML', 
+          nthreads = 6, 
+          data=qdat)
+# f_climatology %>% summary
+
+lt_vc <- tmp[nirv_anom_sd >= -3.5 & nirv_anom_sd <= 3.5] %>% 
+    .[,.(val = mean(nirv, na.rm=TRUE)), by=.(x,y,vc,year)] %>% 
+    .[,.(trend = fastLm(val~year)$coefficients["year"]), 
+      by=.(vc)]
+
+
+test %>% 
+  mutate(pred = predict(f_climatology, newdata=.)) %>% 
+  drop_na(c("pred","nirv_u")) %>% 
+  # select(pred,nirv) %>% 
+  as_tibble() %>% 
+  group_by(vc) %>%
+  summarize(manirv = mean(nirv_u), 
+            range_nirv = diff(range(nirv_u)),
+            r2 = cor(pred, nirv_u)**2, 
+            rmse = sqrt(mean((pred-nirv_u)**2))) %>% 
+  ungroup() %>% 
+  left_join(., as_tibble(lt_vc), by='vc') %>% 
+  knitr::kable(col.names = 
+                 c("NVIS Vegetation Class","Mean NIRV","Range NIRV","R2","RMSE","Long-term Trend"), 
+               format = "markdown", digits = c(2,2,2,2,2,5), 
+               caption = "Predictability of seasonal NIR-V")
+```
+
+
+Seasonal means of $NIR_V$ are well predicted (R2 = `r format(summary(f_climatology)$r.sq, digits = 2)`) by a GAM with only climatalogy covariates.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.cap="Time of minimum observed NIRV"}
+f1_theme <- theme(panel.background = element_rect(fill = '#99A3C4'), 
+                  panel.grid = element_blank(), 
+                  legend.position = 'bottom', 
+                  axis.text = element_blank(), 
+                  axis.ticks = element_blank())
+tmp %>% 
+  group_by(x,y) %>% 
+  filter(is.na(nirv_anom_sd)==F) %>% 
+  filter(nirv_anom_sd == min(nirv_anom_sd, na.rm = TRUE)) %>% 
+  mutate(ddate=decimal_date(date)) %>% 
+  ggplot(data=., aes(x,y,fill=ddate))+
+  geom_sf(data=oz_poly, inherit.aes = F, 
+          fill='gray',color='#828387')+
+  geom_tile()+
+  scale_fill_viridis_c("",
+                       option='B', end=0.95)+
+  labs(x=NULL,y=NULL)+
+  coord_sf(xlim = c(140,154),
+           ylim = c(-45,-10), expand = FALSE)+
+  f1_theme+
+  theme(legend.position = 'right')
+
+```
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, fig.cap="NIRV Anomaly (sd) sensitivity to standardized anomalies of Precipitation (P) and Potential Evapotranspiration(PET) by season (1983-2019)."}
+ss <- tmp[hydro_year>=1983] %>%   #[between(x,151,153.5) & between(y,-33.5,-30)] %>%
+  .[nirv_anom_sd >= -3.5 & nirv_anom_sd <= 3.5] %>% 
+  .[,.(val = mean(nirv_anom_sd, na.rm=TRUE),
+       p = mean(precip_anom_12mo/ap_sd, na.rm=TRUE), 
+       pet = mean(pet_anom_12mo/apet_sd, na.rm=TRUE)), 
+    by=.(x,y,hydro_year,season)] 
+system.time({
+  sss <- ss[, .(beta = list(unname(fastLm(val~p+pet)$coefficients))), keyby=.(x,y,season)]
+})
+sss <- sss[,`:=`(Intercept=unlist(beta)[1], P=unlist(beta)[2], PET=unlist(beta)[3]), by=.(x,y,season)]
+
+library(sf)
+oz_poly <- sf::read_sf("../data_general/GADM/gadm36_AUS.gpkg", 
+                       layer="gadm36_AUS_1")
+oz_poly <- st_as_sf(oz_poly)
+oz_poly <- st_simplify(oz_poly,dTolerance = 0.05)
+
+sss %>% as_tibble() %>% 
+  select(-beta) %>% 
+  filter(between(Intercept,-1,1)) %>% 
+  select(-Intercept) %>% 
+  gather(-season, -x,-y, key='coef',value='estimate') %>% 
+  ggplot(data=.,aes(x,y,fill=estimate))+
+  geom_sf(inherit.aes = F, data=oz_poly,fill='gray70',color='gray10')+
+  geom_tile()+
+  scale_fill_gradient2(expression(paste(beta)),
+    limits=c(-1,1),oob=scales::squish,
+    na.value = '#black'
+  )+
+  labs(x=NULL,y=NULL)+
+  coord_sf(xlim = c(140,154),
+           ylim = c(-45,-10), expand = FALSE)+
+  facet_grid(rows = vars(coef), cols = vars(season))+
+  theme(panel.background = element_rect(fill ='gray50'  #'#99A3C4'
+  ), 
+  panel.grid = element_blank(), 
+  legend.position = 'right', 
+  axis.text = element_blank(), 
+  axis.ticks = element_blank())
+```
+
+### Question 3: _Why did forest vegetation respond more to the 2017-2019 drought leading to the "Black Summer" than prior droughts of similar severity?_
+
+#### *Which ecosystems were most affected?*
+Most forest and woodland vegetation classes were experiencing a long-term decline in $NIR_V$ over the period 1982-2019 (Table 1). Casuarina and Acacia dominated ecosystems experienced the greatest decline while Rainforests and Tall Open Eucalypt Forests experienced the largest long-term increases in $NIR_V$. 
+
+
+#### *Is forest vegetation more sensitive to meteorological anomalies*
+
+<br>
+<br>
 ## 4. Discussion
 

@@ -141,7 +141,7 @@ tmp <- tmp[order(x,y,date)][, tmax_anom_12mo := frollapply(tmax_anom,FUN=max,
                                                            n = 12,fill = NA,align='right'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, tmin_anom_12mo := frollapply(tmin_anom,FUN=max,
                                                            n = 12,fill = NA,align='right'), by=.(x,y)]
-tmp <- tmp[order(x,y,date)][, vpd15_12mo := frollapply(vpd15_anom,FUN=mean,
+tmp <- tmp[order(x,y,date)][, vpd15_12mo := frollapply(vpd15,FUN=mean,
                                                           n = 12,fill = NA,align='right'), by=.(x,y)]
 tmp <- tmp[order(x,y,date)][, vpd15_anom_12mo := frollapply(vpd15_anom,FUN=mean,
                                                            n = 12,fill = NA,align='right'), by=.(x,y)]

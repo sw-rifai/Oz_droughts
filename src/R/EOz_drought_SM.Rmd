@@ -1,0 +1,56 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r echo=FALSE}
+# Some recommended settings. 
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE, 
+  warning = FALSE,
+  fig.pos = 'h',
+  out.extra = "",   # To force the use of figure enviroment
+  fig.cap = "Please caption every figure"
+)
+```
+```{r echo=FALSE, eval=TRUE, warning=FALSE, message=FALSE}
+library(tidyverse); library(sf)
+oz_poly <- sf::read_sf("../../../data_general/GADM/gadm36_AUS.gpkg", 
+                   layer="gadm36_AUS_1")
+oz_poly <- st_as_sf(oz_poly)
+
+# plot(oz_poly)
+```
+
+
+```{r eval=TRUE, echo=FALSE, warning=FALSE, message=FALSE}
+source("src/R/template_fast_calc_anoms.R")
+```
+
+
+
+<br>
+```{r fig.cap="NIRV anomalies (sd) by vegetation class", eval=F}
+library(ggridges)
+tmp[nirv_anom_sd >= -5 & nirv_anom_sd <= 5] %>%
+  .[id %in% sample.int(60000, 10000)] %>% 
+  ggplot(., aes(x = nirv_anom_sd, 
+                y = as.factor(year), 
+                fill=stat(x))) +
+  geom_density_ridges_gradient(
+    scale=3,
+    rel_min_height=0.05,
+    quantile_lines = TRUE, 
+    quantiles = c(0.025, 0.975), alpha = 0.7)+
+  geom_vline(aes(xintercept=0),color='grey')+
+  scale_fill_viridis_c(expression(paste(sigma)), 
+                       option='B')+
+  scale_x_continuous(limits=c(-5,5))+
+  labs(x=expression(paste(NIR[V]~Anomaly~(sigma))), 
+       y=NULL)+
+  theme_linedraw()+
+  facet_wrap(~vc)
+
+```
+

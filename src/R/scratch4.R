@@ -822,3 +822,318 @@ test <- aa %>%
         legend.justification = c(0.01,0.99)); test
 
   
+
+
+
+
+
+
+
+nvis %>% 
+  ggplot(data=.,aes(x,y,fill=vc))+
+  geom_tile()+
+  coord_equal()+
+  scico::scale_fill_scico_d(palette='batlow',direction = -1)
+
+train_dat[date==ymd("2019-08-01")] %>% 
+  ggplot(data=.,aes(x,y,fill=vc))+
+  geom_tile()+
+  coord_equal()+
+  scico::scale_fill_scico_d(palette='batlow',direction = -1)
+
+train_dat[date==ymd("2011-08-01")] %>% 
+  ggplot(data=.,aes(x,y,fill=ndvi_hyb))+
+  geom_tile()+
+  coord_equal()
+
+train_dat$vc %>% is.na %>% table
+
+
+dat[date==ymd("2019-08-01")] %>%
+  .[is.na(vc)==F] %>% 
+  # mutate(pred = predict(n4_jja,newdata=.)) %>%
+  ggplot(data=.,aes(x,y,fill=ndvi_mcd))+
+  geom_tile()+
+  coord_equal()+
+  scale_fill_viridis_c()
+
+
+dat[date==ymd("2019-08-01")] %>%
+  .[is.na(vc)==T] %>% 
+  .[is.na(ndvi_mcd)==T]
+
+dat[id==1]$veg_class
+
+
+dat <- arrow::read_parquet("../data_general/Oz_misc_data/ARD_ndvi_aclim_2021-02-28.parquet") %>% 
+  as.data.table()
+
+
+dat[date==ymd("2019-08-01")] %>%
+  # .[is.na(vc)==F] %>%
+  # mutate(pred = predict(n4_jja,newdata=.)) %>%
+  ggplot(data=.,aes(x,y,fill=ndvi_mcd))+
+  geom_tile()+
+  coord_equal()+
+  scale_fill_viridis_c()
+
+dat[date==ymd("2019-08-01")] %>%
+  # .[is.na(vc)==F] %>%
+  # mutate(pred = predict(n4_jja,newdata=.)) %>%
+  ggplot(data=.,aes(x,y,fill=ndvi_3mo))+
+  geom_tile()+
+  coord_equal()+
+  scale_fill_viridis_c()
+
+
+
+# Debugging ---------------------
+dat[date==ymd("2019-08-01")][is.na(ndvi_3mo)==T]
+[id==9772]
+dat[id==9772][date>=ymd("2019-01-01")] %>% 
+  ggplot(data=.,aes(date,ndvi_mcd))+
+  geom_point()+
+  geom_point(aes(date,ndvi_cdr),col='red')+
+  geom_point(aes(date,ndvi_3mo),col='blue')
+
+
+train_dat[date==ymd("2019-08-01")] %>%
+  # mutate(pred = predict(n4_jja,newdata=.)) %>%
+  ggplot(data=.,aes(x,y,fill=ndvi_mcd))+
+  geom_tile()+
+  coord_equal()+
+  scale_fill_viridis_c()
+
+vi[date==ymd("2019-08-01")] %>%
+  # mutate(pred = predict(n4_jja,newdata=.)) %>%
+  ggplot(data=.,aes(x,y,fill=ndvi_mcd))+
+  geom_tile()+
+  coord_equal()+
+  scale_fill_viridis_c()
+
+dat[date==ymd("2019-08-01")] %>%
+  # mutate(pred = predict(n4_jja,newdata=.)) %>%
+  ggplot(data=.,aes(x,y,fill=ndvi_mcd))+
+  geom_tile()+
+  coord_equal()+
+  scale_fill_viridis_c()
+
+dat[date==ymd("2019-08-01")] %>%
+  ggplot(data=.,aes(x,y,fill=ndvi_3mo))+
+  geom_tile()+
+  coord_equal()+
+  scale_fill_viridis_c()
+
+
+
+dat %>% lazy_dt() %>% 
+  group_by(x,y) %>% 
+  summarize(val = sum(is.na(vc)==F)) %>% 
+  ungroup() %>% 
+  as.data.table() %>% 
+  ggplot(data=.,aes(x,y,fill=val))+
+  geom_tile()+
+  coord_equal()+
+  scale_fill_viridis_c()
+
+
+dat[is.na(vc)==F][date==ymd("2019-08-01")] %>%
+  ggplot(data=.,aes(x,y,fill=ndvi_3mo))+
+  geom_tile()+
+  coord_equal()+
+  scale_fill_viridis_c()
+dat[str_detect(vc,"Forests") | 
+      str_detect(vc, "Eucalypt") |
+      str_detect(vc, "Rainforests")]
+
+
+dat[is.na(vc)==T][date>=ymd("2019-08-01")] %>% pull(ndvi_3mo) -> bad
+ggplot(data=.,aes(x,y,fill=ndvi_3mo))+
+  geom_tile()+
+  coord_equal()+
+  scale_fill_viridis_c()
+
+bad[1:10] %>% is.na
+
+
+dat %>% lazy_dt() %>% 
+  group_by(x,y) %>% 
+  summarize(val = sum(is.na(vc)==T)) %>% 
+  ungroup() %>% 
+  as.data.table() %>% 
+  filter(val < 100) %>%
+  ggplot(data=.,aes(x,y,fill=val))+
+  geom_tile()+
+  coord_equal()+
+  scale_fill_viridis_c(limits=c(0,200))
+
+
+
+# 
+# vi[date==ymd("2018-12-01")] %>% 
+#   # mutate(pred = predict(n4_jja,newdata=.)) %>% 
+#   ggplot(data=.,aes(x,y,fill=ndvi_hyb))+
+#   geom_tile()+
+#   coord_equal()+
+#   scale_fill_viridis_c()
+# 
+# dat[date==ymd("2018-12-01")] %>% 
+#   # mutate(pred = predict(n4_jja,newdata=.)) %>% 
+#   ggplot(data=.,aes(x,y,fill=ndvi_3mo))+
+#   geom_tile()+
+#   coord_equal()+
+#   scale_fill_viridis_c()
+# 
+# p_junk <- test_dat[date==ymd("2019-08-01")] %>% 
+#   # mutate(pred = predict(n4_jja,newdata=.)) %>% 
+#   ggplot(data=.,aes(x,y,fill=ndvi_mcd))+
+#   geom_tile()+
+#   coord_equal()+
+#   scale_fill_viridis_c()
+# 
+# p_junk2 <- vi[date==ymd("2019-08-01")] %>% 
+#   # mutate(pred = predict(n4_jja,newdata=.)) %>% 
+#   ggplot(data=.,aes(x,y,fill=ndvi_mcd))+
+#   geom_tile()+
+#   coord_equal()+
+#   scale_fill_viridis_c()
+# 
+# p_junk|p_junk2
+# 
+# 
+# 
+# 
+# dat[date==ymd("2019-08-01")] %>% 
+#   # mutate(pred = predict(n4_jja,newdata=.)) %>% 
+#   ggplot(data=.,aes(x,y,fill=ndvi_hyb-ndvi_mcd))+
+#   geom_tile()+
+#   coord_equal()+
+#   scale_fill_viridis_c(na.value = 'red')
+# 
+# vi[date==ymd("2019-08-01")]
+# 
+# 
+# dat$ndvi_3mo %>% is.na %>% table
+
+
+
+cowplot::plot_grid(p_left,p_right,ncol=2,labels=c('(a)','(b)'), 
+                   rel_widths = c(1,2))
+
+
+dat[date==ymd("2019-08-01")] %>% 
+  ggplot(data=.,aes(x,y,fill=ndvi_3mo))+
+  geom_tile()+
+  coord_equal()+
+  scale_fill_viridis_c()
+
+dat[date==ymd("2019-08-01")] %>% 
+  ggplot(data=.,aes(x,y,fill=vc))+
+  geom_tile()+
+  coord_equal()+
+  scale_fill_viridis_d(na.value='red')
+
+
+
+
+
+
+
+
+
+
+g3_full <- bam(ndvi_hyb~
+                 te(mappet,co2,k=5)+
+                 te(mavpd15,frac_vpd_anom,k=5,bs='cs')+
+                 te(map,frac_p_anom,k=5,bs='cs')+
+                 te(mapet,frac_pet_anom,k=5,bs='cs')+
+                 # te(mappet,frac_ppet_anom,k=4,bs='cs')+
+                 epoch,
+               data=dat_annual, 
+               discrete = T,select=TRUE, method='fREML')
+summary(g3_full)
+
+v <- sm(getViz(g3_full),1)
+plotSlice(v,fix=list('co2'=300,400))+
+  l_fitRaster()
+
+gratia::smooths(g3_full)
+
+gratia::evaluate_smooth(g3_full,'te(mappet,co2)') %>% 
+  ggplot(data=.,aes(mappet,est,color=co2,group=co2))+
+  geom_line()+
+  scale_color_viridis_c()
+
+gratia::evaluate_smooth(g3_full,1) %>% 
+  ggplot(data=.,aes(mavpd15,est,color=frac_vpd_anom,group=frac_vpd_anom))+
+  geom_line(alpha=0.5)+
+  scale_color_gradient2(mid='black',high='red',low='navy')
+
+gratia::evaluate_smooth(g3_full,"te(mappet,frac_ppet_anom)") %>% 
+  ggplot(data=.,aes(mappet,est,color=frac_ppet_anom,group=frac_ppet_anom))+
+  geom_line(alpha=0.5)+
+  scale_color_gradient2(mid='black',high='red',low='navy')
+
+
+gratia::evaluate_smooth(g3_full,"te(mappet,frac_ppet_anom)") %>% 
+  mutate(val = frac_ppet_anom/mappet) %>% 
+  ggplot(data=.,aes(val,est,color=frac_ppet_anom))+
+  geom_point(alpha=0.2)+
+  scale_color_gradient2(mid='black',high='red',low='navy')
+
+gratia::evaluate_smooth(g3_full,"te(mavpd15,frac_vpd_anom)") %>% 
+  rowwise() %>% 
+  mutate(val = frac_vpd_anom/mavpd15) %>% 
+  ungroup() %>% 
+  ggplot(data=.,aes(val,est,color=frac_vpd_anom))+
+  geom_point(alpha=0.2)+
+ scale_color_gradient2(mid='black',high='red',low='navy')
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+tmp_ndvi[id%in%vec_ids] %>% # filter out pixels that only have data for one satellite epoch
+  as.data.table() %>% 
+  .[hydro_year %in% 2001:2019] %>% 
+  .[is.na(ndvi_mcd)==FALSE & is.na(frac_vpd_anom)==FALSE] %>% 
+  .[,`:=`(co2_start = co2 - mid_co2)] %>% 
+  group_by(id) %>% 
+  summarize(nobs = n()) %>% 
+  ungroup() %>% 
+  filter(nobs <= 10)
+  
+
+.[id==995] %>% 
+  .[,.(beta = list(coef(MASS::rlm(
+    ndvi_hyb~
+      co2_start+
+      frac_vpd_anom+
+      frac_p_anom+
+      frac_pet_anom))))
+    ,
+    by=.(x,y)] %>%
+  .[,`:=`(b0=unlist(beta)[1], 
+          b1=unlist(beta)[2], 
+          b2=unlist(beta)[3], 
+          b3=unlist(beta)[4],
+          b4=unlist(beta)[5]
+  ), by=.(x,y)]
+
+
+
+
+
+
+
+
+z

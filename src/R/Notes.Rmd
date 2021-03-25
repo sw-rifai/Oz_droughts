@@ -1,0 +1,165 @@
+---
+title: "Notes"
+author: "Sami Rifai"
+date: "6/4/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+library(tidyverse)
+```
+
+# Non-linear model forms  
+ Asym-Drop*exp(-exp(lrc)*mape^pwr) + 
+ B1*(pe_anom_12mo/mape) + 
+ B2*(cco2*mape)+ 
+ B3*(cco2*pe_anom_12mo/mape) + 
+ B4*as.numeric(epoch)
+
+
+# Weibull form
+$$NDVI_{3 mo}=Asym-Drop[exp(-exp(lrc)\,(\frac{P}{PET_{MA}})^{pwr}]+\eta$$
+# eta linear modifier
+$$\eta =  \frac{B_1\,\frac{P}{PET_{anom}}}{\frac{P}{PET_{MA}}} + 
+ \frac{B_2\,CO_{2}\,P}{PET_{MA}}+ 
+ \frac{B_3\,CO_{2}\,\frac{P}{PET_{anom}}}{\frac{P}{PET_{MA}}} + 
+ B4\,sensor$$
+
+
+Sharpe-Schoolfield equation: 
+$log(rate) = lnc + E(\frac{1}{T_{c}} - \frac{1}{kT}) - ln(1 + e^{E_h(\frac{1}{kT_h} - \frac{1}{kT})})$
+
+# Asymptotic function 
+$$NDVI = A + (B[0]-A)*exp(-exp(\beta)*\frac{P}{PET})$$
+
+# Logistic function
+$$NDVI =  \frac{Asym}{(1+exp(\frac{(xmid-\frac{P}{PET})}{scal}))}$$
+
+# Richards growth function
+$$NDVI = \frac{A_1*(1+exp(B_1 - P:PET)}{C^{-exp(-D_1)}}$$
+
+# Modified Richards equation
+ric_x2 <- function(x,x2,
+                   Asym,Asym2,
+                   xmid,xmid2,
+                   scal,scal2,
+                   lpow,lpow2){
+  (Asym+Asym2*x2) * (1+exp(((xmid+xmid2*x2) - x)/(scal+scal2*x2)))^(-exp(-(lpow+lpow2*x2)))
+}
+
+$(A_1+A_2*CO_2)*(1+exp(((B_1+B_2*x2) - P:PET)/(C_1+C_2*x2)))^(-exp(-(D_1+D_2*x2)))$
+
+$$NDVI = \frac{(A_1+A_2*CO_2)*(1+exp(((B_1+B_2*CO_2) - P:PET)}{(C_1+C_2*CO_2)))^(-exp(-(D_1+D_2*CO_2)))}$$
+
+$NDVI_{MCD64} = s(sz) + s(NIR) + s(RED) + s(NDVI_{AVHRR}) + s(x,y)$
+
+
+$$\frac{A}{E} = \frac{C_{a}(1-\frac{C_i}{C_a})}{1.6VPD}$$
+
+
+<!-- m4_ndvi <- bam(ndvi_mcd~ -->
+<!--                  s(sz)+s(nir_c)+s(red_c)+s(ndvi_c,m = 1)+ -->
+<!--                  s(x,y)+s(vc,bs='re'), -->
+<!--                family=betar(link='logit'), -->
+<!--                select = TRUE, discrete=TRUE, method='fREML', nthreads = 8, -->
+<!--                data=train) -->
+
+
+
+
+
+
+From Donohue et al 2013 
+$$W_p = \frac{A_l}{E_l} = \frac{C_a}{1.6D}(1 - \frac{C_i}{C_a})$$ 
+
+
+\begin{equation}
+  \tag{1}
+W_p = \frac{A_l}{E_l} = \frac{C_a}{1.6D}(1 - \frac{C_i}{C_a})
+\end{equation}
+
+
+\begin{equation}
+  \tag{2}
+  $$\frac{dW_p}{W_p}=\frac{dA_l}{A_l} - \frac{dE_l}{E_l} = \frac{dC_a}{C_a} - \frac{dD}{D} + \frac{d(1-\chi)}{(1-\chi)}$$
+\end{equation}
+
+\begin{equation}
+$$\chi \approx \sqrt(D)$$
+\end
+\begin{equation}
+  \tag{3}
+    $$\frac{dW_p}{W_p}=\frac{dA_l}{A_l} - \frac{dE_l}{E_l} = \frac{dC_a}{C_a} - \frac{1}{2}\frac{dD}{D}$$
+\end{equation}
+
+\begin{equation}
+  \tag{5}
+  $$-\frac{dE_l}{E_l} = \frac{dL}{L}$$
+\end{equation}
+
+\begin{equation}
+  \tag{6}
+      $$\frac{dW}{W} \approx  \frac{dA_l}{A_l} + \frac{dF}{F} \approx \frac{dC_a}{C_a} - \frac{1}{2}\frac{dD}{D}$$
+\end{equation}
+
+\begin{equation}
+  \tag{}
+\end{equation}
+
+\begin{equation}
+  \tag{}
+\end{equation}
+
+
+
+$$W = \frac{A}{E} = \frac{C_a}{1.6D}(1 - \chi)$$ 
+
+
+# NDVI year model modifier
+$$NDVI = \beta_0 + \beta_1\,year + 
+\beta_2\,Precip_{anom}+
+\beta_3\,P:PET_{anom}+
+\beta_4\,sensor$$ 
+ 
+100*(38*b1)/b0
+$$100*[\frac{\beta_1(2019-1982)}{\beta_0}]$$
+ 
+$$\Delta NDVI \approx \frac{1}{2}[\frac{dCa}{Ca}-\frac{dD}{2\,D}]$$
+ 
+ 
+ 
+$$NDVI=\beta_0+ \beta_1\,year+\beta_2\,P_{anom}+\beta_3\,(\frac{P}{PET})_{anom}+\beta_4\,sensor$$ 
+
+ndvi_3mo ~ 
+                                 Asym-Drop*exp(-exp(lrc)*mape^pwr) + 
+                                 B1*(pe_anom_12mo/mape) + 
+                                 B2*(cco2*mape)+ 
+                                 B3*(cco2*pe_anom_12mo/mape) + 
+                                 B4*as.numeric(epoch)
+
+$$\eta =  \frac{B_1\,(\frac{P}{PET})_{anom}}{(\frac{P}{PET})_{MA}} + B_2\,CO_{2}\,(\frac{P}{PET})_{MA}+\frac{B_3\,CO_{2}\,(\frac{P}{PET})_{anom}}{(\frac{P}{PET})_{MA}}+B_{4}\,sensor$$
+$$\frac{B_3\,CO_{2}\,(\frac{P}{PET})_{anom}}{(\frac{P}{PET})_{MA}}$$
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

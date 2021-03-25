@@ -207,7 +207,6 @@ lut_kop <- c("Equatorial" = "Equat.",
 p_rlm <- o %>%   
   # mutate(season=factor(o$season, levels=c("SON","DJF","MAM","JJA"),ordered = T)) %>% 
   ggplot(data=., aes(date, ndvi_hyb))+
-  geom_smooth(method=MASS::rlm, color='black',se=F)+
   geom_smooth(method=MASS::rlm,color=vec_cols[2],se=F,
               data=o[sample(.N,1e6)][date %between% c("1981-01-01","1991-01-01")])+
   geom_smooth(method=MASS::rlm,color=vec_cols[3],se=F,
@@ -228,6 +227,7 @@ p_rlm <- o %>%
   geom_smooth(method=MASS::rlm,color=vec_reds[1],se=F,
               data=o[date %between% c("1982-01-01","2000-12-01")],
               aes(date, ndvi_hyb))+
+  geom_smooth(method=MASS::rlm, color='black',se=F,lwd=0.75)+
   scale_x_date(expand=c(0,0))+
   labs(x=NULL, y="NDVI")+
   facet_grid(cz~season, scales = 'free_y', 
@@ -240,3 +240,62 @@ p_rlm <- o %>%
 ggsave(p_rlm, filename = "figures/fig3_ndvi_lin_rlm_trend_10yr_segs_by_Koppen.png", 
        width=20, height=15, units='cm', dpi=350, type='cairo')
 # END **************************************************************************
+
+
+
+# # 7 Koppen Climate Zones & P:PET Trend & NDVI & VCF distributions --------------------------------------------------
+# lut_kop <- c("Equatorial" = "Equat.",
+#              "Tropical" = "Trop.", 
+#              "Subtropical" = "Subtr.", 
+#              "Grassland" = "Grass.", 
+#              "Arid" = "Arid",
+#              "Temperate" = "Temp.",
+#              "Temperate Tas." = "Tasm.")
+# 
+# p_kop <- kop %>% 
+#   # mutate(zone = fct_recode(zone, zone="Desert",zone="Arid")) %>% 
+#   filter(is.na(zone)==F) %>% 
+#   ggplot(data=., aes(x,y,fill=zone))+
+#   geom_sf(inherit.aes = F, data=oz_poly,
+#           fill='gray40',color='gray10')+
+#   geom_tile()+
+#   coord_sf(xlim = c(140,155.5),
+#            ylim = c(-45,-10), 
+#            expand = FALSE)+
+#   scale_x_continuous(breaks=seq(140,155,by=5))+
+#   scale_fill_viridis_d(option='B',direction = 1,end=0.95, label = lut_kop,na.translate=F)+
+#   # scico::scale_fill_scico_d(end=0.9,direction = 1)+
+#   labs(x=NULL,y=NULL)+
+#   theme_linedraw()+
+#   guides(fill=guide_legend(title='Zone', 
+#                            title.position = 'top'))+
+#   theme(#legend.position = c(0.75,0.85),
+#     legend.position = c(1,1), 
+#     legend.justification = c(1.01,1.005),
+#     legend.box.background = element_rect(fill="#FFFFFF11",color=NA,linetype = NULL),
+#     legend.text = element_text(size=8),
+#     legend.title = element_text(size=8.5),
+#     legend.spacing = unit(10,'points'),
+#     legend.key.width = unit(0.3,'cm'),
+#     legend.direction = 'vertical',
+#     panel.grid = element_blank(), 
+#     panel.background = element_rect(fill='lightblue')); p_kop
+# 
+# ggsave(plot=p_kop,
+#        filename = "figures/map_7KoppenZones.png", 
+#        width = 7.25, height=15, units='cm', dpi=350, type='cairo')
+# 
+# p_kop$theme$legend.key.size
+# 
+# library(magick)
+# p_left <- image_read("figures/fig3_ndvi_lin_rlm_trend_10yr_segs_by_Koppen.png")
+# p_left <- magick::image_annotate(image = p_left,text = '(a)',location="+0+15",size = 100)
+# 
+# p_right <- magick::image_read("figures/map_7KoppenZones.png")
+# p_right <- magick::image_annotate(image = p_right,text = '(b)',location="+0+35",size = 100)
+# p_out <- image_append(c(p_left,p_right),stack = F)
+# p_out
+# magick::image_write(p_out, path="figures/Fig3_map-Koppen-ndvi_lin_rlm_trend_10yr_segs_by_Koppen.png")
+# 
+# 
+# 
