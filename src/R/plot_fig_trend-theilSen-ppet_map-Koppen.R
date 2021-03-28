@@ -261,59 +261,59 @@ ggsave(cowplot::plot_grid(p_left,p_kop,ncol=2,
 
 
 
-# Calc Thiel Sen Trends ---------------------------------------------------
-vec_col <- RColorBrewer::brewer.pal(n=7, name='BrBG')
-p_right <- bind_rows(sen_ndvi_season_e1, sen_ndvi_season_e2) %>% 
-  ggplot(data=., aes(x,y,fill=b1))+
-  geom_sf(inherit.aes = F, data=oz_poly,fill='gray70',color='gray10')+
-  geom_tile()+
-  scale_fill_gradient2(expression(paste(Delta*NDVI~yr^-1)),
-                       high=vec_col[7], 
-                       # mid=vec_col[4],
-                       mid="#ffffe3",
-                       low=vec_col[1],
-                       limits=c(-0.006,0.006),
-                       breaks=c(-0.006,0,0.006),
-                       labels=c("< -0.006",0,"> 0.006"),
-                       oob=scales::squish,
-                       na.value='gray')+
-  labs(x=NULL,y=NULL)+
-  coord_sf(xlim = c(140,154),
-           ylim = c(-45,-10), expand = FALSE)+
-  facet_grid(epoch~season)+
-  guides(fill = guide_colourbar(label = T)) +
-  theme(panel.background = element_rect(fill = '#99A3C4'), 
-        panel.grid = element_blank(), 
-        # legend.position = c(0.475, 0.01),
-        legend.position = 'bottom',
-        legend.direction = 'horizontal',
-        legend.title = element_text(size=8),
-        legend.margin=margin(0,0,0,0),
-        # legend.box.margin=margin(-10,-10,-10,-10),
-        # legend.key.width = unit(1.5,'cm'),
-        strip.text = element_text(face='bold'),
-        axis.text = element_blank(), 
-        axis.ticks = element_blank()); p_right
-
-library(zyp)
-sen_ndvi_season_e1 <- dat %>% 
-  .[date >= ymd("1981-11-01") & date <= ymd("2000-12-31")] %>% 
-  .[hydro_year %in% c(1982:2000)] %>% 
-  .[,`:=`(hydro_year_c = hydro_year-1982)] %>% 
-  .[is.na(ndvi_hyb)==F] %>% 
-  .[,.(ndvi_hyb = mean(ndvi_hyb,na.rm=TRUE)), by=.(x,y,season,hydro_year_c)] %>% 
-  .[,.(beta = list(coef(zyp.sen(ndvi_hyb~hydro_year_c)))),by=.(x,y,season)] %>%
-  .[,`:=`(b0=unlist(beta)[1], 
-          b1=unlist(beta)[2]), by=.(x,y,season)]
-sen_ndvi_season_e2 <- dat %>%
-  .[date >= ymd("2001-01-01") & date <= ymd("2019-08-30")] %>%
-  .[hydro_year %in% c(2001:2019)] %>%
-  .[,`:=`(hydro_year_c = hydro_year-2001)] %>%
-  .[is.na(ndvi_hyb)==F] %>%
-  .[,.(ndvi_hyb = mean(ndvi_hyb,na.rm=TRUE)), by=.(x,y,season,hydro_year_c)] %>% 
-  .[,.(beta = list(coef(zyp.sen(ndvi_hyb~hydro_year_c)))),by=.(x,y,season)] %>%
-  .[,`:=`(b0=unlist(beta)[1],
-          b1=unlist(beta)[2]), by=.(x,y,season)]
-
-sen_ndvi_season_e1$epoch <- "AVHRR NDVI 1982-2000"
-sen_ndvi_season_e2$epoch <- "MODIS NDVI 2001-2019"
+# # Calc Thiel Sen Trends ---------------------------------------------------
+# vec_col <- RColorBrewer::brewer.pal(n=7, name='BrBG')
+# p_right <- bind_rows(sen_ndvi_season_e1, sen_ndvi_season_e2) %>% 
+#   ggplot(data=., aes(x,y,fill=b1))+
+#   geom_sf(inherit.aes = F, data=oz_poly,fill='gray70',color='gray10')+
+#   geom_tile()+
+#   scale_fill_gradient2(expression(paste(Delta*NDVI~yr^-1)),
+#                        high=vec_col[7], 
+#                        # mid=vec_col[4],
+#                        mid="#ffffe3",
+#                        low=vec_col[1],
+#                        limits=c(-0.006,0.006),
+#                        breaks=c(-0.006,0,0.006),
+#                        labels=c("< -0.006",0,"> 0.006"),
+#                        oob=scales::squish,
+#                        na.value='gray')+
+#   labs(x=NULL,y=NULL)+
+#   coord_sf(xlim = c(140,154),
+#            ylim = c(-45,-10), expand = FALSE)+
+#   facet_grid(epoch~season)+
+#   guides(fill = guide_colourbar(label = T)) +
+#   theme(panel.background = element_rect(fill = '#99A3C4'), 
+#         panel.grid = element_blank(), 
+#         # legend.position = c(0.475, 0.01),
+#         legend.position = 'bottom',
+#         legend.direction = 'horizontal',
+#         legend.title = element_text(size=8),
+#         legend.margin=margin(0,0,0,0),
+#         # legend.box.margin=margin(-10,-10,-10,-10),
+#         # legend.key.width = unit(1.5,'cm'),
+#         strip.text = element_text(face='bold'),
+#         axis.text = element_blank(), 
+#         axis.ticks = element_blank()); p_right
+# 
+# library(zyp)
+# sen_ndvi_season_e1 <- dat %>% 
+#   .[date >= ymd("1981-11-01") & date <= ymd("2000-12-31")] %>% 
+#   .[hydro_year %in% c(1982:2000)] %>% 
+#   .[,`:=`(hydro_year_c = hydro_year-1982)] %>% 
+#   .[is.na(ndvi_hyb)==F] %>% 
+#   .[,.(ndvi_hyb = mean(ndvi_hyb,na.rm=TRUE)), by=.(x,y,season,hydro_year_c)] %>% 
+#   .[,.(beta = list(coef(zyp.sen(ndvi_hyb~hydro_year_c)))),by=.(x,y,season)] %>%
+#   .[,`:=`(b0=unlist(beta)[1], 
+#           b1=unlist(beta)[2]), by=.(x,y,season)]
+# sen_ndvi_season_e2 <- dat %>%
+#   .[date >= ymd("2001-01-01") & date <= ymd("2019-08-30")] %>%
+#   .[hydro_year %in% c(2001:2019)] %>%
+#   .[,`:=`(hydro_year_c = hydro_year-2001)] %>%
+#   .[is.na(ndvi_hyb)==F] %>%
+#   .[,.(ndvi_hyb = mean(ndvi_hyb,na.rm=TRUE)), by=.(x,y,season,hydro_year_c)] %>% 
+#   .[,.(beta = list(coef(zyp.sen(ndvi_hyb~hydro_year_c)))),by=.(x,y,season)] %>%
+#   .[,`:=`(b0=unlist(beta)[1],
+#           b1=unlist(beta)[2]), by=.(x,y,season)]
+# 
+# sen_ndvi_season_e1$epoch <- "AVHRR NDVI 1982-2000"
+# sen_ndvi_season_e2$epoch <- "MODIS NDVI 2001-2019"
